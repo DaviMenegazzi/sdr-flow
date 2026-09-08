@@ -99,13 +99,42 @@ export function InboxPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!session || !activeOrg) return;
-    fetch(`/api/organizations/${activeOrg}/connections`, {
-      headers: { Authorization: `Bearer ${session.access_token}` },
-    })
-      .then(r => r.ok ? r.json() : [])
-      .then(data => setConnections(Array.isArray(data) ? data : []))
-      .catch(() => {});
+    async function loadConnections() {
+      const merged: Array<{ id: string; name: string; provider: string; status: string }> = [];
+      const seen = new Set<string>();
+
+      // Load org connections if authenticated
+      if (session && activeOrg) {
+        try {
+          const res = await fetch(`/api/organizations/${activeOrg}/connections`, {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            for (const c of Array.isArray(data) ? data : []) {
+              merged.push(c);
+              seen.add(c.provider_instance_id || c.name);
+            }
+          }
+        } catch {}
+      }
+
+      // Also load standalone instances to fill gaps
+      try {
+        const res = await fetch('/api/connections/instances');
+        if (res.ok) {
+          const data = await res.json();
+          for (const inst of Array.isArray(data) ? data : []) {
+            if (!seen.has(inst.name)) {
+              merged.push({ id: inst.id, name: inst.name, provider: inst.provider, status: inst.status });
+            }
+          }
+        }
+      } catch {}
+
+      setConnections(merged);
+    }
+    void loadConnections();
   }, [session, activeOrg]);
 
   useEffect(() => {
@@ -123,6 +152,7 @@ export function InboxPage() {
   }, [messages]);
 
   async function loadConversations() {
+    if (!session || !activeOrg) return;
     setLoadingList(true);
     setError(null);
     try {
@@ -133,7 +163,7 @@ export function InboxPage() {
       if (searchTerm.trim()) params.set('search', searchTerm.trim());
 
       const res = await fetch(`/api/organizations/${activeOrg}/inbox/conversations?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${session?.access_token}` },
+        headers: { Authorization: `Bearer ${session.access_token}` },
       });
       if (!res.ok) throw new Error('Erro ao listar conversas');
       const data = await res.json();
@@ -150,10 +180,11 @@ export function InboxPage() {
   }
 
   async function loadConversationDetail(id: string) {
+    if (!session || !activeOrg) return;
     setLoadingMessages(true);
     try {
       const res = await fetch(`/api/organizations/${activeOrg}/inbox/conversations/${id}`, {
-        headers: { Authorization: `Bearer ${session?.access_token}` },
+        headers: { Authorization: `Bearer ${session.access_token}` },
       });
       if (!res.ok) throw new Error('Erro ao carregar conversa');
       const data = await res.json();
@@ -278,25 +309,23 @@ export function InboxPage() {
           </div>
 
           {/* Connection Selector */}
-          {connections.length > 0 && (
-            <div style={{ marginBottom: '10px' }}>
-              <label style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>
-                <Radio size={12} /> Instância WhatsApp
-              </label>
-              <select
-                value={connectionFilter}
-                onChange={e => { setConnectionFilter(e.target.value); setSelectedId(null); setSelectedConv(null); }}
-                style={{ fontSize: '12px', padding: '7px 10px', borderRadius: '6px', width: '100%' }}
-              >
-                <option value="ALL">Todas as instâncias</option>
-                {connections.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.provider}{c.status === 'connected' ? ' · conectado' : ''})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          <div style={{ marginBottom: '10px' }}>
+            <label style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>
+              <Radio size={12} /> Instância WhatsApp
+            </label>
+            <select
+              value={connectionFilter}
+              onChange={e => { setConnectionFilter(e.target.value); setSelectedId(null); setSelectedConv(null); }}
+              style={{ fontSize: '12px', padding: '7px 10px', borderRadius: '6px', width: '100%' }}
+            >
+              <option value="ALL">{connections.length > 0 ? 'Todas as instâncias' : 'Nenhuma instância encontrada'}</option>
+              {connections.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.provider}{c.status === 'connected' ? ' · conectado' : ''})
+                </option>
+              ))}
+            </select>
+          </div>
 
           {/* Search Input */}
           <div className="search-input" style={{ marginBottom: '10px' }}>
