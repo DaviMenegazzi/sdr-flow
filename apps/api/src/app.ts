@@ -56,7 +56,11 @@ export function createApp(config: ApiConfig = {}): Express {
     });
   });
   app.get('/api/catalog', (_req,res) => res.json(Object.values(catalog).map(({ schema: _schema, ...node }) => node)));
-  app.post('/api/flows/validate', (req,res) => { const result = validateGraph(req.body); res.status(result.valid ? 200 : 422).json(result); });
+  app.post('/api/flows/validate', (req,res) => {
+    const input = req.body && typeof req.body === 'object' && 'graph' in req.body ? req.body.graph : req.body;
+    const result = validateGraph(input);
+    res.status(result.valid ? 200 : 422).json(result);
+  });
 
   // Direct WhatsApp & Evolution Endpoints (Standalone Mode)
   const getEvoClient = (serverUrl?: string, apiKey?: string) => {

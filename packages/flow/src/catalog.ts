@@ -3,8 +3,13 @@ import { nodeTypes, type NodeType, type FlowNode } from '@sdr/shared';
 
 const text = (value: string, description: string) => z.string().min(1).default(value).describe(description);
 const count = (value: number, max: number, description: string) => z.number().int().min(1).max(max).default(value).describe(description);
-const empty = z.strictObject({});
-const prompt = z.strictObject({ provider: z.enum(['openai', 'gemini']).default('openai').describe('Provedor'), model: text('default', 'Modelo (default usa OPENAI_MODEL do servidor)'), prompt: text('Conduza a conversa a partir do contexto disponível. Não invente informações.', 'Instruções do agente') });
+const empty = z.object({}).passthrough();
+const prompt = z.object({
+  provider: z.enum(['openai', 'gemini']).default('openai').describe('Provedor'),
+  model: text('default', 'Modelo (default usa OPENAI_MODEL do servidor)'),
+  prompt: text('Conduza a conversa a partir do contexto disponível. Não invente informações.', 'Instruções do agente'),
+  system: z.string().optional().describe('Instrução de sistema opcional'),
+}).passthrough();
 const schemas = {
   'trigger.message_received': empty,
   'trigger.schedule': z.strictObject({ cron: text('0 9 * * 1-5', 'Expressão cron'), timezone: text('America/Sao_Paulo', 'Fuso horário') }),
