@@ -77,28 +77,50 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
   const sentReply = result?.sentMessages?.[0]?.content || (result?.decision?.reply as string) || '';
 
   return (
-    <div className="modal-overlay" style={{ zIndex: 1000 }}>
+    <div
+      className="modal-overlay"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        backgroundColor: 'rgba(15, 23, 42, 0.7)',
+        backdropFilter: 'blur(3px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 9999,
+        padding: 16,
+      }}
+      onClick={e => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div
         className="modal-content"
         style={{
-          width: '92vw',
-          maxWidth: 1050,
-          maxHeight: '90vh',
+          width: '94vw',
+          maxWidth: 1100,
+          height: '88vh',
+          maxHeight: 820,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
+          background: 'var(--color-bg-primary)',
+          borderRadius: 12,
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+          border: '1px solid var(--color-border-secondary)',
           padding: 0,
         }}
       >
         {/* Modal Header */}
         <div
           style={{
-            padding: '16px 20px',
+            padding: '14px 20px',
             borderBottom: '1px solid var(--color-border-secondary)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             background: 'var(--color-bg-secondary)',
+            flexShrink: 0,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -117,13 +139,25 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
         </div>
 
         {/* Modal Body */}
-        <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', flex: 1, overflow: 'hidden' }}>
+        <div
+          style={{
+            display: 'flex',
+            flex: 1,
+            minHeight: 0,
+            overflow: 'hidden',
+          }}
+        >
           {/* Left Column: Test inputs */}
           <div
             style={{
+              width: 350,
+              minWidth: 300,
+              maxWidth: 380,
+              flexShrink: 0,
               padding: 20,
               borderRight: '1px solid var(--color-border-secondary)',
               overflowY: 'auto',
+              minHeight: 0,
               background: 'var(--color-bg-surface)',
             }}
           >
@@ -252,7 +286,17 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
           </div>
 
           {/* Right Column: Results & Tabs */}
-          <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--color-bg-base)' }}>
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              minHeight: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              background: 'var(--color-bg-base)',
+            }}
+          >
             {result && (
               <div
                 style={{
@@ -264,6 +308,7 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
                   justifyContent: 'space-between',
                   flexWrap: 'wrap',
                   gap: 12,
+                  flexShrink: 0,
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -291,59 +336,57 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
               style={{
                 display: 'flex',
                 borderBottom: '1px solid var(--color-border-secondary)',
-                padding: '0 16px',
+                padding: '0 8px',
                 background: 'var(--color-bg-surface)',
+                overflowX: 'auto',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
               }}
             >
               <button
                 type="button"
                 className={`tab-btn ${activeTab === 'response' ? 'active' : ''}`}
                 onClick={() => setActiveTab('response')}
-                style={{ border: 'none', background: 'transparent', padding: '10px 12px', fontSize: 12, cursor: 'pointer' }}
               >
-                <Bot size={14} style={{ display: 'inline', marginRight: 4 }} />
+                <Bot size={14} />
                 Resposta
               </button>
               <button
                 type="button"
                 className={`tab-btn ${activeTab === 'prompt' ? 'active' : ''}`}
                 onClick={() => setActiveTab('prompt')}
-                style={{ border: 'none', background: 'transparent', padding: '10px 12px', fontSize: 12, cursor: 'pointer' }}
               >
-                <Layers size={14} style={{ display: 'inline', marginRight: 4 }} />
+                <Layers size={14} />
                 Prompt Final
               </button>
               <button
                 type="button"
                 className={`tab-btn ${activeTab === 'trace' ? 'active' : ''}`}
                 onClick={() => setActiveTab('trace')}
-                style={{ border: 'none', background: 'transparent', padding: '10px 12px', fontSize: 12, cursor: 'pointer' }}
               >
-                <Layers size={14} style={{ display: 'inline', marginRight: 4 }} />
+                <Layers size={14} />
                 Trace de Nós ({result?.steps.length || 0})
               </button>
               <button
                 type="button"
                 className={`tab-btn ${activeTab === 'memory' ? 'active' : ''}`}
                 onClick={() => setActiveTab('memory')}
-                style={{ border: 'none', background: 'transparent', padding: '10px 12px', fontSize: 12, cursor: 'pointer' }}
               >
-                <Database size={14} style={{ display: 'inline', marginRight: 4 }} />
+                <Database size={14} />
                 Memória Comercial
               </button>
               <button
                 type="button"
                 className={`tab-btn ${activeTab === 'knowledge' ? 'active' : ''}`}
                 onClick={() => setActiveTab('knowledge')}
-                style={{ border: 'none', background: 'transparent', padding: '10px 12px', fontSize: 12, cursor: 'pointer' }}
               >
-                <BookOpen size={14} style={{ display: 'inline', marginRight: 4 }} />
+                <BookOpen size={14} />
                 Base Consultada
               </button>
             </div>
 
             {/* Tab Contents */}
-            <div style={{ flex: 1, padding: 20, overflowY: 'auto' }}>
+            <div style={{ flex: 1, minHeight: 0, minWidth: 0, padding: 20, overflowY: 'auto', overflowX: 'hidden' }}>
               {!result ? (
                 <div style={{ textAlign: 'center', color: 'var(--color-text-secondary)', padding: '40px 0' }}>
                   <Play size={32} style={{ opacity: 0.3, marginBottom: 8 }} />
@@ -355,7 +398,7 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                       {/* Chat Bubbles */}
                       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                        <div style={{ padding: 6, background: '#e0f2fe', borderRadius: '50%' }}>
+                        <div style={{ padding: 6, background: '#e0f2fe', borderRadius: '50%', flexShrink: 0 }}>
                           <User size={16} color="#0284c7" />
                         </div>
                         <div
@@ -363,7 +406,9 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
                             background: 'var(--color-bg-surface)',
                             padding: '10px 14px',
                             borderRadius: 8,
-                            maxWidth: '80%',
+                            maxWidth: '85%',
+                            wordBreak: 'break-word',
+                            overflowWrap: 'anywhere',
                             border: '1px solid var(--color-border-secondary)',
                             fontSize: 13,
                           }}
@@ -374,7 +419,7 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
                       </div>
 
                       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                        <div style={{ padding: 6, background: '#dcfce7', borderRadius: '50%' }}>
+                        <div style={{ padding: 6, background: '#dcfce7', borderRadius: '50%', flexShrink: 0 }}>
                           <Bot size={16} color="#16a34a" />
                         </div>
                         <div
@@ -382,7 +427,9 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
                             background: 'var(--color-bg-surface)',
                             padding: '10px 14px',
                             borderRadius: 8,
-                            maxWidth: '80%',
+                            maxWidth: '85%',
+                            wordBreak: 'break-word',
+                            overflowWrap: 'anywhere',
                             border: '1px solid var(--color-border-secondary)',
                             fontSize: 13,
                           }}
@@ -444,8 +491,11 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
                           borderRadius: 8,
                           fontSize: 12,
                           whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          overflowWrap: 'anywhere',
                           maxHeight: 450,
                           overflowY: 'auto',
+                          overflowX: 'auto',
                           fontFamily: 'monospace',
                         }}
                       >
@@ -494,8 +544,13 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
                           padding: 14,
                           borderRadius: 8,
                           fontSize: 12,
-                          fontFamily: 'monospace',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          overflowWrap: 'anywhere',
+                          maxHeight: 450,
                           overflowY: 'auto',
+                          overflowX: 'auto',
+                          fontFamily: 'monospace',
                         }}
                       >
                         {JSON.stringify(result.commercialMemory, null, 2)}
