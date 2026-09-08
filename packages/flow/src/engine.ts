@@ -85,9 +85,21 @@ export async function executeFlow(
   }
 
   const steps: StepExecutionRecord[] = [];
+  const visitedNodes = new Set<string>();
   let sequence = 1;
 
   while (currentNode) {
+    if (visitedNodes.has(currentNode.id)) {
+      return {
+        status: 'failed',
+        steps,
+        tokens: ctx.tokens,
+        variables: ctx.variables,
+        error: `Ciclo detectado: o nó "${currentNode.label || currentNode.id}" (${currentNode.type}) já foi executado. Verifique as conexões do fluxo para remover loops.`,
+      };
+    }
+    visitedNodes.add(currentNode.id);
+
     if (sequence > maxSteps) {
       const errorMsg = `Limite de passos excedido (${maxSteps})`;
       return {

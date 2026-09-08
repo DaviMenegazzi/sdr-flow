@@ -4,6 +4,16 @@ import type { FlowNode } from '@sdr/shared';
 import { useBuilder } from './store';
 
 interface Property { type?: string; description?: string; enum?: string[]; minimum?: number; maximum?: number }
+const enumLabels: Record<string, Record<string, string>> = {
+  collection: {
+    default: 'Todas as coleções',
+    pricing: '💳 Preços & Planos',
+    catalog: '🩺 Catálogo & Serviços',
+    faq: '❓ Dúvidas & FAQ',
+    objections: '🛡️ Objeções Comerciais',
+    documents: '📋 Políticas & Diretrizes',
+  },
+};
 function JsonField({ value, onChange }: { value: unknown; onChange(value: never): void }) {
   const [draft,setDraft] = useState(JSON.stringify(value,null,2));
   const [error,setError] = useState('');
@@ -20,7 +30,7 @@ export function SchemaForm({ node }: { node: FlowNode }) {
     <label>Nome do nó<input value={node.label} maxLength={120} onChange={event => update(node.id,{ label: event.target.value })}/></label>
     {Object.entries(properties).map(([key,property]) => <label key={`${node.id}-${key}`}>
       {property.description ?? key}
-      {property.enum ? <select value={String(node.config[key] ?? '')} onChange={event => field(key,event.target.value)}>{property.enum.map(value => <option key={value} value={value}>{value}</option>)}</select>
+      {property.enum ? <select value={String(node.config[key] ?? '')} onChange={event => field(key,event.target.value)}>{property.enum.map(value => <option key={value} value={value}>{enumLabels[key]?.[value] ?? value}</option>)}</select>
         : property.type === 'boolean' ? <span className="check-row"><input type="checkbox" checked={node.config[key] === true} onChange={event => field(key,event.target.checked)}/>Ativado</span>
         : property.type === 'integer' || property.type === 'number' ? <input type="number" min={property.minimum} max={property.maximum} value={typeof node.config[key] === 'number' ? node.config[key] as number : ''} onChange={event => field(key,event.target.value === '' ? null : Number(event.target.value))}/>
         : property.type === 'array' || property.type === 'object' ? <JsonField value={node.config[key]} onChange={value => field(key,value)}/>

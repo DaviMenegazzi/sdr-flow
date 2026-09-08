@@ -22,7 +22,7 @@ const schemas = {
   'input.media': z.strictObject({ transcribeAudio: z.boolean().default(true).describe('Transcrever áudio'), describeImages: z.boolean().default(true).describe('Descrever imagens') }),
   'input.normalize': z.strictObject({ country: z.enum(['BR', 'international']).default('BR').describe('Formato do telefone') }),
   'context.memory': z.strictObject({ recentMessages: count(6, 50, 'Mensagens recentes') }),
-  'context.knowledge': z.strictObject({ collection: text('default', 'Coleção'), topK: count(5, 20, 'Número de trechos'), threshold: z.number().min(0).max(1).default(0.7).describe('Similaridade mínima') }),
+  'context.knowledge': z.strictObject({ collection: z.enum(['default', 'pricing', 'catalog', 'faq', 'objections', 'documents']).default('default').describe('Coleção'), topK: count(5, 20, 'Número de trechos'), threshold: z.number().min(0).max(1).default(0.3).describe('Similaridade mínima') }),
   'context.crm': empty,
   'context.summarize': z.strictObject({ afterMessages: count(30, 500, 'Resumir após mensagens') }),
   'agent.decide': prompt, 'agent.classify': prompt, 'agent.extract': prompt, 'agent.score': prompt,
