@@ -42,14 +42,30 @@ export function createApp(config: ApiConfig = {}): Express {
   app.disable('x-powered-by');
   app.use(express.json({ limit: '1mb', verify: (req, _res, body) => { (req as typeof req & { rawBody?: Buffer }).rawBody = Buffer.from(body); } }));
   app.use(requestLogger);
-  app.get('/api/health', (_req, res) => {
+  app.get('/api/health', async (_req, res) => {
     const memory = process.memoryUsage();
+    const supabaseConfigured = Boolean(config.supabaseUrl && config.serviceRoleKey);
+    let supabaseConnected = false;
+    let orgCount = 0;
+    let connectionCount = 0;
+    if (supabaseConfigured) {
+      try {
+        const db = serviceDatabase(config.supabaseUrl!, config.serviceRoleKey!);
+        const { count: oc } = await db.from('organizations').select('id', { count: 'exact', head: true });
+        orgCount = oc || 0;
+        const { count: cc } = await db.from('connections').select('id', { count: 'exact', head: true });
+        connectionCount = cc || 0;
+        supabaseConnected = true;
+      } catch {}
+    }
+    const bindings = standaloneStore.getActiveBindings();
     res.json({
       status: 'ok',
       service: 'api',
       uptimeSeconds: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
-      persistenceConfigured: Boolean(config.supabaseUrl && config.anonKey),
+      supabase: { configured: supabaseConfigured, connected: supabaseConnected, organizations: orgCount, connections: connectionCount },
+      standalone: { activeFlows: Object.keys(bindings).length, instances: Object.keys(bindings) },
       memory: {
         rssMb: Math.round(memory.rss / (1024 * 1024)),
         heapUsedMb: Math.round(memory.heapUsed / (1024 * 1024)),
@@ -535,36 +551,7 @@ export function createApp(config: ApiConfig = {}): Express {
         return;
       }
 
-      const activeFlow = standaloneStore.getActiveFlowForInstance(instanceName);
-      if (!activeFlow) {
-        logger.info({ instanceName }, 'Mensagem recebida mas não há fluxo ativo para esta instância');
-        res.status(200).json({ status: 'no_active_flow', instanceName });
-        return;
-      }
-
-      // STRICT TEST MODE GATE
-      const testMode = activeFlow.graph.testMode;
-      if (testMode?.enabled) {
-        const authorized = testMode.phone || '';
-        const match = isPhoneNumberMatch(event.phone, authorized);
-        if (!match) {
-          logger.warn(
-            { sender: event.phone, authorized, instanceName },
-            '[MODO TESTE BLOQUEIO] Mensagem de número não autorizado descartada com segurança total.'
-          );
-          res.status(200).json({
-            status: 'blocked_by_test_mode',
-            reason: `Modo Teste ativado apenas para ${authorized}. Mensagem de ${event.phone} descartada.`,
-          });
-          return;
-        }
-        logger.info(
-          { sender: event.phone, authorized, instanceName },
-          '[MODO TESTE PERMISSÃO] Mensagem de número autorizado aceita para execução.'
-        );
-      }
-
-      // Resolve DB persistence when Supabase is configured
+      // 1. Persist to Supabase FIRST (before flow check) so inbox always has the message
       let organizationId = 'standalone-org';
       let connectionId: string = instanceName;
       let leadId = `lead_${event.phone.replace(/\D/g, '')}`;
@@ -601,7 +588,7 @@ export function createApp(config: ApiConfig = {}): Express {
 
             if (org) {
               organizationId = org.id;
-              const { data: newConn } = await db
+              const { data: newConn, error: connErr } = await db
                 .from('connections')
                 .insert({
                   organization_id: org.id,
@@ -616,7 +603,11 @@ export function createApp(config: ApiConfig = {}): Express {
               if (newConn) {
                 dbConnectionId = newConn.id;
                 logger.info({ instanceName, connectionId: newConn.id, orgId: org.id }, 'Conexão auto-criada no Supabase para instância standalone');
+              } else {
+                logger.error({ instanceName, err: connErr }, 'Falha ao auto-criar conexão no Supabase');
               }
+            } else {
+              logger.warn({ instanceName }, 'Nenhuma organização encontrada no Supabase para associar mensagem');
             }
           }
 
@@ -640,14 +631,47 @@ export function createApp(config: ApiConfig = {}): Express {
               messageType: event.messageType,
               providerMessageId: event.messageId,
             });
+            logger.info({ instanceName, phone: event.phone, conversationId: conversation.id }, 'Mensagem inbound salva no Supabase');
           }
-        } catch (dbErr) {
-          logger.warn({ err: dbErr, instanceName }, 'Falha ao persistir no Supabase, continuando em modo standalone');
+        } catch (dbErr: any) {
+          logger.error({ err: dbErr?.message || dbErr, instanceName, phone: event.phone }, 'Falha ao persistir mensagem no Supabase');
           convRepo = null;
         }
+      } else {
+        logger.warn({ instanceName }, 'Supabase não configurado — mensagens não serão salvas no inbox');
       }
 
-      // Execute Flow for Authorized Inbound Message
+      // 2. Check for active flow
+      const activeFlow = standaloneStore.getActiveFlowForInstance(instanceName);
+      if (!activeFlow) {
+        logger.info({ instanceName }, 'Mensagem salva no inbox mas não há fluxo ativo para esta instância');
+        res.status(200).json({ status: 'no_active_flow', instanceName, messageSaved: !!convRepo });
+        return;
+      }
+
+      // 3. STRICT TEST MODE GATE
+      const testMode = activeFlow.graph.testMode;
+      if (testMode?.enabled) {
+        const authorized = testMode.phone || '';
+        const match = isPhoneNumberMatch(event.phone, authorized);
+        if (!match) {
+          logger.warn(
+            { sender: event.phone, authorized, instanceName },
+            '[MODO TESTE BLOQUEIO] Mensagem de número não autorizado descartada com segurança total.'
+          );
+          res.status(200).json({
+            status: 'blocked_by_test_mode',
+            reason: `Modo Teste ativado apenas para ${authorized}. Mensagem de ${event.phone} descartada.`,
+          });
+          return;
+        }
+        logger.info(
+          { sender: event.phone, authorized, instanceName },
+          '[MODO TESTE PERMISSÃO] Mensagem de número autorizado aceita para execução.'
+        );
+      }
+
+      // 4. Execute Flow for Authorized Inbound Message
       const executionId = crypto.randomUUID();
       const flowCtx: FlowContext = {
         organizationId,
