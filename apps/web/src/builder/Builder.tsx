@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ReactFlow, ReactFlowProvider, Background, MiniMap, Controls, useReactFlow, useNodesInitialized, type Connection } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
-import { ArrowLeft, CheckCheck, ChevronRight, Download, FileJson, LayoutGrid, Play, Plus, Redo2, Save, Search, Trash2, Undo2, Upload, X, ShieldAlert, CheckCircle2, Radio } from 'lucide-react';
+import { ArrowLeft, CheckCheck, ChevronRight, Download, FileJson, LayoutGrid, Play, Plus, Redo2, Repeat, Save, Search, Trash2, Undo2, Upload, X, ShieldAlert, CheckCircle2, Radio } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { flowGraphSchema, flowTestModeSchema, nodeTypeSchema, type FlowGraph } from '@sdr/shared';
 import { catalog, categories, categoryColors, createBlankFlow, createSdrTemplate, validateGraph } from '@sdr/flow';
@@ -421,6 +421,18 @@ function Editor() {
           <span className="divider" />
           <button onClick={() => layout()}><LayoutGrid size={15} />Organizar</button>
           <button onClick={() => setShowJson(!showJson)}><FileJson size={15} />JSON</button>
+          <span className="divider" />
+          <label title="Máximo de vezes que cada nó pode ser executado em loops" style={{ display: 'flex', alignItems: 'center', gap: 6, margin: 0, fontSize: 13, fontWeight: 500, cursor: 'default' }}>
+            <Repeat size={14} />Loop
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={graph.loopLimit ?? 5}
+              onChange={event => state.replace({ ...graph, loopLimit: Math.max(1, Math.min(20, Number(event.target.value) || 5)) })}
+              style={{ width: 48, padding: '2px 6px', borderRadius: 4, border: '1px solid var(--color-border)', background: 'var(--color-bg-primary)', textAlign: 'center', fontSize: 13 }}
+            />
+          </label>
         </div>
         <div>
           <button onClick={() => {
@@ -502,7 +514,7 @@ function Editor() {
 
           <div className="library-heading">
             <h2>Biblioteca de nós</h2>
-            <span>31</span>
+            <span>{Object.keys(catalog).length}</span>
           </div>
           <p className="muted">Arraste para o canvas ou clique.</p>
           <div className="search-input">

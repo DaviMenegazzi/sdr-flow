@@ -333,6 +333,37 @@ export const executors: Record<NodeType, NodeExecutor> = {
     };
   },
 
+  'agent.structured': async (ctx, config, services) => {
+    const interpolatedPrompt = interpolate(config.prompt, ctx);
+    const keys: string[] = Array.isArray(config.outputKeys) ? config.outputKeys : ['message', 'done'];
+    const latestMsg = ctx.messages[ctx.messages.length - 1]?.text || '';
+    const knowledgeSnippets = (ctx.variables.knowledgeSnippets as string[]) || [];
+
+    if (!services.llm.structured) {
+      return { port: 'next', output: {}, error: 'Provedor LLM não suporta saída estruturada.' };
+    }
+
+    const res = await services.llm.structured({
+      provider: config.provider,
+      model: config.model,
+      prompt: interpolatedPrompt,
+      commercialMemory: ctx.variables.commercialMemory as Record<string, unknown>,
+      recentMessages: ctx.variables.recentMessages as string,
+      latestUserMessage: latestMsg,
+      knowledgeSnippets,
+      summary: (ctx.variables.summary as string) || undefined,
+    }, keys);
+
+    const variables: Record<string, unknown> = { structured: res.data };
+
+    return {
+      port: 'next',
+      output: res.data,
+      variables,
+      tokens: { input: res.inputTokens, output: res.outputTokens },
+    };
+  },
+
   // --- FLOW CONTROL ---
   'flow.condition': async (ctx, config, _services) => {
     const resolved = interpolate(`{{${config.variable}}}`, ctx);

@@ -20,6 +20,7 @@ export interface EngineHooks {
 
 export interface EngineOptions {
   maxSteps?: number;
+  maxNodeVisits?: number;
   resumeFromNodeId?: string;
   resumePort?: string;
   hooks?: EngineHooks;
@@ -85,20 +86,22 @@ export async function executeFlow(
   }
 
   const steps: StepExecutionRecord[] = [];
-  const visitedNodes = new Set<string>();
+  const visitCount = new Map<string, number>();
+  const maxNodeVisits = options.maxNodeVisits ?? graph.loopLimit ?? 5;
   let sequence = 1;
 
   while (currentNode) {
-    if (visitedNodes.has(currentNode.id)) {
+    const visits = (visitCount.get(currentNode.id) || 0) + 1;
+    if (visits > maxNodeVisits) {
       return {
         status: 'failed',
         steps,
         tokens: ctx.tokens,
         variables: ctx.variables,
-        error: `Ciclo detectado: o nó "${currentNode.label || currentNode.id}" (${currentNode.type}) já foi executado. Verifique as conexões do fluxo para remover loops.`,
+        error: `Loop excedido: o nó "${currentNode.label || currentNode.id}" (${currentNode.type}) foi executado ${maxNodeVisits} vezes. Limite de iterações atingido.`,
       };
     }
-    visitedNodes.add(currentNode.id);
+    visitCount.set(currentNode.id, visits);
 
     if (sequence > maxSteps) {
       const errorMsg = `Limite de passos excedido (${maxSteps})`;

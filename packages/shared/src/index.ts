@@ -7,7 +7,7 @@ export const nodeTypes = [
   'guard.test_mode', 'guard.human_takeover', 'guard.business_hours', 'guard.chat_type',
   'input.buffer', 'input.media', 'input.normalize',
   'context.memory', 'context.knowledge', 'context.crm', 'context.summarize',
-  'agent.decide', 'agent.classify', 'agent.extract', 'agent.score',
+  'agent.decide', 'agent.classify', 'agent.extract', 'agent.score', 'agent.structured',
   'flow.condition', 'flow.switch', 'flow.delay', 'flow.wait_reply',
   'action.update_stage', 'action.update_lead', 'action.crm_sync', 'action.handoff', 'action.webhook',
   'output.send_text', 'output.send_media', 'output.send_template', 'output.end',
@@ -33,6 +33,7 @@ export const flowTestModeSchema = z.strictObject({
 export const flowGraphSchema = z.strictObject({
   schemaVersion: z.literal(1), nodes: z.array(flowNodeSchema).min(1).max(250), edges: z.array(flowEdgeSchema).max(1000),
   testMode: flowTestModeSchema.optional(),
+  loopLimit: z.number().int().min(1).max(20).default(5).optional(),
 });
 export type FlowNode = z.infer<typeof flowNodeSchema>;
 export type FlowEdge = z.infer<typeof flowEdgeSchema>;

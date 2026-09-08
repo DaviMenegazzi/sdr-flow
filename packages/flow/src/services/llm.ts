@@ -39,6 +39,7 @@ export interface LLMProvider {
   classify(req: LLMRequest): Promise<LLMResponse<{ intent: string }>>;
   extract(req: LLMRequest): Promise<LLMResponse<Record<string, unknown>>>;
   score(req: LLMRequest): Promise<LLMResponse<{ score: number; reason?: string }>>;
+  structured?(req: LLMRequest, keys: string[]): Promise<LLMResponse<Record<string, string>>>;
 }
 
 export class MockLLMProvider implements LLMProvider {
@@ -85,5 +86,13 @@ export class MockLLMProvider implements LLMProvider {
       inputTokens: this.tokens.input,
       outputTokens: this.tokens.output,
     };
+  }
+
+  async structured(_req: LLMRequest, keys: string[]): Promise<LLMResponse<Record<string, string>>> {
+    const data: Record<string, string> = {};
+    for (const key of keys) {
+      data[key] = key === 'done' ? 'true' : `[Mock] Valor de ${key}`;
+    }
+    return { data, inputTokens: this.tokens.input, outputTokens: this.tokens.output };
   }
 }

@@ -60,4 +60,11 @@ export class OpenAIProvider implements LLMProvider {
     return { ...result, data: withoutNulls(result.data) };
   }
   score(req: LLMRequest) { return this.generate(req, 'sdr_score', scoreSchema); }
+
+  async structured(req: LLMRequest, keys: string[]): Promise<LLMResponse<Record<string, string>>> {
+    const fields: Record<string, z.ZodType> = {};
+    for (const key of keys) fields[key] = z.string();
+    const res = await this.generate(req, 'structured_output', z.strictObject(fields));
+    return { ...res, data: res.data as Record<string, string> };
+  }
 }

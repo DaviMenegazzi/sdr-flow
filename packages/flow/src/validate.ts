@@ -36,16 +36,19 @@ export function validateGraph(input: unknown): ValidationResult {
   const visit = (id: string) => { if (reached.has(id)) return; reached.add(id); adjacent(id).forEach(visit); };
   if (triggers[0]) visit(triggers[0].id);
   graph.nodes.filter(node => !reached.has(node.id)).forEach(node => add('unreachable', `${node.label} não está conectado ao gatilho.`, node.id));
-  // Initial runtime contract is a DAG: even a cycle with an exit can loop forever.
-  // Wait/resume is represented by explicit nodes, never by back edges.
-  const active = new Set<string>(), complete = new Set<string>();
-  const detectCycle = (id: string) => {
-    if (active.has(id)) { add('cycle', 'Ciclo detectado. Use Esperar resposta para representar uma espera.', id); return; }
-    if (complete.has(id)) return;
-    active.add(id); adjacent(id).forEach(detectCycle); active.delete(id); complete.add(id);
-  };
-  graph.nodes.forEach(node => detectCycle(node.id));
-  const terminating = new Set(graph.nodes.filter(node => node.type === 'output.end').map(node => node.id));
+  // Cycles are allowed — the engine limits per-node visits (max 5) and total steps (max 50).
+  // Detect which nodes participate in cycles so the termination check can account for them.
+  const nodesInCycles = new Set<string>();
+  for (const node of graph.nodes) {
+    const reachable = new Set<string>();
+    const explore = (id: string) => { if (reachable.has(id)) return; reachable.add(id); adjacent(id).forEach(explore); };
+    adjacent(node.id).forEach(explore);
+    if (reachable.has(node.id)) nodesInCycles.add(node.id);
+  }
+  const terminating = new Set([
+    ...graph.nodes.filter(node => node.type === 'output.end').map(node => node.id),
+    ...nodesInCycles,
+  ]);
   let changed = true;
   while (changed) {
     changed = false;

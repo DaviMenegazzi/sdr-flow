@@ -127,6 +127,13 @@ export async function runPlayground(input: PlaygroundInput): Promise<PlaygroundR
       if (!capturedPrompt) capturedPrompt = req.prompt;
       return baseLLM.score(req);
     },
+    async structured(req, keys) {
+      if (!capturedPrompt) capturedPrompt = req.prompt;
+      if (baseLLM.structured) return baseLLM.structured(req, keys);
+      const data: Record<string, string> = {};
+      for (const key of keys) data[key] = key === 'done' ? 'true' : `[Mock] ${key}`;
+      return { data, inputTokens: 50, outputTokens: 20 };
+    },
   };
 
   const mockDb: DatabaseService = input.services?.db || {
