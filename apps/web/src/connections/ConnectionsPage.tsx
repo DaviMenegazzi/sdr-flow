@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useSession } from '../session';
+import type { FlowGraph } from '@sdr/shared';
+import { PlaygroundModal } from '../builder/PlaygroundModal';
 import {
   Radio,
   QrCode,
@@ -16,6 +18,7 @@ import {
   Check,
   Workflow,
   ShieldAlert,
+  Play,
 } from 'lucide-react';
 
 interface Connection {
@@ -60,12 +63,30 @@ export function ConnectionsPage() {
   const [busy, setBusy] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeFlows, setActiveFlows] = useState<Record<string, { flowId: string; flow: any }>>({});
+  const [loadingActive, setLoadingActive] = useState(false);
+  const [simulatingFlow, setSimulatingFlow] = useState<{ id: string; name: string; graph: FlowGraph } | null>(null);
+
+  async function loadActiveFlows() {
+    setLoadingActive(true);
+    try {
+      const res = await fetch('/api/flows/active');
+      if (res.ok) {
+        const data = await res.json();
+        setActiveFlows(data || {});
+      }
+    } catch (err) {
+      console.error('Falha ao carregar fluxos ativos:', err);
+    } finally {
+      setLoadingActive(false);
+    }
+  }
 
   // Modal for viewing QR of existing connection
   const [activeQrModal, setActiveQrModal] = useState<string | null>(null);
 
   useEffect(() => {
     void loadConnections();
+    void loadActiveFlows();
   }, [activeOrg, session?.access_token]);
 
   // Polling for QR / Connection status during wizard step 3
@@ -771,9 +792,21 @@ export function ConnectionsPage() {
               Veja qual fluxo da inteligência artificial está vinculado e operando em cada número.
             </p>
           </div>
-          <Link to="/flows/new" className="button primary" style={{ fontSize: 13, gap: 6, display: 'inline-flex', alignItems: 'center' }}>
-            <Workflow size={14} /> Abrir no Construtor
-          </Link>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => void loadActiveFlows()}
+              disabled={loadingActive}
+              style={{ fontSize: 12, gap: 6, display: 'inline-flex', alignItems: 'center', padding: '6px 10px' }}
+              title="Recarregar fluxos ativos"
+            >
+              <RefreshCw size={13} className={loadingActive ? 'animate-spin' : ''} /> {loadingActive ? 'Atualizando…' : 'Atualizar'}
+            </button>
+            <Link to="/flows/new" className="button primary" style={{ fontSize: 13, gap: 6, display: 'inline-flex', alignItems: 'center' }}>
+              <Workflow size={14} /> Abrir no Construtor
+            </Link>
+          </div>
         </div>
 
         {Object.keys(activeFlows).length === 0 ? (
@@ -783,7 +816,7 @@ export function ConnectionsPage() {
             </p>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
             {Object.entries(activeFlows).map(([instName, binding]) => {
               const flow = binding.flow;
               const isTest = Boolean(flow?.graph?.testMode?.enabled);
@@ -866,13 +899,22 @@ export function ConnectionsPage() {
                     )}
                   </div>
 
-                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                    <Link
-                      to="/flows/new"
-                      className="button"
-                      style={{ fontSize: 12, flex: 1, textAlign: 'center', justifyContent: 'center' }}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="primary"
+                      onClick={() => setSimulatingFlow({ id: flow?.id || binding.flowId, name: flow?.name || 'Fluxo SDR', graph: flow?.graph })}
+                      style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'center', padding: '6px 12px' }}
+                      title="Abrir o simulador com IA para testar conversas deste fluxo sem enviar WhatsApp"
                     >
-                      Editar no Construtor
+                      <Play size={14} /> Testar no Playground (Simulador)
+                    </button>
+                    <Link
+                      to={`/flows/new?id=${encodeURIComponent(flow?.id || binding.flowId)}`}
+                      className="button"
+                      style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px' }}
+                    >
+                      <Workflow size={14} /> Editar no Construtor
                     </Link>
                   </div>
                 </div>
@@ -881,6 +923,16 @@ export function ConnectionsPage() {
           </div>
         )}
       </div>
+
+      {/* MODAL DO PLAYGROUND (SIMULADOR) */}
+      {simulatingFlow && (
+        <PlaygroundModal
+          isOpen={Boolean(simulatingFlow)}
+          onClose={() => setSimulatingFlow(null)}
+          flowId={simulatingFlow.id}
+          graph={simulatingFlow.graph}
+        />
+      )}
 
 
             {/* QR Modal for existing connection */}

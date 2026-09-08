@@ -114,7 +114,25 @@ function Editor() {
       const flowsRes = await fetch('/api/flows');
       if (flowsRes.ok) {
         const flows = await flowsRes.json();
-        if (Array.isArray(flows)) setSavedFlows(flows);
+        if (Array.isArray(flows)) {
+          setSavedFlows(flows);
+          const queryId = new URLSearchParams(window.location.search).get('id');
+          if (queryId) {
+            const flowToOpen = flows.find((f: any) => f.id === queryId);
+            if (flowToOpen) {
+              const candidateGraph = flowToOpen.graph || flowToOpen.draft;
+              const parsed = flowGraphSchema.safeParse(candidateGraph);
+              if (parsed.success) {
+                state.replace(parsed.data);
+                state.setName(flowToOpen.name);
+                setFlowId(flowToOpen.id);
+                if (flowToOpen.targetInstance) setTargetInstance(flowToOpen.targetInstance);
+                layout(parsed.data);
+                setNotice(`Fluxo "${flowToOpen.name}" carregado.`);
+              }
+            }
+          }
+        }
       }
     } catch {
       // Ignora erro no carregamento inicial silencioso
@@ -221,6 +239,7 @@ function Editor() {
 
       const saved = (await saveRes.json()) as SavedFlow;
       setFlowId(saved.id);
+      window.history.replaceState(null, '', `?id=${saved.id}`);
 
       // Salva rascunho local de segurança
       try {
@@ -292,6 +311,7 @@ function Editor() {
     state.setName(flow.name);
     setFlowId(flow.id);
     if (flow.targetInstance) setTargetInstance(flow.targetInstance);
+    window.history.replaceState(null, '', `?id=${flow.id}`);
     layout(parsed.data);
     setNotice(`Fluxo "${flow.name}" aberto para edição.`);
   };
