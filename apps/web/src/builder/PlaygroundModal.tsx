@@ -74,7 +74,9 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
     }
   }
 
-  const sentReply = result?.sentMessages?.[0]?.content || (result?.decision?.reply as string) || '';
+  const sentReplies = result?.sentMessages?.length
+    ? result.sentMessages.map(m => m.content).filter(Boolean)
+    : result?.decision?.reply ? [result.decision.reply as string] : [];
 
   return (
     <div
@@ -418,26 +420,47 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
                         </div>
                       </div>
 
-                      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                        <div style={{ padding: 6, background: '#dcfce7', borderRadius: '50%', flexShrink: 0 }}>
-                          <Bot size={16} color="#16a34a" />
+                      {sentReplies.length > 0 ? sentReplies.map((reply, idx) => (
+                        <div key={idx} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                          <div style={{ padding: 6, background: '#dcfce7', borderRadius: '50%', flexShrink: 0 }}>
+                            <Bot size={16} color="#16a34a" />
+                          </div>
+                          <div
+                            style={{
+                              background: 'var(--color-bg-surface)',
+                              padding: '10px 14px',
+                              borderRadius: 8,
+                              maxWidth: '85%',
+                              wordBreak: 'break-word',
+                              overflowWrap: 'anywhere',
+                              border: '1px solid var(--color-border-secondary)',
+                              fontSize: 13,
+                            }}
+                          >
+                            <strong>Agente SDR{sentReplies.length > 1 ? ` (${idx + 1}/${sentReplies.length})` : ''}:</strong>
+                            <p style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{reply}</p>
+                          </div>
                         </div>
-                        <div
-                          style={{
-                            background: 'var(--color-bg-surface)',
-                            padding: '10px 14px',
-                            borderRadius: 8,
-                            maxWidth: '85%',
-                            wordBreak: 'break-word',
-                            overflowWrap: 'anywhere',
-                            border: '1px solid var(--color-border-secondary)',
-                            fontSize: 13,
-                          }}
-                        >
-                          <strong>Agente SDR:</strong>
-                          <p style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap' }}>{sentReply || '(Nenhuma mensagem enviada)'}</p>
+                      )) : (
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                          <div style={{ padding: 6, background: '#dcfce7', borderRadius: '50%', flexShrink: 0 }}>
+                            <Bot size={16} color="#16a34a" />
+                          </div>
+                          <div
+                            style={{
+                              background: 'var(--color-bg-surface)',
+                              padding: '10px 14px',
+                              borderRadius: 8,
+                              maxWidth: '85%',
+                              border: '1px solid var(--color-border-secondary)',
+                              fontSize: 13,
+                            }}
+                          >
+                            <strong>Agente SDR:</strong>
+                            <p style={{ margin: '4px 0 0' }}>(Nenhuma mensagem enviada)</p>
+                          </div>
                         </div>
-                      </div>
+                      )}
 
                       {/* Decision Summary Card */}
                       {result.decision && (
