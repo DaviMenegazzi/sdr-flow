@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import type { FlowGraph } from '@sdr/shared';
+import { KnowledgeRepository } from '@sdr/db';
 
 export interface StoredFlow {
   id: string;
@@ -24,10 +25,23 @@ export interface StoredSettings {
   publicApiUrl?: string;
 }
 
+export interface StoredKnowledgeDoc {
+  id: string;
+  collection: string;
+  title: string;
+  content: string;
+  metadata?: Record<string, unknown>;
+  embedding?: number[];
+  token_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface StoreData {
   flows: Record<string, StoredFlow>;
   activeBindings: Record<string, string>;
   settings: StoredSettings;
+  knowledge?: Record<string, StoredKnowledgeDoc>;
 }
 
 export class StandaloneStore {
@@ -53,6 +67,7 @@ export class StandaloneStore {
           flows: parsed.flows || {},
           activeBindings: parsed.activeBindings || {},
           settings: parsed.settings || {},
+          knowledge: parsed.knowledge || {},
         };
       }
     } catch {
@@ -69,6 +84,7 @@ export class StandaloneStore {
         evolutionApiKey: process.env.EVOLUTION_API_KEY || 'EvolutionApiSecretKey_2026',
         publicApiUrl: process.env.PUBLIC_API_URL || '',
       },
+      knowledge: {},
     };
   }
 
@@ -234,6 +250,135 @@ export class StandaloneStore {
 
     this.persist();
     return this.getSettings();
+  }
+
+  // --- KNOWLEDGE BASE ---
+  listKnowledge(collection?: string): StoredKnowledgeDoc[] {
+    const docs = Object.values(this.data.knowledge || {});
+    const filtered = collection && collection !== 'all'
+      ? docs.filter(d => d.collection.toLowerCase() === collection.toLowerCase())
+      : docs;
+    return filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+
+  getKnowledge(id: string): StoredKnowledgeDoc | null {
+    return this.data.knowledge?.[id] || null;
+  }
+
+  createKnowledge(params: {
+    collection?: string;
+    title: string;
+    content: string;
+    metadata?: Record<string, unknown>;
+  }): StoredKnowledgeDoc {
+    if (!this.data.knowledge) this.data.knowledge = {};
+
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const title = params.title.trim();
+    const content = params.content.trim();
+    const collection = (params.collection || 'pricing').trim().toLowerCase();
+    const token_count = Math.max(1, Math.ceil((title.length + content.length) / 4));
+    const embedding = KnowledgeRepository.generateFallbackEmbedding(`${title} ${content}`);
+
+    const doc: StoredKnowledgeDoc = {
+      id,
+      collection,
+      title,
+      content,
+      metadata: params.metadata || {},
+      embedding,
+      token_count,
+      created_at: now,
+      updated_at: now,
+    };
+
+    this.data.knowledge[id] = doc;
+    this.persist();
+    return doc;
+  }
+
+  updateKnowledge(
+    id: string,
+    patch: {
+      collection?: string;
+      title?: string;
+      content?: string;
+      metadata?: Record<string, unknown>;
+    }
+  ): StoredKnowledgeDoc | null {
+    if (!this.data.knowledge || !this.data.knowledge[id]) return null;
+
+    const existing = this.data.knowledge[id];
+    const title = patch.title !== undefined ? patch.title.trim() : existing.title;
+    const content = patch.content !== undefined ? patch.content.trim() : existing.content;
+    const collection = patch.collection !== undefined ? patch.collection.trim().toLowerCase() : existing.collection;
+    const now = new Date().toISOString();
+
+    let embedding = existing.embedding;
+    if (patch.title !== undefined || patch.content !== undefined) {
+      embedding = KnowledgeRepository.generateFallbackEmbedding(`${title} ${content}`);
+    }
+    const token_count = Math.max(1, Math.ceil((title.length + content.length) / 4));
+
+    const updated: StoredKnowledgeDoc = {
+      ...existing,
+      collection,
+      title,
+      content,
+      metadata: patch.metadata !== undefined ? patch.metadata : existing.metadata,
+      embedding,
+      token_count,
+      updated_at: now,
+    };
+
+    this.data.knowledge[id] = updated;
+    this.persist();
+    return updated;
+  }
+
+  deleteKnowledge(id: string): boolean {
+    if (!this.data.knowledge || !this.data.knowledge[id]) return false;
+    delete this.data.knowledge[id];
+    this.persist();
+    return true;
+  }
+
+  listCollections(): Array<{ collection: string; count: number }> {
+    const counts: Record<string, number> = {};
+    for (const doc of Object.values(this.data.knowledge || {})) {
+      counts[doc.collection] = (counts[doc.collection] || 0) + 1;
+    }
+    return Object.entries(counts).map(([collection, count]) => ({ collection, count }));
+  }
+
+  searchKnowledge(
+    query: string,
+    options?: { collection?: string; threshold?: number; limit?: number }
+  ): Array<StoredKnowledgeDoc & { similarity: number }> {
+    if (!this.data.knowledge) return [];
+    const queryEmb = KnowledgeRepository.generateFallbackEmbedding(query);
+    const candidates = Object.values(this.data.knowledge);
+    const targetCol = options?.collection && options.collection !== 'all' ? options.collection.toLowerCase() : undefined;
+    const threshold = typeof options?.threshold === 'number' ? options.threshold : 0.2;
+    const limit = typeof options?.limit === 'number' ? options.limit : 5;
+
+    const hits: Array<StoredKnowledgeDoc & { similarity: number }> = [];
+
+    for (const doc of candidates) {
+      if (targetCol && doc.collection.toLowerCase() !== targetCol) continue;
+      let emb = doc.embedding;
+      if (!emb || emb.length === 0) {
+        emb = KnowledgeRepository.generateFallbackEmbedding(`${doc.title} ${doc.content}`);
+      }
+      const sim = KnowledgeRepository.cosineSimilarity(queryEmb, emb);
+      if (sim >= threshold) {
+        hits.push({ ...doc, similarity: Number(sim.toFixed(4)) });
+      }
+    }
+
+    hits.sort((a, b) => b.similarity - a.similarity);
+    return hits.slice(0, limit);
   }
 }
 

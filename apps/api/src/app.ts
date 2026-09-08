@@ -328,7 +328,14 @@ export function createApp(config: ApiConfig = {}): Express {
             async updateConversation() {},
             async saveMessage() { return { id: crypto.randomUUID() }; },
             async syncDeal() { return { id: crypto.randomUUID() }; },
-            async searchKnowledge() { return []; },
+            async searchKnowledge(_org, collection, query, limit, threshold) {
+              const hits = standaloneStore.searchKnowledge(query, {
+                collection: collection === 'default' ? undefined : collection,
+                limit: limit || 5,
+                threshold: threshold || 0.2,
+              });
+              return hits.map(h => `[${h.collection.toUpperCase()}] ${h.title}: ${h.content}`);
+            },
             async getConversationSummary() { return null; },
             async saveConversationSummary() {},
           },
@@ -343,6 +350,88 @@ export function createApp(config: ApiConfig = {}): Express {
 
   app.post('/api/flows/playground', playgroundStandaloneHandler);
   app.post('/api/flows/:id/playground', playgroundStandaloneHandler);
+
+  // --- KNOWLEDGE STANDALONE ---
+  const knowledgeRouter = express.Router();
+
+  knowledgeRouter.get('/', (req, res) => {
+    const collection = typeof req.query.collection === 'string' ? req.query.collection : undefined;
+    res.json(standaloneStore.listKnowledge(collection));
+  });
+
+  knowledgeRouter.get('/collections', (_req, res) => {
+    res.json(standaloneStore.listCollections());
+  });
+
+  knowledgeRouter.post('/', (req, res) => {
+    try {
+      const { collection, title, content, metadata } = req.body || {};
+      if (!title || typeof title !== 'string' || !title.trim()) {
+        res.status(400).json({ error: 'Título do documento é obrigatório.' });
+        return;
+      }
+      if (!content || typeof content !== 'string' || !content.trim()) {
+        res.status(400).json({ error: 'Conteúdo do documento é obrigatório.' });
+        return;
+      }
+      const doc = standaloneStore.createKnowledge({
+        collection,
+        title,
+        content,
+        metadata,
+      });
+      res.status(201).json(doc);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao salvar documento.' });
+    }
+  });
+
+  knowledgeRouter.get('/:id', (req, res) => {
+    const doc = standaloneStore.getKnowledge(req.params.id);
+    if (!doc) {
+      res.status(404).json({ error: 'Documento não encontrado.' });
+      return;
+    }
+    res.json(doc);
+  });
+
+  knowledgeRouter.patch('/:id', (req, res) => {
+    try {
+      const doc = standaloneStore.updateKnowledge(req.params.id, req.body || {});
+      if (!doc) {
+        res.status(404).json({ error: 'Documento não encontrado.' });
+        return;
+      }
+      res.json(doc);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao atualizar documento.' });
+    }
+  });
+
+  knowledgeRouter.delete('/:id', (req, res) => {
+    const success = standaloneStore.deleteKnowledge(req.params.id);
+    res.json({ success });
+  });
+
+  knowledgeRouter.post('/search', (req, res) => {
+    try {
+      const { query, collection, threshold, limit } = req.body || {};
+      if (!query || typeof query !== 'string' || !query.trim()) {
+        res.status(400).json({ error: 'Termo de busca é obrigatório.' });
+        return;
+      }
+      const results = standaloneStore.searchKnowledge(query, {
+        collection: collection === 'all' ? undefined : collection,
+        threshold: typeof threshold === 'number' ? threshold : 0.2,
+        limit: typeof limit === 'number' ? limit : 5,
+      });
+      res.json(results);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha na busca de conhecimento.' });
+    }
+  });
+
+  app.use('/api/knowledge', knowledgeRouter);
 
   // --- SETTINGS STANDALONE ---
   app.get('/api/settings', (_req, res) => {
@@ -504,6 +593,14 @@ export function createApp(config: ApiConfig = {}): Express {
           async updateConversation() {},
           async saveMessage() { return { id: crypto.randomUUID() }; },
           async syncDeal() { return { id: crypto.randomUUID() }; },
+          async searchKnowledge(_org, collection, query, limit, threshold) {
+            const hits = standaloneStore.searchKnowledge(query, {
+              collection: collection === 'default' ? undefined : collection,
+              limit: limit || 5,
+              threshold: threshold || 0.2,
+            });
+            return hits.map(h => `[${h.collection.toUpperCase()}] ${h.title}: ${h.content}`);
+          },
         },
         now: () => new Date(),
       };
@@ -618,6 +715,16 @@ export function createApp(config: ApiConfig = {}): Express {
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : 'Convite inválido ou expirado.' });
     }
+  });
+
+  // Fallback for standalone org knowledge requests
+  app.use('/api/organizations/:organizationId/knowledge', (req, res, next) => {
+    const orgId = req.params.organizationId;
+    if (!config.supabaseUrl || !config.anonKey || orgId === 'undefined' || orgId === 'standalone-org' || orgId === 'null') {
+      knowledgeRouter(req, res, next);
+      return;
+    }
+    next();
   });
 
   const orgRoutes = express.Router({ mergeParams: true });
