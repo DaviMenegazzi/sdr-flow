@@ -66,6 +66,7 @@ export function portsFor(type: NodeType, config: Record<string, unknown>): strin
   if (type === 'flow.condition') return ['true', 'false'];
   if (type === 'flow.wait_reply') return ['reply', 'timeout'];
   if (type === 'flow.switch') return [...(Array.isArray(config.cases) ? config.cases.filter((x): x is string => typeof x === 'string') : []), 'default'];
+  if (type === 'agent.structured') return [...(Array.isArray(config.outputKeys) ? config.outputKeys.filter((x): x is string => typeof x === 'string') : []), 'default'];
   return ['next'];
 }
 const schemaToJson = (schema: z.ZodType) => z.toJSONSchema(schema);

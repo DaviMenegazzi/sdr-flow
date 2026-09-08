@@ -340,24 +340,29 @@ export const executors: Record<NodeType, NodeExecutor> = {
     const knowledgeSnippets = (ctx.variables.knowledgeSnippets as string[]) || [];
 
     if (!services.llm.structured) {
-      return { port: 'next', output: {}, error: 'Provedor LLM não suporta saída estruturada.' };
+      return { port: 'default', output: {}, error: 'Provedor LLM não suporta saída estruturada.' };
     }
+
+    const llmKeys = [...keys, '_route'];
+    const enrichedPrompt = `${interpolatedPrompt}\n\nVocê DEVE retornar um JSON com as chaves: ${keys.join(', ')}.\nAlém disso, retorne "_route" com o nome de UMA das chaves (${keys.join(' | ')}) que representa a saída principal desta resposta.`;
 
     const res = await services.llm.structured({
       provider: config.provider,
       model: config.model,
-      prompt: interpolatedPrompt,
+      prompt: enrichedPrompt,
       commercialMemory: ctx.variables.commercialMemory as Record<string, unknown>,
       recentMessages: ctx.variables.recentMessages as string,
       latestUserMessage: latestMsg,
       knowledgeSnippets,
       summary: (ctx.variables.summary as string) || undefined,
-    }, keys);
+    }, llmKeys);
 
     const variables: Record<string, unknown> = { structured: res.data };
+    const route = res.data._route;
+    const port = (typeof route === 'string' && keys.includes(route)) ? route : 'default';
 
     return {
-      port: 'next',
+      port,
       output: res.data,
       variables,
       tokens: { input: res.inputTokens, output: res.outputTokens },

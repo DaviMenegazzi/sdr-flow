@@ -90,8 +90,11 @@ export class MockLLMProvider implements LLMProvider {
 
   async structured(_req: LLMRequest, keys: string[]): Promise<LLMResponse<Record<string, string>>> {
     const data: Record<string, string> = {};
+    const dataKeys = keys.filter(k => k !== '_route');
     for (const key of keys) {
-      data[key] = key === 'done' ? 'true' : `[Mock] Valor de ${key}`;
+      if (key === '_route') data[key] = dataKeys[0] || 'default';
+      else if (key === 'done') data[key] = 'true';
+      else data[key] = `[Mock] Valor de ${key}`;
     }
     return { data, inputTokens: this.tokens.input, outputTokens: this.tokens.output };
   }
