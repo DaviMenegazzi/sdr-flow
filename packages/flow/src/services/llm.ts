@@ -91,9 +91,13 @@ export class MockLLMProvider implements LLMProvider {
   async structured(_req: LLMRequest, keys: string[]): Promise<LLMResponse<Record<string, string>>> {
     const data: Record<string, string> = {};
     const dataKeys = keys.filter(k => k !== '_route');
+    const numericPattern = /count|times|repeat|vezes|quantidade|numero|number|limit/i;
     for (const key of keys) {
-      if (key === '_route') data[key] = dataKeys[0] || 'default';
-      else if (key === 'done') data[key] = 'true';
+      if (key === '_route') {
+        const loopKey = dataKeys.find(k => numericPattern.test(k));
+        data[key] = loopKey || dataKeys[0] || 'default';
+      } else if (key === 'done') data[key] = 'true';
+      else if (numericPattern.test(key)) data[key] = '3';
       else data[key] = `[Mock] Valor de ${key}`;
     }
     return { data, inputTokens: this.tokens.input, outputTokens: this.tokens.output };
