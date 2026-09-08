@@ -651,6 +651,145 @@ export const executors: Record<NodeType, NodeExecutor> = {
     return { port: 'next', output: { sent: true, messageId, template: config.name } };
   },
 
+  // --- CONTEXT: STORAGE ---
+  'context.storage': async (_ctx, config, _services) => {
+    const content = String(config.content || '');
+    const variableName = String(config.variableName || 'storage');
+    const ports: string[] = Array.isArray(config.outputPorts) ? config.outputPorts : ['next'];
+    const port = ports[0] || 'next';
+
+    return {
+      port,
+      output: { stored: true, contentLength: content.length, variableName },
+      variables: { [variableName]: content },
+    };
+  },
+
+  // --- INTEGRATION: GOOGLE CALENDAR ---
+  'integration.google_calendar': async (ctx, config, services) => {
+    const action = config.action || 'list_events';
+    const calendarId = interpolate(config.calendarId || 'primary', ctx);
+    const credentialsRaw = config.credentials || '';
+
+    let credentials: { client_id?: string; client_secret?: string; refresh_token?: string; access_token?: string } = {};
+    try {
+      credentials = credentialsRaw ? JSON.parse(credentialsRaw) : {};
+    } catch {
+      return { port: 'error', output: { error: 'Credenciais Google inválidas — JSON malformado' } };
+    }
+
+    if (!credentials.access_token && !credentials.refresh_token) {
+      return { port: 'error', output: { error: 'Credenciais Google não configuradas. Configure access_token ou refresh_token nas propriedades do nó.' } };
+    }
+
+    const fetchFn = services.fetch || globalThis.fetch;
+    let accessToken = credentials.access_token || '';
+
+    // Refresh token if we have a refresh_token but no access_token
+    if (!accessToken && credentials.refresh_token && credentials.client_id && credentials.client_secret) {
+      try {
+        const tokenRes = await fetchFn('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            client_id: credentials.client_id,
+            client_secret: credentials.client_secret,
+            refresh_token: credentials.refresh_token,
+            grant_type: 'refresh_token',
+          }).toString(),
+        });
+        const tokenData = await tokenRes.json() as { access_token?: string; error?: string };
+        if (!tokenData.access_token) {
+          return { port: 'error', output: { error: `Falha ao renovar token Google: ${tokenData.error || 'unknown'}` } };
+        }
+        accessToken = tokenData.access_token;
+      } catch (e: any) {
+        return { port: 'error', output: { error: `Falha ao renovar token: ${e?.message || e}` } };
+      }
+    }
+
+    const headers = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
+
+    try {
+      if (action === 'list_events') {
+        const daysAhead = config.daysAhead || 7;
+        const now = new Date();
+        const future = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000);
+        const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?timeMin=${now.toISOString()}&timeMax=${future.toISOString()}&singleEvents=true&orderBy=startTime&maxResults=50`;
+        const res = await fetchFn(url, { headers });
+        const data = await res.json() as { items?: Array<{ summary?: string; start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string }; description?: string; htmlLink?: string }>; error?: { message?: string } };
+        if (!res.ok) {
+          return { port: 'error', output: { error: data.error?.message || `HTTP ${res.status}` } };
+        }
+        const events = (data.items || []).map(e => ({
+          title: e.summary || '(sem título)',
+          start: e.start?.dateTime || e.start?.date || '',
+          end: e.end?.dateTime || e.end?.date || '',
+          description: e.description || '',
+          link: e.htmlLink || '',
+        }));
+        return {
+          port: 'success',
+          output: { action: 'list_events', eventCount: events.length, events },
+          variables: { calendar: { events, eventCount: events.length } },
+        };
+      }
+
+      if (action === 'create_event') {
+        const title = interpolate(config.eventTitle || '', ctx);
+        const start = interpolate(config.eventStart || '', ctx);
+        const end = interpolate(config.eventEnd || '', ctx);
+        const description = interpolate(config.eventDescription || '', ctx);
+        if (!title || !start || !end) {
+          return { port: 'error', output: { error: 'Título, início e fim são obrigatórios para criar evento' } };
+        }
+        const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
+        const body = JSON.stringify({
+          summary: title,
+          description,
+          start: { dateTime: start },
+          end: { dateTime: end },
+        });
+        const res = await fetchFn(url, { method: 'POST', headers, body });
+        const data = await res.json() as { id?: string; htmlLink?: string; error?: { message?: string } };
+        if (!res.ok) {
+          return { port: 'error', output: { error: data.error?.message || `HTTP ${res.status}` } };
+        }
+        return {
+          port: 'success',
+          output: { action: 'create_event', eventId: data.id, link: data.htmlLink },
+          variables: { calendar: { createdEvent: { id: data.id, link: data.htmlLink, title } } },
+        };
+      }
+
+      if (action === 'check_availability') {
+        const daysAhead = config.daysAhead || 7;
+        const now = new Date();
+        const future = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000);
+        const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?timeMin=${now.toISOString()}&timeMax=${future.toISOString()}&singleEvents=true&orderBy=startTime&maxResults=50`;
+        const res = await fetchFn(url, { headers });
+        const data = await res.json() as { items?: Array<{ start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string }; summary?: string }>; error?: { message?: string } };
+        if (!res.ok) {
+          return { port: 'error', output: { error: data.error?.message || `HTTP ${res.status}` } };
+        }
+        const busySlots = (data.items || []).map(e => ({
+          start: e.start?.dateTime || e.start?.date || '',
+          end: e.end?.dateTime || e.end?.date || '',
+          title: e.summary || '',
+        }));
+        return {
+          port: 'success',
+          output: { action: 'check_availability', busySlots, busyCount: busySlots.length },
+          variables: { calendar: { busySlots, busyCount: busySlots.length } },
+        };
+      }
+
+      return { port: 'error', output: { error: `Ação desconhecida: ${action}` } };
+    } catch (e: any) {
+      return { port: 'error', output: { error: e?.message || String(e) } };
+    }
+  },
+
   'output.end': async (_ctx, _config, _services) => {
     return { port: '', output: { finished: true } };
   },

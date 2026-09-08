@@ -6,10 +6,11 @@ export const nodeTypes = [
   'trigger.message_received', 'trigger.schedule', 'trigger.manual',
   'guard.test_mode', 'guard.human_takeover', 'guard.business_hours', 'guard.chat_type',
   'input.buffer', 'input.media', 'input.normalize',
-  'context.memory', 'context.knowledge', 'context.crm', 'context.summarize',
+  'context.memory', 'context.knowledge', 'context.crm', 'context.summarize', 'context.storage',
   'agent.decide', 'agent.classify', 'agent.extract', 'agent.score', 'agent.structured',
   'flow.condition', 'flow.switch', 'flow.delay', 'flow.wait_reply', 'flow.loop',
   'action.update_stage', 'action.update_lead', 'action.crm_sync', 'action.handoff', 'action.webhook',
+  'integration.google_calendar',
   'output.send_text', 'output.send_media', 'output.send_template', 'output.end',
 ] as const;
 export const nodeTypeSchema = z.enum(nodeTypes);

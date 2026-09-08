@@ -25,6 +25,11 @@ const schemas = {
   'context.knowledge': z.strictObject({ collection: z.enum(['default', 'pricing', 'catalog', 'faq', 'objections', 'documents']).default('default').describe('Coleção'), topK: count(5, 20, 'Número de trechos'), threshold: z.number().min(0).max(1).default(0.3).describe('Similaridade mínima') }),
   'context.crm': empty,
   'context.summarize': z.strictObject({ afterMessages: count(30, 500, 'Resumir após mensagens') }),
+  'context.storage': z.strictObject({
+    content: z.string().max(5000).default('').describe('Conteúdo armazenado (até 5000 caracteres)'),
+    variableName: text('storage', 'Nome da variável de acesso (ex: storage)'),
+    outputPorts: z.array(z.string().min(1).max(40)).min(1).max(10).default(['next']).describe('Portas de saída (JSON)'),
+  }),
   'agent.decide': prompt, 'agent.classify': prompt, 'agent.extract': prompt, 'agent.score': prompt,
   'agent.structured': z.strictObject({
     provider: z.enum(['openai', 'gemini']).default('openai').describe('Provedor'),
@@ -42,6 +47,16 @@ const schemas = {
   'action.crm_sync': empty,
   'action.handoff': z.strictObject({ reason: text('{{decision.handoff_reason}}', 'Motivo do encaminhamento') }),
   'action.webhook': z.strictObject({ url: z.url().default('https://example.com/webhook').describe('URL'), method: z.enum(['POST', 'PUT', 'PATCH']).default('POST').describe('Método'), timeoutSeconds: count(15, 60, 'Tempo limite em segundos') }),
+  'integration.google_calendar': z.strictObject({
+    action: z.enum(['list_events', 'create_event', 'check_availability']).default('list_events').describe('Ação'),
+    calendarId: text('primary', 'ID do calendário (primary = padrão)'),
+    credentials: z.string().default('').describe('Credenciais Google OAuth2 (JSON)'),
+    daysAhead: count(7, 90, 'Dias à frente para buscar eventos'),
+    eventTitle: z.string().default('').describe('Título do evento (para criar)'),
+    eventStart: z.string().default('').describe('Início do evento ISO 8601 (para criar)'),
+    eventEnd: z.string().default('').describe('Fim do evento ISO 8601 (para criar)'),
+    eventDescription: z.string().default('').describe('Descrição do evento (para criar)'),
+  }),
   'output.send_text': z.strictObject({ text: text('{{decision.reply}}', 'Mensagem'), typing: z.boolean().default(true).describe('Mostrar digitando') }),
   'output.send_media': z.strictObject({ url: text('{{media.url}}', 'URL da mídia'), mediaType: z.enum(['image', 'audio', 'video', 'document']).default('image').describe('Tipo de mídia'), caption: z.string().default('').describe('Legenda') }),
   'output.send_template': z.strictObject({ name: text('hello_world', 'Nome do template aprovado'), language: text('pt_BR', 'Idioma') }),
@@ -52,14 +67,15 @@ const labels: Record<NodeType, string> = {
   'trigger.message_received': 'Mensagem recebida', 'trigger.schedule': 'Agendamento', 'trigger.manual': 'Início manual',
   'guard.test_mode': 'Modo teste', 'guard.human_takeover': 'Atendimento humano', 'guard.business_hours': 'Horário comercial', 'guard.chat_type': 'Tipo de conversa',
   'input.buffer': 'Agrupar mensagens', 'input.media': 'Processar mídia', 'input.normalize': 'Normalizar telefone',
-  'context.memory': 'Memória comercial', 'context.knowledge': 'Base de conhecimento', 'context.crm': 'Consultar CRM', 'context.summarize': 'Resumir conversa',
+  'context.memory': 'Memória comercial', 'context.knowledge': 'Base de conhecimento', 'context.crm': 'Consultar CRM', 'context.summarize': 'Resumir conversa', 'context.storage': 'Armazenamento interno',
   'agent.decide': 'Decisão do agente', 'agent.classify': 'Classificar intenção', 'agent.extract': 'Extrair informações', 'agent.score': 'Pontuar lead', 'agent.structured': 'Resposta estruturada',
   'flow.condition': 'Condição', 'flow.switch': 'Múltiplos caminhos', 'flow.delay': 'Aguardar', 'flow.wait_reply': 'Esperar resposta', 'flow.loop': 'Repetir X vezes',
   'action.update_stage': 'Atualizar estágio', 'action.update_lead': 'Atualizar lead', 'action.crm_sync': 'Sincronizar CRM', 'action.handoff': 'Encaminhar para humano', 'action.webhook': 'Chamar webhook',
+  'integration.google_calendar': 'Google Calendar',
   'output.send_text': 'Enviar mensagem', 'output.send_media': 'Enviar mídia', 'output.send_template': 'Enviar template', 'output.end': 'Encerrar fluxo',
 };
-export const categories = { trigger: 'Gatilhos', guard: 'Guardas', input: 'Entrada', context: 'Contexto', agent: 'Inteligência', flow: 'Controle', action: 'Ações', output: 'Saída' };
-export const categoryColors = { trigger: '#0d9488', guard: '#d97706', input: '#0284c7', context: '#7c3aed', agent: '#464feb', flow: '#c026d3', action: '#ea580c', output: '#16a34a' };
+export const categories = { trigger: 'Gatilhos', guard: 'Guardas', input: 'Entrada', context: 'Contexto', agent: 'Inteligência', flow: 'Controle', action: 'Ações', integration: 'Integrações', output: 'Saída' };
+export const categoryColors = { trigger: '#0d9488', guard: '#d97706', input: '#0284c7', context: '#7c3aed', agent: '#464feb', flow: '#c026d3', action: '#ea580c', integration: '#2563eb', output: '#16a34a' };
 export type Category = keyof typeof categories;
 export function portsFor(type: NodeType, config: Record<string, unknown>): string[] {
   if (type === 'output.end') return [];
@@ -69,6 +85,8 @@ export function portsFor(type: NodeType, config: Record<string, unknown>): strin
   if (type === 'flow.switch') return [...(Array.isArray(config.cases) ? config.cases.filter((x): x is string => typeof x === 'string') : []), 'default'];
   if (type === 'agent.structured') return [...(Array.isArray(config.outputKeys) ? config.outputKeys.filter((x): x is string => typeof x === 'string') : []), 'default'];
   if (type === 'flow.loop') return ['body', 'done'];
+  if (type === 'context.storage') return Array.isArray(config.outputPorts) ? config.outputPorts.filter((x): x is string => typeof x === 'string') : ['next'];
+  if (type === 'integration.google_calendar') return ['success', 'error'];
   return ['next'];
 }
 const schemaToJson = (schema: z.ZodType) => z.toJSONSchema(schema);
