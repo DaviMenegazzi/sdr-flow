@@ -46,6 +46,7 @@ export interface ConversationWithLead {
 
 export interface ListInboxFilters {
   stage?: string;
+  connectionId?: string;
   assignedUserId?: string | null;
   handledBy?: 'AI' | 'HUMAN' | 'SYSTEM';
   search?: string;
@@ -67,6 +68,11 @@ export class InboxRepository {
       let whereClauses = [`c.organization_id = $1`];
       const params: any[] = [organizationId];
       let paramIdx = 2;
+
+      if (filters.connectionId) {
+        whereClauses.push(`c.connection_id = $${paramIdx++}`);
+        params.push(filters.connectionId);
+      }
 
       if (filters.stage && filters.stage !== 'ALL') {
         whereClauses.push(`c.stage = $${paramIdx++}`);
@@ -204,6 +210,9 @@ export class InboxRepository {
       .select('*, lead:leads(*), connection:connections(id, name, provider, phone)', { count: 'exact' })
       .eq('organization_id', organizationId);
 
+    if (filters.connectionId) {
+      query = query.eq('connection_id', filters.connectionId);
+    }
     if (filters.stage && filters.stage !== 'ALL') {
       query = query.eq('stage', filters.stage);
     }

@@ -1385,6 +1385,7 @@ export function createApp(config: ApiConfig = {}): Express {
     const orgId = res.locals.organizationId as string;
     const inboxRepo = res.locals.inbox as InboxRepository;
     const stage = req.query.stage ? String(req.query.stage) : undefined;
+    const connectionId = req.query.connectionId ? String(req.query.connectionId) : undefined;
     const handledBy = req.query.handledBy ? (String(req.query.handledBy) as any) : undefined;
     const assignedUserId = req.query.assignedUserId === 'unassigned'
       ? null
@@ -1397,6 +1398,7 @@ export function createApp(config: ApiConfig = {}): Express {
 
     const result = await inboxRepo.listConversations(orgId, {
       stage,
+      connectionId,
       handledBy,
       assignedUserId,
       search,

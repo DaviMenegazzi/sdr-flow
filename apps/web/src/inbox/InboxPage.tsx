@@ -14,6 +14,7 @@ import {
   Briefcase,
   AlertCircle,
   RefreshCw,
+  Radio,
 } from 'lucide-react';
 import { useSession } from '../session';
 
@@ -77,6 +78,9 @@ const STAGE_CONFIG: Record<string, { label: string; bg: string; text: string }> 
 export function InboxPage() {
   const { session, activeOrg } = useSession();
 
+  const [connections, setConnections] = useState<Array<{ id: string; name: string; provider: string; status: string }>>([]);
+  const [connectionFilter, setConnectionFilter] = useState<string>('ALL');
+
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedConv, setSelectedConv] = useState<ConversationItem | null>(null);
@@ -96,8 +100,18 @@ export function InboxPage() {
 
   useEffect(() => {
     if (!session || !activeOrg) return;
+    fetch(`/api/organizations/${activeOrg}/connections`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setConnections(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, [session, activeOrg]);
+
+  useEffect(() => {
+    if (!session || !activeOrg) return;
     loadConversations();
-  }, [session, activeOrg, stageFilter, agentFilter]);
+  }, [session, activeOrg, stageFilter, agentFilter, connectionFilter]);
 
   useEffect(() => {
     if (!session || !activeOrg || !selectedId) return;
@@ -113,6 +127,7 @@ export function InboxPage() {
     setError(null);
     try {
       const params = new URLSearchParams();
+      if (connectionFilter !== 'ALL') params.set('connectionId', connectionFilter);
       if (stageFilter !== 'ALL') params.set('stage', stageFilter);
       if (agentFilter !== 'ALL') params.set('handledBy', agentFilter);
       if (searchTerm.trim()) params.set('search', searchTerm.trim());
@@ -261,6 +276,27 @@ export function InboxPage() {
               <RefreshCw size={14} className={loadingList ? 'animate-spin' : ''} />
             </button>
           </div>
+
+          {/* Connection Selector */}
+          {connections.length > 0 && (
+            <div style={{ marginBottom: '10px' }}>
+              <label style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>
+                <Radio size={12} /> Instância WhatsApp
+              </label>
+              <select
+                value={connectionFilter}
+                onChange={e => { setConnectionFilter(e.target.value); setSelectedId(null); setSelectedConv(null); }}
+                style={{ fontSize: '12px', padding: '7px 10px', borderRadius: '6px', width: '100%' }}
+              >
+                <option value="ALL">Todas as instâncias</option>
+                {connections.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.provider}{c.status === 'connected' ? ' · conectado' : ''})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Search Input */}
           <div className="search-input" style={{ marginBottom: '10px' }}>
