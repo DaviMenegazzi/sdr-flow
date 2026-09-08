@@ -5,6 +5,7 @@ import {
   ExecutionRepository,
   OrganizationRepository,
   ConnectionRepository,
+  ConversationRepository,
   KnowledgeRepository,
   SummaryRepository,
   InboxRepository,
@@ -563,28 +564,104 @@ export function createApp(config: ApiConfig = {}): Express {
         );
       }
 
+      // Resolve DB persistence when Supabase is configured
+      let organizationId = 'standalone-org';
+      let connectionId: string = instanceName;
+      let leadId = `lead_${event.phone.replace(/\D/g, '')}`;
+      let conversationId = `conv_${event.phone.replace(/\D/g, '')}`;
+      let convRepo: ConversationRepository | null = null;
+      let leadRecord: { id: string; phone: string; name: string | null; memory: Record<string, unknown> } | null = null;
+      let convRecord: { id: string; stage: string; bot_paused: boolean; handled_by: string } | null = null;
+
+      if (config.supabaseUrl && config.serviceRoleKey) {
+        try {
+          const db = serviceDatabase(config.supabaseUrl, config.serviceRoleKey);
+          convRepo = new ConversationRepository(db);
+
+          // Find connection by provider_instance_id
+          const { data: existingConn } = await db
+            .from('connections')
+            .select('id, organization_id')
+            .eq('provider_instance_id', instanceName)
+            .eq('provider', 'evolution')
+            .maybeSingle();
+
+          let dbConnectionId: string | null = null;
+
+          if (existingConn) {
+            organizationId = existingConn.organization_id;
+            dbConnectionId = existingConn.id;
+          } else {
+            // Find first organization and auto-create connection
+            const { data: org } = await db
+              .from('organizations')
+              .select('id')
+              .limit(1)
+              .maybeSingle();
+
+            if (org) {
+              organizationId = org.id;
+              const { data: newConn } = await db
+                .from('connections')
+                .insert({
+                  organization_id: org.id,
+                  name: instanceName,
+                  provider: 'evolution',
+                  status: 'connected',
+                  provider_instance_id: instanceName,
+                })
+                .select()
+                .single();
+
+              if (newConn) {
+                dbConnectionId = newConn.id;
+                logger.info({ instanceName, connectionId: newConn.id, orgId: org.id }, 'Conexão auto-criada no Supabase para instância standalone');
+              }
+            }
+          }
+
+          if (dbConnectionId) {
+            connectionId = dbConnectionId;
+            const lead = await convRepo.findOrCreateLead(organizationId, event.phone, event.senderName);
+            leadId = lead.id;
+            leadRecord = { id: lead.id, phone: lead.phone, name: lead.name, memory: (lead.memory as Record<string, unknown>) || {} };
+            const conversation = await convRepo.findOrCreateConversation(organizationId, dbConnectionId, lead.id);
+            conversationId = conversation.id;
+            convRecord = { id: conversation.id, stage: conversation.stage, bot_paused: conversation.bot_paused, handled_by: conversation.handled_by };
+
+            // Save inbound message
+            await convRepo.saveMessage({
+              organizationId,
+              connectionId: dbConnectionId,
+              conversationId: conversation.id,
+              direction: 'INBOUND',
+              sender: 'lead',
+              content: event.textContent,
+              messageType: event.messageType,
+              providerMessageId: event.messageId,
+            });
+          }
+        } catch (dbErr) {
+          logger.warn({ err: dbErr, instanceName }, 'Falha ao persistir no Supabase, continuando em modo standalone');
+          convRepo = null;
+        }
+      }
+
       // Execute Flow for Authorized Inbound Message
       const executionId = crypto.randomUUID();
-      const conversationId = `conv_${event.phone.replace(/\D/g, '')}`;
       const flowCtx: FlowContext = {
-        organizationId: 'standalone-org',
-        connectionId: instanceName,
-        leadId: `lead_${event.phone.replace(/\D/g, '')}`,
+        organizationId,
+        connectionId,
+        leadId,
         conversationId,
         executionId,
         flowVersionId: `v${activeFlow.publishedVersion || 1}`,
-        lead: {
-          id: `lead_${event.phone.replace(/\D/g, '')}`,
-          phone: event.phone,
-          name: event.senderName || 'Contato WhatsApp',
-          memory: {},
-        },
-        conversation: {
-          id: conversationId,
-          stage: 'NOVO',
-          bot_paused: false,
-          handled_by: 'AI',
-        },
+        lead: leadRecord
+          ? { id: leadRecord.id, phone: leadRecord.phone, name: leadRecord.name || event.senderName || 'Contato WhatsApp', memory: leadRecord.memory }
+          : { id: leadId, phone: event.phone, name: event.senderName || 'Contato WhatsApp', memory: {} },
+        conversation: convRecord
+          ? { id: convRecord.id, stage: convRecord.stage, bot_paused: convRecord.bot_paused, handled_by: convRecord.handled_by as any }
+          : { id: conversationId, stage: 'NOVO', bot_paused: false, handled_by: 'AI' },
         messages: [
           {
             id: event.messageId || executionId,
@@ -603,6 +680,8 @@ export function createApp(config: ApiConfig = {}): Express {
       const effectiveApiKey = settings.openaiApiKey || config.openaiApiKey;
       const effectiveModel = settings.openaiModel || config.openaiModel || 'gpt-4.1-mini';
 
+      const capturedConvRepo = convRepo;
+      const capturedConnectionId = connectionId;
       const services: FlowServices = {
         llm: effectiveApiKey
           ? new OpenAIProvider({ apiKey: effectiveApiKey, model: effectiveModel, timeoutMs: settings.openaiTimeoutMs || 60000 })
@@ -611,16 +690,64 @@ export function createApp(config: ApiConfig = {}): Express {
           async sendText(_connId, phone, text) {
             logger.info({ instanceName, phone, textLength: text.length }, 'Enviando resposta WhatsApp via Evolution API');
             const sendRes = await evoClient.sendTextMessage(instanceName, phone, text);
-            return { messageId: sendRes.messageId || crypto.randomUUID() };
+            const msgId = sendRes.messageId || crypto.randomUUID();
+            if (capturedConvRepo) {
+              try {
+                await capturedConvRepo.saveMessage({
+                  organizationId,
+                  connectionId: capturedConnectionId,
+                  conversationId,
+                  direction: 'OUTBOUND',
+                  sender: 'ai',
+                  content: text,
+                  messageType: 'text',
+                  providerMessageId: msgId,
+                });
+              } catch (e) { logger.warn({ err: e }, 'Falha ao salvar mensagem outbound no Supabase'); }
+            }
+            return { messageId: msgId };
           },
           async sendMedia() { return { messageId: crypto.randomUUID() }; },
           async sendTemplate() { return { messageId: crypto.randomUUID() }; },
         },
         db: {
-          async updateLead() {},
-          async updateConversation() {},
-          async saveMessage() { return { id: crypto.randomUUID() }; },
-          async syncDeal() { return { id: crypto.randomUUID() }; },
+          async updateLead(_org, lid, patch) {
+            if (capturedConvRepo) {
+              try { await capturedConvRepo.updateLead(_org, lid, patch); } catch {}
+            }
+          },
+          async updateConversation(_org, cid, patch) {
+            if (capturedConvRepo) {
+              try { await capturedConvRepo.updateConversation(_org, cid, patch); } catch {}
+            }
+          },
+          async saveMessage(_org, cId, cvId, msg) {
+            if (capturedConvRepo) {
+              try {
+                const res = await capturedConvRepo.saveMessage({
+                  organizationId: _org,
+                  connectionId: cId,
+                  conversationId: cvId,
+                  direction: msg.direction,
+                  sender: msg.sender,
+                  content: msg.content,
+                  messageType: msg.messageType,
+                  providerMessageId: msg.providerMessageId,
+                });
+                return { id: res.id };
+              } catch {}
+            }
+            return { id: crypto.randomUUID() };
+          },
+          async syncDeal(_org, lid, deal) {
+            if (capturedConvRepo) {
+              try {
+                const res = await capturedConvRepo.syncDeal(_org, lid, deal);
+                return { id: res.id };
+              } catch {}
+            }
+            return { id: crypto.randomUUID() };
+          },
           async searchKnowledge(_org, collection, query, limit, threshold) {
             const hits = standaloneStore.searchKnowledge(query, {
               collection: collection === 'default' ? undefined : collection,
@@ -636,7 +763,7 @@ export function createApp(config: ApiConfig = {}): Express {
       wsServer.broadcast({
         type: 'execution:started',
         executionId,
-        organizationId: 'standalone-org',
+        organizationId,
         flowId: activeFlow.id,
         timestamp: new Date().toISOString(),
         payload: { conversationId, instanceName, sender: event.phone },
@@ -648,7 +775,7 @@ export function createApp(config: ApiConfig = {}): Express {
             wsServer.broadcast({
               type: 'step:start',
               executionId,
-              organizationId: 'standalone-org',
+              organizationId,
               flowId: activeFlow.id,
               timestamp: new Date().toISOString(),
               payload: step,
@@ -658,7 +785,7 @@ export function createApp(config: ApiConfig = {}): Express {
             wsServer.broadcast({
               type: 'step:complete',
               executionId,
-              organizationId: 'standalone-org',
+              organizationId,
               flowId: activeFlow.id,
               timestamp: new Date().toISOString(),
               payload: step,
