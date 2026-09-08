@@ -14,8 +14,8 @@ import {
   type EvolutionCredentials,
   type MetaCredentials,
 } from '@sdr/db';
-import { saveFlowSchema, memberRoleSchema, type FlowGraph, normalizeConversationStage } from '@sdr/shared';
-import { catalog, validateGraph, replayFlow, runPlayground } from '@sdr/flow';
+import { saveFlowSchema, memberRoleSchema, type FlowGraph, normalizeConversationStage, isPhoneNumberMatch, type FlowContext } from '@sdr/shared';
+import { catalog, validateGraph, replayFlow, runPlayground, executeFlow, MockLLMProvider, type FlowServices } from '@sdr/flow';
 import { parseEvolutionWebhook, parseMetaWebhook, processInboundWebhook } from './webhook.js';
 import { ConnectionManager } from './whatsapp/connection-manager.js';
 import { EvolutionClient } from './whatsapp/evolution-client.js';
@@ -25,6 +25,8 @@ import { orgRateLimiter, publicRateLimiter } from './rate-limit.js';
 import { AlertMonitor } from './alerts/alert-monitor.js';
 import { OpenAIProvider, type RuntimeConfig } from '@sdr/flow/server';
 import { secretMatches, verifyMetaSignature } from './whatsapp/webhook-auth.js';
+import { standaloneStore } from './storage.js';
+import { wsServer } from './ws.js';
 
 export interface ApiConfig extends RuntimeConfig {
   supabaseUrl?: string;
@@ -178,6 +180,367 @@ export function createApp(config: ApiConfig = {}): Express {
       res.json({ ok: true });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao excluir instância.' });
+    }
+  });
+
+  // --- STANDALONE FLOWS & MANAGEMENT ---
+  app.get('/api/flows', (_req, res) => {
+    res.json(standaloneStore.listFlows());
+  });
+
+  app.get('/api/flows/active', (_req, res) => {
+    res.json(standaloneStore.getActiveBindings());
+  });
+
+  app.get('/api/flows/:id', (req, res) => {
+    const flow = standaloneStore.getFlow(req.params.id);
+    if (!flow) {
+      res.status(404).json({ error: 'Fluxo não encontrado.' });
+      return;
+    }
+    res.json(flow);
+  });
+
+  app.post('/api/flows', (req, res) => {
+    try {
+      const { id, name, graph, targetInstance } = req.body;
+      if (!name || !graph) {
+        res.status(400).json({ error: 'Nome e grafo do fluxo são obrigatórios.' });
+        return;
+      }
+      const validation = validateGraph(graph);
+      const saved = standaloneStore.saveFlow({ id, name, graph, targetInstance });
+      res.status(201).json({ ...saved, validation });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao salvar fluxo.' });
+    }
+  });
+
+  app.put('/api/flows/:id', (req, res) => {
+    try {
+      const { name, graph, targetInstance } = req.body;
+      if (!name || !graph) {
+        res.status(400).json({ error: 'Nome e grafo do fluxo são obrigatórios.' });
+        return;
+      }
+      const validation = validateGraph(graph);
+      const saved = standaloneStore.saveFlow({ id: req.params.id, name, graph, targetInstance });
+      res.json({ ...saved, validation });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao atualizar fluxo.' });
+    }
+  });
+
+  app.delete('/api/flows/:id', (req, res) => {
+    standaloneStore.deleteFlow(req.params.id);
+    res.json({ ok: true });
+  });
+
+  const publishStandaloneHandler = async (req: express.Request, res: express.Response) => {
+    try {
+      const flowId = req.params.id || req.body.id || req.body.flowId || crypto.randomUUID();
+      const graph = req.body.graph || req.body;
+      const targetInstance = req.body.targetInstance;
+
+      const validation = validateGraph(graph);
+      if (!validation.valid) {
+        res.status(422).json({ error: 'Grafo inválido para publicação.', issues: validation.issues });
+        return;
+      }
+
+      const result = standaloneStore.publishFlow(flowId, graph, targetInstance);
+
+      let webhookUrl: string | undefined;
+      let webhookError: string | undefined;
+
+      const activeTarget = result.flow.targetInstance || targetInstance;
+      if (activeTarget) {
+        try {
+          const baseUrl = (config.publicApiUrl || process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+          webhookUrl = `${baseUrl}/api/webhooks/evolution/instance/${encodeURIComponent(activeTarget)}`;
+          const client = getEvoClient();
+          await client.setWebhook(activeTarget, webhookUrl);
+          logger.info({ instance: activeTarget, webhookUrl }, 'Webhook da Evolution registrado com sucesso para fluxo publicado');
+        } catch (err) {
+          webhookError = err instanceof Error ? err.message : 'Falha ao registrar webhook no Evolution';
+          logger.warn({ err, instance: activeTarget }, 'Aviso ao registrar webhook da Evolution');
+        }
+      }
+
+      res.status(201).json({
+        ok: true,
+        version: result.version,
+        flow: result.flow,
+        targetInstance: activeTarget,
+        webhookUrl,
+        webhookError,
+      });
+    } catch (err) {
+      logger.error({ err }, 'Erro ao publicar fluxo');
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha na publicação do fluxo.' });
+    }
+  };
+
+  app.post('/api/flows/publish', publishStandaloneHandler);
+  app.post('/api/flows/:id/publish', publishStandaloneHandler);
+
+  // --- PLAYGROUND STANDALONE ---
+  const playgroundStandaloneHandler = async (req: express.Request, res: express.Response) => {
+    try {
+      const { graph: inputGraph, flowId, message, lead, llm, openaiApiKey, openaiModel } = req.body;
+      let graph = inputGraph;
+      if (!graph && flowId) {
+        const flow = standaloneStore.getFlow(flowId);
+        if (flow) graph = flow.graph;
+      }
+      if (!graph) {
+        res.status(400).json({ error: 'Grafo do fluxo é obrigatório.' });
+        return;
+      }
+
+      const settings = standaloneStore.getSettings();
+      const effectiveApiKey = (openaiApiKey || settings.openaiApiKey || config.openaiApiKey || '').trim();
+      const effectiveModel = (openaiModel || settings.openaiModel || config.openaiModel || 'gpt-4.1-mini').trim();
+
+      if (llm === 'openai' && !effectiveApiKey) {
+        res.status(400).json({
+          error: 'Chave da OpenAI não configurada. Configure na aba de Configurações ou informe a chave.',
+        });
+        return;
+      }
+
+      const playgroundResult = await runPlayground({
+        graph,
+        organizationId: 'standalone-org',
+        message: message || 'Olá',
+        lead: lead || { name: 'Lead Teste', phone: '+5511999999999' },
+        services: {
+          llm: llm === 'openai' && effectiveApiKey
+            ? new OpenAIProvider({ apiKey: effectiveApiKey, model: effectiveModel, timeoutMs: settings.openaiTimeoutMs || 60000 })
+            : undefined,
+          db: {
+            async updateLead() {},
+            async updateConversation() {},
+            async saveMessage() { return { id: crypto.randomUUID() }; },
+            async syncDeal() { return { id: crypto.randomUUID() }; },
+            async searchKnowledge() { return []; },
+            async getConversationSummary() { return null; },
+            async saveConversationSummary() {},
+          },
+        },
+      });
+      res.json(playgroundResult);
+    } catch (err) {
+      logger.error({ err }, 'Erro ao rodar playground');
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao executar playground.' });
+    }
+  };
+
+  app.post('/api/flows/playground', playgroundStandaloneHandler);
+  app.post('/api/flows/:id/playground', playgroundStandaloneHandler);
+
+  // --- SETTINGS STANDALONE ---
+  app.get('/api/settings', (_req, res) => {
+    const settings = standaloneStore.getSettings();
+    const mask = (val?: string) => {
+      if (!val || val.length <= 8) return val ? '••••••••' : '';
+      return `${val.slice(0, 7)}...${val.slice(-4)}`;
+    };
+    res.json({
+      openaiApiKeyConfigured: Boolean(settings.openaiApiKey),
+      openaiApiKeyMasked: mask(settings.openaiApiKey),
+      openaiModel: settings.openaiModel,
+      evolutionServerUrl: settings.evolutionServerUrl,
+      evolutionApiKeyMasked: mask(settings.evolutionApiKey),
+      publicApiUrl: settings.publicApiUrl,
+    });
+  });
+
+  app.post('/api/settings', (req, res) => {
+    try {
+      const { openaiApiKey, openaiModel, evolutionServerUrl, evolutionApiKey, publicApiUrl } = req.body;
+      const patch: any = {};
+      if (typeof openaiApiKey === 'string' && openaiApiKey.trim()) patch.openaiApiKey = openaiApiKey.trim();
+      if (typeof openaiModel === 'string' && openaiModel.trim()) patch.openaiModel = openaiModel.trim();
+      if (typeof evolutionServerUrl === 'string' && evolutionServerUrl.trim()) patch.evolutionServerUrl = evolutionServerUrl.trim();
+      if (typeof evolutionApiKey === 'string' && evolutionApiKey.trim()) patch.evolutionApiKey = evolutionApiKey.trim();
+      if (typeof publicApiUrl === 'string' && publicApiUrl.trim()) patch.publicApiUrl = publicApiUrl.trim();
+
+      const updated = standaloneStore.updateSettings(patch);
+      res.json({ ok: true, settings: updated });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao salvar configurações.' });
+    }
+  });
+
+  app.post('/api/settings/test-openai', async (req, res) => {
+    try {
+      const key = (req.body?.apiKey || standaloneStore.getSettings().openaiApiKey || config.openaiApiKey || '').trim();
+      if (!key) {
+        res.status(400).json({ ok: false, error: 'Chave da OpenAI não informada.' });
+        return;
+      }
+      const resp = await fetch('https://api.openai.com/v1/models', {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      if (resp.ok) {
+        res.json({ ok: true, message: 'Chave da OpenAI válida e conectada com sucesso!' });
+      } else {
+        const errText = await resp.text();
+        res.status(400).json({ ok: false, error: `OpenAI recusou a chave (${resp.status}): ${errText}` });
+      }
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err instanceof Error ? err.message : 'Falha ao testar conexão.' });
+    }
+  });
+
+  // --- INSTANCE WEBHOOK WITH STRICT TEST MODE PROTECTION ---
+  app.post('/api/webhooks/evolution/instance/:instanceName', async (req, res) => {
+    try {
+      const instanceName = req.params.instanceName;
+      const event = parseEvolutionWebhook(req.body);
+      if (!event) {
+        res.status(200).json({ status: 'ignored_non_message' });
+        return;
+      }
+      if (event.fromMe) {
+        res.status(200).json({ status: 'ignored_from_me' });
+        return;
+      }
+      if (!event.textContent && !event.mediaUrl) {
+        res.status(200).json({ status: 'ignored_empty_message' });
+        return;
+      }
+
+      const activeFlow = standaloneStore.getActiveFlowForInstance(instanceName);
+      if (!activeFlow) {
+        logger.info({ instanceName }, 'Mensagem recebida mas não há fluxo ativo para esta instância');
+        res.status(200).json({ status: 'no_active_flow', instanceName });
+        return;
+      }
+
+      // STRICT TEST MODE GATE
+      const testMode = activeFlow.graph.testMode;
+      if (testMode?.enabled) {
+        const authorized = testMode.phone || '';
+        const match = isPhoneNumberMatch(event.phone, authorized);
+        if (!match) {
+          logger.warn(
+            { sender: event.phone, authorized, instanceName },
+            '[MODO TESTE BLOQUEIO] Mensagem de número não autorizado descartada com segurança total.'
+          );
+          res.status(200).json({
+            status: 'blocked_by_test_mode',
+            reason: `Modo Teste ativado apenas para ${authorized}. Mensagem de ${event.phone} descartada.`,
+          });
+          return;
+        }
+        logger.info(
+          { sender: event.phone, authorized, instanceName },
+          '[MODO TESTE PERMISSÃO] Mensagem de número autorizado aceita para execução.'
+        );
+      }
+
+      // Execute Flow for Authorized Inbound Message
+      const executionId = crypto.randomUUID();
+      const conversationId = `conv_${event.phone.replace(/\D/g, '')}`;
+      const flowCtx: FlowContext = {
+        organizationId: 'standalone-org',
+        connectionId: instanceName,
+        leadId: `lead_${event.phone.replace(/\D/g, '')}`,
+        conversationId,
+        executionId,
+        flowVersionId: `v${activeFlow.publishedVersion || 1}`,
+        lead: {
+          id: `lead_${event.phone.replace(/\D/g, '')}`,
+          phone: event.phone,
+          name: event.senderName || 'Contato WhatsApp',
+          memory: {},
+        },
+        conversation: {
+          id: conversationId,
+          stage: 'NOVO',
+          bot_paused: false,
+          handled_by: 'AI',
+        },
+        messages: [
+          {
+            id: event.messageId || executionId,
+            text: event.textContent,
+            fromMe: false,
+            type: event.messageType,
+            mediaUrl: event.mediaUrl,
+          },
+        ],
+        variables: {},
+        tokens: { input: 0, output: 0 },
+      };
+
+      const settings = standaloneStore.getSettings();
+      const evoClient = getEvoClient(settings.evolutionServerUrl, settings.evolutionApiKey);
+      const effectiveApiKey = settings.openaiApiKey || config.openaiApiKey;
+      const effectiveModel = settings.openaiModel || config.openaiModel || 'gpt-4.1-mini';
+
+      const services: FlowServices = {
+        llm: effectiveApiKey
+          ? new OpenAIProvider({ apiKey: effectiveApiKey, model: effectiveModel, timeoutMs: settings.openaiTimeoutMs || 60000 })
+          : new MockLLMProvider(),
+        messaging: {
+          async sendText(_connId, phone, text) {
+            logger.info({ instanceName, phone, textLength: text.length }, 'Enviando resposta WhatsApp via Evolution API');
+            const sendRes = await evoClient.sendTextMessage(instanceName, phone, text);
+            return { messageId: sendRes.messageId || crypto.randomUUID() };
+          },
+          async sendMedia() { return { messageId: crypto.randomUUID() }; },
+          async sendTemplate() { return { messageId: crypto.randomUUID() }; },
+        },
+        db: {
+          async updateLead() {},
+          async updateConversation() {},
+          async saveMessage() { return { id: crypto.randomUUID() }; },
+          async syncDeal() { return { id: crypto.randomUUID() }; },
+        },
+        now: () => new Date(),
+      };
+
+      wsServer.broadcast({
+        type: 'execution:started',
+        executionId,
+        organizationId: 'standalone-org',
+        flowId: activeFlow.id,
+        timestamp: new Date().toISOString(),
+        payload: { conversationId, instanceName, sender: event.phone },
+      });
+
+      const result = await executeFlow(activeFlow.graph, flowCtx, services, {
+        hooks: {
+          onStepStart: async step => {
+            wsServer.broadcast({
+              type: 'step:start',
+              executionId,
+              organizationId: 'standalone-org',
+              flowId: activeFlow.id,
+              timestamp: new Date().toISOString(),
+              payload: step,
+            });
+          },
+          onStepComplete: async step => {
+            wsServer.broadcast({
+              type: 'step:complete',
+              executionId,
+              organizationId: 'standalone-org',
+              flowId: activeFlow.id,
+              timestamp: new Date().toISOString(),
+              payload: step,
+            });
+          },
+        },
+      });
+
+      res.status(200).json({ ok: true, executionId, status: result.status });
+    } catch (err) {
+      logger.error({ err }, 'Erro ao processar webhook da instância Evolution');
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha no processamento do webhook' });
     }
   });
 

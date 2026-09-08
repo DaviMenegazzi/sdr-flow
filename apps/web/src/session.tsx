@@ -128,9 +128,175 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
 }
 
+
+export function PlatformSettingsSection() {
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [openaiModel, setOpenaiModel] = useState('gpt-4.1-mini');
+  const [evolutionUrl, setEvolutionUrl] = useState('http://127.0.0.1:8080');
+  const [evolutionApiKey, setEvolutionApiKey] = useState('');
+  const [maskedOpenAI, setMaskedOpenAI] = useState('');
+  const [maskedEvolution, setMaskedEvolution] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [saveMessage, setSaveMessage] = useState('');
+
+  const loadSettings = async () => {
+    try {
+      const res = await fetch('/api/settings');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.openaiApiKeyMasked) setMaskedOpenAI(data.openaiApiKeyMasked);
+        if (data.openaiModel) setOpenaiModel(data.openaiModel);
+        if (data.evolutionServerUrl) setEvolutionUrl(data.evolutionServerUrl);
+        if (data.evolutionApiKeyMasked) setMaskedEvolution(data.evolutionApiKeyMasked);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    void loadSettings();
+  }, []);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setSaveMessage('');
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          openaiApiKey: openaiApiKey || undefined,
+          openaiModel: openaiModel || undefined,
+          evolutionServerUrl: evolutionUrl || undefined,
+          evolutionApiKey: evolutionApiKey || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error('Falha ao salvar configurações.');
+      setSaveMessage('Configurações salvas no servidor com sucesso!');
+      setOpenaiApiKey('');
+      setEvolutionApiKey('');
+      await loadSettings();
+    } catch (err) {
+      setSaveMessage(err instanceof Error ? err.message : 'Erro ao salvar.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleTestOpenAI = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch('/api/settings/test-openai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: openaiApiKey || undefined }),
+      });
+      const data = await res.json();
+      setTestResult({ ok: Boolean(data.ok), message: data.ok ? data.message : (data.error || 'Falha ao testar chave.') });
+    } catch (err) {
+      setTestResult({ ok: false, message: err instanceof Error ? err.message : 'Falha na requisição.' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div style={{ maxWidth: 640 }}>
+      <div className="info-card" style={{ marginBottom: 24, borderLeft: '4px solid #4f46e5' }}>
+        <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>Configurações de Inteligência Artificial & Provedores</h3>
+        <p style={{ margin: 0, fontSize: 13 }}>
+          Gerencie as credenciais que alimentam as respostas do SDR, decisões dos agentes e a conexão com o WhatsApp.
+        </p>
+      </div>
+
+      {saveMessage && (
+        <div style={{ padding: '10px 14px', borderRadius: 6, marginBottom: 16, background: saveMessage.includes('sucesso') ? '#16a34a1a' : '#ef44441a', color: saveMessage.includes('sucesso') ? '#16a34a' : '#ef4444', fontSize: 13, fontWeight: 600 }}>
+          {saveMessage}
+        </div>
+      )}
+
+      <form onSubmit={handleSave} className="settings-form">
+        <h2>Chave da OpenAI (LLM Principal)</h2>
+        <label>
+          OpenAI API Key
+          {maskedOpenAI && (
+            <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+              ● Chave ativa no servidor: {maskedOpenAI}
+            </span>
+          )}
+          <input
+            type="password"
+            value={openaiApiKey}
+            onChange={e => setOpenaiApiKey(e.target.value)}
+            placeholder={maskedOpenAI ? "Digite uma nova chave para alterar..." : "sk-proj-..."}
+          />
+        </label>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: -8, marginBottom: 20 }}>
+          <button type="button" onClick={handleTestOpenAI} disabled={testing} style={{ fontSize: 12, padding: '4px 10px' }}>
+            {testing ? 'Testando conexão...' : 'Testar Conexão com OpenAI'}
+          </button>
+        </div>
+
+        {testResult && (
+          <div style={{ padding: '8px 12px', borderRadius: 6, marginBottom: 16, fontSize: 12, background: testResult.ok ? '#16a34a15' : '#ef444415', color: testResult.ok ? '#15803d' : '#b91c1c', border: testResult.ok ? '1px solid #16a34a' : '1px solid #ef4444' }}>
+            {testResult.ok ? '✅ ' : '❌ '}{testResult.message}
+          </div>
+        )}
+
+        <label>
+          Modelo Padrão da OpenAI
+          <select value={openaiModel} onChange={e => setOpenaiModel(e.target.value)}>
+            <option value="gpt-4.1-mini">gpt-4.1-mini (Rápido, econômico e altamente recomendado)</option>
+            <option value="gpt-4o">gpt-4o (Alta performance multimodal)</option>
+            <option value="gpt-4o-mini">gpt-4o-mini</option>
+            <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+          </select>
+        </label>
+
+        <h2 style={{ marginTop: 28 }}>Evolution API (WhatsApp Docker)</h2>
+        <label>
+          URL do Servidor Evolution
+          <input
+            type="text"
+            value={evolutionUrl}
+            onChange={e => setEvolutionUrl(e.target.value)}
+            placeholder="http://127.0.0.1:8080"
+          />
+        </label>
+
+        <label>
+          API Key da Evolution
+          {maskedEvolution && (
+            <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+              ● Chave ativa: {maskedEvolution}
+            </span>
+          )}
+          <input
+            type="password"
+            value={evolutionApiKey}
+            onChange={e => setEvolutionApiKey(e.target.value)}
+            placeholder={maskedEvolution ? "Digite nova chave para alterar..." : "Sua Evolution Api Key"}
+          />
+        </label>
+
+        <button className="primary" disabled={busy} style={{ marginTop: 12 }}>
+          {busy ? 'Salvando...' : 'Salvar Configurações'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 export function Settings() {
   const { session, organizations, activeOrg, activeRole, setActiveOrg, reload } = useSession();
 
+  const [viewTab, setViewTab] = useState<'ai-keys' | 'account'>('ai-keys');
   const [authTab, setAuthTab] = useState<'login' | 'signup' | 'magic' | 'invitation'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

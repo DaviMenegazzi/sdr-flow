@@ -24,6 +24,7 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
   const [llmMode, setLlmMode] = useState<'mock' | 'openai'>('mock');
   const [result, setResult] = useState<PlaygroundResult | null>(null);
   const [activeTab, setActiveTab] = useState<'response' | 'prompt' | 'trace' | 'memory' | 'knowledge'>('response');
+  const [customApiKey, setCustomApiKey] = useState('');
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (isOpen && graph.testMode?.enabled) setLeadPhone(graph.testMode.phone);
@@ -38,39 +39,17 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
     setResult(null);
 
     try {
-      if (llmMode === 'openai' && !(session && activeOrg && flowId)) throw new Error('Entre na sua organização e salve o fluxo para testar a OpenAI. Configure OPENAI_API_KEY no servidor.');
-      if (session && activeOrg && flowId) {
-        // Run via API
-        const response = await fetch(`/api/organizations/${activeOrg}/flows/${flowId}/playground`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            llm: llmMode,
-            message,
-            lead: {
-              name: leadName,
-              phone: leadPhone,
-              interest: leadInterest,
-              city: leadCity,
-            },
-          }),
-        });
-
-        if (!response.ok) {
-          const errJson = await response.json().catch(() => null);
-          throw new Error(errJson?.error || `Erro ao rodar playground (${response.status})`);
-        }
-
-        const data = (await response.json()) as PlaygroundResult;
-        setResult(data);
-      } else {
-        // Run in-memory client-side sandbox
-        const data = await runPlayground({
+      const response = await fetch('/api/flows/playground', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({
           graph,
-          organizationId: activeOrg || 'local-preview',
+          flowId: flowId || undefined,
+          llm: llmMode,
+          openaiApiKey: customApiKey.trim() || undefined,
           message,
           lead: {
             name: leadName,
@@ -78,9 +57,16 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
             interest: leadInterest,
             city: leadCity,
           },
-        });
-        setResult(data);
+        }),
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => null);
+        throw new Error(errJson?.error || `Erro ao rodar playground (${response.status})`);
       }
+
+      const data = (await response.json()) as PlaygroundResult;
+      setResult(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao executar fluxo');
     } finally {
@@ -147,6 +133,23 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
               <option value="openai">OpenAI — IA real, WhatsApp simulado</option>
             </select>
             <p style={{ fontSize: 12, marginBottom: 16 }}>OpenAI usa a chave configurada no servidor e consome tokens da sua conta. Nenhuma mensagem é enviada ao WhatsApp.</p>
+            {llmMode === 'openai' && (
+              <div style={{ marginBottom: 16, padding: '10px 12px', background: 'var(--color-bg-secondary)', borderRadius: 6, border: '1px solid var(--color-border)' }}>
+                <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 4 }}>
+                  Chave OpenAI personalizada (opcional):
+                </label>
+                <input
+                  type="password"
+                  value={customApiKey}
+                  onChange={e => setCustomApiKey(e.target.value)}
+                  placeholder="sk-proj-... (deixe vazio para usar a da VPS)"
+                  style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
+                />
+                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 4, display: 'block' }}>
+                  Por padrão, o servidor já utiliza a chave OpenAI da VPS.
+                </span>
+              </div>
+            )}
             <h3 style={{ fontSize: 13, textTransform: 'uppercase', color: 'var(--color-text-secondary)', marginBottom: 12 }}>
               1. Contexto do Lead
             </h3>

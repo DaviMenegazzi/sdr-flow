@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useSession } from '../session';
 import {
   Radio,
@@ -13,6 +14,8 @@ import {
   ExternalLink,
   ShieldCheck,
   Check,
+  Workflow,
+  ShieldAlert,
 } from 'lucide-react';
 
 interface Connection {
@@ -56,6 +59,7 @@ export function ConnectionsPage() {
   const [qrCodeString, setQrCodeString] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [activeFlows, setActiveFlows] = useState<Record<string, { flowId: string; flow: any }>>({});
 
   // Modal for viewing QR of existing connection
   const [activeQrModal, setActiveQrModal] = useState<string | null>(null);
@@ -756,7 +760,130 @@ export function ConnectionsPage() {
         </div>
       )}
 
-      {/* QR Modal for existing connection */}
+      {/* FLUXOS ATIVOS & AUTOMAÇÕES */}
+      <div style={{ marginTop: 40, borderTop: '1px solid var(--color-border-secondary)', paddingTop: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Radio size={18} color="#16a34a" /> Fluxos Ativos & Automações do WhatsApp
+            </h2>
+            <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+              Veja qual fluxo da inteligência artificial está vinculado e operando em cada número.
+            </p>
+          </div>
+          <Link to="/flows/new" className="button primary" style={{ fontSize: 13, gap: 6, display: 'inline-flex', alignItems: 'center' }}>
+            <Workflow size={14} /> Abrir no Construtor
+          </Link>
+        </div>
+
+        {Object.keys(activeFlows).length === 0 ? (
+          <div className="info-card" style={{ padding: 18 }}>
+            <p style={{ margin: 0 }}>
+              Nenhum fluxo publicado e vinculado às instâncias ainda. No <strong>Construtor de Fluxos</strong>, selecione a instância desejada e clique em <strong>Publicar</strong>.
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
+            {Object.entries(activeFlows).map(([instName, binding]) => {
+              const flow = binding.flow;
+              const isTest = Boolean(flow?.graph?.testMode?.enabled);
+              const testPhone = flow?.graph?.testMode?.phone || '';
+              return (
+                <div
+                  key={instName}
+                  style={{
+                    border: isTest ? '1px solid #eab308' : '1px solid #16a34a',
+                    background: isTest ? 'rgba(234, 179, 8, 0.04)' : 'rgba(22, 163, 74, 0.04)',
+                    borderRadius: 10,
+                    padding: 16,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                        Instância: <strong style={{ color: 'var(--color-text-primary)' }}>{instName}</strong>
+                      </span>
+                      <span
+                        className="badge"
+                        style={{
+                          background: isTest ? '#ca8a0422' : '#16a34a22',
+                          color: isTest ? '#b45309' : '#16a34a',
+                          border: isTest ? '1px solid #ca8a04' : '1px solid #16a34a',
+                          fontSize: 11,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {isTest ? '⚠️ MODO TESTE ATIVO' : '🟢 MODO PRODUÇÃO'}
+                      </span>
+                    </div>
+
+                    <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>{flow?.name || 'Fluxo SDR'}</h3>
+                    <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 12 }}>
+                      Versão: <strong>v{flow?.publishedVersion || 1}</strong> · Publicado em: {flow?.publishedAt ? new Date(flow.publishedAt).toLocaleString('pt-BR') : 'Hoje'}
+                    </div>
+
+                    {isTest ? (
+                      <div
+                        style={{
+                          padding: '10px 12px',
+                          background: 'rgba(234, 179, 8, 0.12)',
+                          border: '1px solid #eab308',
+                          borderRadius: 6,
+                          fontSize: 12,
+                          color: '#854d0e',
+                          marginBottom: 14,
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
+                          <ShieldAlert size={14} /> Proteção de Teste Ativa
+                        </div>
+                        <div>Responde <strong>APENAS</strong> ao número autorizado:</div>
+                        <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, marginTop: 2 }}>{testPhone || '(não configurado)'}</div>
+                        <div style={{ fontSize: 11, marginTop: 4, opacity: 0.9 }}>
+                          Nenhum outro contato receberá mensagens da IA.
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          padding: '10px 12px',
+                          background: 'rgba(22, 163, 74, 0.08)',
+                          border: '1px solid #16a34a',
+                          borderRadius: 6,
+                          fontSize: 12,
+                          color: '#15803d',
+                          marginBottom: 14,
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
+                          <CheckCircle2 size={14} /> Atendimento Público Liberado
+                        </div>
+                        <div>A IA responderá a todos os contatos que enviarem mensagens nesta instância.</div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <Link
+                      to="/flows/new"
+                      className="button"
+                      style={{ fontSize: 12, flex: 1, textAlign: 'center', justifyContent: 'center' }}
+                    >
+                      Editar no Construtor
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+
+            {/* QR Modal for existing connection */}
       {activeQrModal && (
         <div
           style={{
