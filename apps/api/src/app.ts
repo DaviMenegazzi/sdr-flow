@@ -293,8 +293,9 @@ export function createApp(config: ApiConfig = {}): Express {
     try {
       const { graph: inputGraph, flowId, message, lead, llm, openaiApiKey, openaiModel } = req.body;
       let graph = inputGraph;
-      if (!graph && flowId) {
-        const flow = standaloneStore.getFlow(flowId);
+      const targetId = req.params.id || flowId;
+      if (!graph && targetId) {
+        const flow = standaloneStore.getFlow(targetId);
         if (flow) graph = flow.graph;
       }
       if (!graph) {
