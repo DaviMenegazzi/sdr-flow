@@ -586,12 +586,29 @@ export function createApp(config: ApiConfig = {}): Express {
               .limit(1)
               .maybeSingle();
 
-            if (org) {
-              organizationId = org.id;
+            let orgId: string | null = org?.id ?? null;
+
+            // Auto-create default org if none exists
+            if (!orgId) {
+              const { data: newOrg, error: orgErr } = await db
+                .from('organizations')
+                .insert({ name: 'SDR Flow' })
+                .select('id')
+                .single();
+              if (newOrg) {
+                orgId = newOrg.id;
+                logger.info({ orgId: newOrg.id }, 'Organização padrão auto-criada no Supabase');
+              } else {
+                logger.error({ err: orgErr }, 'Falha ao auto-criar organização no Supabase');
+              }
+            }
+
+            if (orgId) {
+              organizationId = orgId;
               const { data: newConn, error: connErr } = await db
                 .from('connections')
                 .insert({
-                  organization_id: org.id,
+                  organization_id: orgId,
                   name: instanceName,
                   provider: 'evolution',
                   status: 'connected',
@@ -602,12 +619,10 @@ export function createApp(config: ApiConfig = {}): Express {
 
               if (newConn) {
                 dbConnectionId = newConn.id;
-                logger.info({ instanceName, connectionId: newConn.id, orgId: org.id }, 'Conexão auto-criada no Supabase para instância standalone');
+                logger.info({ instanceName, connectionId: newConn.id, orgId }, 'Conexão auto-criada no Supabase para instância standalone');
               } else {
                 logger.error({ instanceName, err: connErr }, 'Falha ao auto-criar conexão no Supabase');
               }
-            } else {
-              logger.warn({ instanceName }, 'Nenhuma organização encontrada no Supabase para associar mensagem');
             }
           }
 
