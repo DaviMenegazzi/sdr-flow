@@ -416,6 +416,27 @@ export const executors: Record<NodeType, NodeExecutor> = {
     };
   },
 
+  'flow.loop': async (ctx, config, _services) => {
+    const counterVar = config.counterVar || 'loop_count';
+    const timesRaw = interpolate(config.times || '3', ctx);
+    const times = Math.max(1, Math.floor(Number(timesRaw) || 3));
+    const current = Number(ctx.variables[counterVar] || 0) + 1;
+
+    if (current <= times) {
+      return {
+        port: 'body',
+        output: { iteration: current, total: times },
+        variables: { [counterVar]: current },
+      };
+    }
+
+    return {
+      port: 'done',
+      output: { iteration: current, total: times, completed: true },
+      variables: { [counterVar]: 0 },
+    };
+  },
+
   'flow.wait_reply': async (_ctx, config, _services, resumePort) => {
     // If resuming from a wakeup event
     if (resumePort) {

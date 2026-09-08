@@ -36,6 +36,7 @@ const schemas = {
   'flow.switch': z.strictObject({ variable: text('decision.intent', 'Variável'), cases: z.array(z.string().min(1).max(40).regex(/^[\w-]+$/)).min(1).max(10).default(['interesse', 'suporte']).describe('Saídas (JSON)') }),
   'flow.delay': z.strictObject({ seconds: count(2, 86400, 'Atraso em segundos') }),
   'flow.wait_reply': z.strictObject({ timeoutMinutes: count(1440, 43200, 'Tempo limite em minutos') }),
+  'flow.loop': z.strictObject({ times: text('3', 'Repetições (aceita variáveis, ex: {{structured.repeat_count}})'), counterVar: text('loop_count', 'Nome da variável do contador') }),
   'action.update_stage': z.strictObject({ stage: text('{{decision.stage}}', 'Estágio de destino') }),
   'action.update_lead': z.strictObject({ source: text('decision.lead_data', 'Variável com dados do lead') }),
   'action.crm_sync': empty,
@@ -53,7 +54,7 @@ const labels: Record<NodeType, string> = {
   'input.buffer': 'Agrupar mensagens', 'input.media': 'Processar mídia', 'input.normalize': 'Normalizar telefone',
   'context.memory': 'Memória comercial', 'context.knowledge': 'Base de conhecimento', 'context.crm': 'Consultar CRM', 'context.summarize': 'Resumir conversa',
   'agent.decide': 'Decisão do agente', 'agent.classify': 'Classificar intenção', 'agent.extract': 'Extrair informações', 'agent.score': 'Pontuar lead', 'agent.structured': 'Resposta estruturada',
-  'flow.condition': 'Condição', 'flow.switch': 'Múltiplos caminhos', 'flow.delay': 'Aguardar', 'flow.wait_reply': 'Esperar resposta',
+  'flow.condition': 'Condição', 'flow.switch': 'Múltiplos caminhos', 'flow.delay': 'Aguardar', 'flow.wait_reply': 'Esperar resposta', 'flow.loop': 'Repetir X vezes',
   'action.update_stage': 'Atualizar estágio', 'action.update_lead': 'Atualizar lead', 'action.crm_sync': 'Sincronizar CRM', 'action.handoff': 'Encaminhar para humano', 'action.webhook': 'Chamar webhook',
   'output.send_text': 'Enviar mensagem', 'output.send_media': 'Enviar mídia', 'output.send_template': 'Enviar template', 'output.end': 'Encerrar fluxo',
 };
@@ -67,6 +68,7 @@ export function portsFor(type: NodeType, config: Record<string, unknown>): strin
   if (type === 'flow.wait_reply') return ['reply', 'timeout'];
   if (type === 'flow.switch') return [...(Array.isArray(config.cases) ? config.cases.filter((x): x is string => typeof x === 'string') : []), 'default'];
   if (type === 'agent.structured') return [...(Array.isArray(config.outputKeys) ? config.outputKeys.filter((x): x is string => typeof x === 'string') : []), 'default'];
+  if (type === 'flow.loop') return ['body', 'done'];
   return ['next'];
 }
 const schemaToJson = (schema: z.ZodType) => z.toJSONSchema(schema);

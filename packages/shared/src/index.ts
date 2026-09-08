@@ -8,7 +8,7 @@ export const nodeTypes = [
   'input.buffer', 'input.media', 'input.normalize',
   'context.memory', 'context.knowledge', 'context.crm', 'context.summarize',
   'agent.decide', 'agent.classify', 'agent.extract', 'agent.score', 'agent.structured',
-  'flow.condition', 'flow.switch', 'flow.delay', 'flow.wait_reply',
+  'flow.condition', 'flow.switch', 'flow.delay', 'flow.wait_reply', 'flow.loop',
   'action.update_stage', 'action.update_lead', 'action.crm_sync', 'action.handoff', 'action.webhook',
   'output.send_text', 'output.send_media', 'output.send_template', 'output.end',
 ] as const;
