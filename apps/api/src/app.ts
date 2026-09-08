@@ -541,6 +541,199 @@ export function createApp(config: ApiConfig = {}): Express {
 
   app.use('/api/knowledge', knowledgeRouter);
 
+  // --- INBOX STANDALONE ROUTER ---
+  const inboxRouter = express.Router();
+
+  const getInboxContext = async (requestedOrgId?: string) => {
+    if (!config.supabaseUrl || !config.serviceRoleKey) return null;
+    const db = serviceDatabase(config.supabaseUrl, config.serviceRoleKey);
+    const inboxRepo = new InboxRepository(db);
+
+    let orgId = requestedOrgId;
+    if (!orgId || orgId === 'undefined' || orgId === 'standalone-org' || orgId === 'null') {
+      const { data: org } = await db.from('organizations').select('id').limit(1).maybeSingle();
+      orgId = org?.id;
+    }
+    if (!orgId) return null;
+    return { db, inboxRepo, orgId };
+  };
+
+  inboxRouter.get('/conversations', async (req, res) => {
+    try {
+      const ctx = await getInboxContext(req.query.organizationId as string);
+      if (!ctx) {
+        res.json({ conversations: [], total: 0 });
+        return;
+      }
+      const stage = req.query.stage ? String(req.query.stage) : undefined;
+      const connectionId = req.query.connectionId && req.query.connectionId !== 'ALL' ? String(req.query.connectionId) : undefined;
+      const handledBy = req.query.handledBy && req.query.handledBy !== 'ALL' ? (String(req.query.handledBy) as any) : undefined;
+      const assignedUserId = req.query.assignedUserId === 'unassigned'
+        ? null
+        : req.query.assignedUserId
+        ? String(req.query.assignedUserId)
+        : undefined;
+      const search = req.query.search ? String(req.query.search) : undefined;
+      const limit = req.query.limit ? Number(req.query.limit) : 50;
+      const offset = req.query.offset ? Number(req.query.offset) : 0;
+
+      let resolvedConnectionId = connectionId;
+      if (connectionId && !z.string().uuid().safeParse(connectionId).success) {
+        const { data: conn } = await ctx.db
+          .from('connections')
+          .select('id')
+          .or(`name.eq.${connectionId},provider_instance_id.eq.${connectionId}`)
+          .maybeSingle();
+        if (conn) {
+          resolvedConnectionId = conn.id;
+        }
+      }
+
+      const result = await ctx.inboxRepo.listConversations(ctx.orgId, {
+        stage,
+        connectionId: resolvedConnectionId,
+        handledBy,
+        assignedUserId,
+        search,
+        limit,
+        offset,
+      });
+      res.json(result);
+    } catch (err: any) {
+      logger.error({ err }, 'Erro ao listar conversas do inbox');
+      res.status(500).json({ error: err.message || 'Falha ao listar conversas.' });
+    }
+  });
+
+  inboxRouter.get('/conversations/:id', async (req, res) => {
+    try {
+      const ctx = await getInboxContext(req.query.organizationId as string);
+      if (!ctx) {
+        res.status(404).json({ error: 'Supabase não conectado.' });
+        return;
+      }
+      const convId = z.string().uuid().parse(req.params.id);
+      const conv = await ctx.inboxRepo.getConversation(ctx.orgId, convId);
+      if (!conv) {
+        res.status(404).json({ error: 'Conversa não encontrada.' });
+        return;
+      }
+      const messages = await ctx.inboxRepo.getMessages(ctx.orgId, convId);
+      res.json({ conversation: conv, messages });
+    } catch (err: any) {
+      logger.error({ err }, 'Erro ao carregar conversa');
+      res.status(500).json({ error: err.message || 'Falha ao carregar conversa.' });
+    }
+  });
+
+  inboxRouter.post('/conversations/:id/takeover', async (req, res) => {
+    try {
+      const ctx = await getInboxContext(req.query.organizationId as string);
+      if (!ctx) {
+        res.status(404).json({ error: 'Supabase não conectado.' });
+        return;
+      }
+      const convId = z.string().uuid().parse(req.params.id);
+      const updated = await ctx.inboxRepo.takeover(ctx.orgId, convId, 'agent_operator');
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Falha no takeover.' });
+    }
+  });
+
+  inboxRouter.post('/conversations/:id/release', async (req, res) => {
+    try {
+      const ctx = await getInboxContext(req.query.organizationId as string);
+      if (!ctx) {
+        res.status(404).json({ error: 'Supabase não conectado.' });
+        return;
+      }
+      const convId = z.string().uuid().parse(req.params.id);
+      const updated = await ctx.inboxRepo.release(ctx.orgId, convId, 'agent_operator');
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Falha no release.' });
+    }
+  });
+
+  inboxRouter.patch('/conversations/:id/stage', async (req, res) => {
+    try {
+      const ctx = await getInboxContext(req.query.organizationId as string);
+      if (!ctx) {
+        res.status(404).json({ error: 'Supabase não conectado.' });
+        return;
+      }
+      const convId = z.string().uuid().parse(req.params.id);
+      const stage = normalizeConversationStage(req.body.stage);
+      const updated = await ctx.inboxRepo.updateStage(ctx.orgId, convId, stage as any, 'agent_operator');
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Falha ao atualizar estágio.' });
+    }
+  });
+
+  inboxRouter.post('/conversations/:id/messages', async (req, res) => {
+    try {
+      const ctx = await getInboxContext(req.query.organizationId as string);
+      if (!ctx) {
+        res.status(404).json({ error: 'Supabase não conectado.' });
+        return;
+      }
+      const convId = z.string().uuid().parse(req.params.id);
+      const content = (req.body?.content || '').trim();
+      if (!content) {
+        res.status(400).json({ error: 'Conteúdo da mensagem é obrigatório.' });
+        return;
+      }
+
+      const conv = await ctx.inboxRepo.getConversation(ctx.orgId, convId);
+      if (!conv) {
+        res.status(404).json({ error: 'Conversa não encontrada.' });
+        return;
+      }
+
+      // 1. Salva a mensagem humana no Supabase
+      const msg = await ctx.inboxRepo.sendHumanMessage({
+        organizationId: ctx.orgId,
+        connectionId: conv.connection_id,
+        conversationId: conv.id,
+        content,
+        actorId: 'agent_operator',
+      });
+
+      // 2. Dispara a mensagem no WhatsApp via Evolution API
+      try {
+        let instanceName = conv.connection?.name || 'whatsapp';
+        const { data: connRecord } = await ctx.db
+          .from('connections')
+          .select('name, provider_instance_id')
+          .eq('id', conv.connection_id)
+          .maybeSingle();
+
+        if (connRecord) {
+          instanceName = connRecord.provider_instance_id || connRecord.name || instanceName;
+        }
+
+        const phone = conv.lead?.phone;
+        if (phone) {
+          const settings = standaloneStore.getSettings();
+          const evoClient = getEvoClient(settings.evolutionServerUrl, settings.evolutionApiKey);
+          await evoClient.sendTextMessage(instanceName, phone, content);
+          logger.info({ instanceName, phone, textLength: content.length }, 'Mensagem manual do inbox enviada ao WhatsApp');
+        }
+      } catch (evoErr: any) {
+        logger.warn({ err: evoErr.message }, 'Falha ao enviar mensagem do inbox para o WhatsApp');
+      }
+
+      res.status(201).json(msg);
+    } catch (err: any) {
+      logger.error({ err }, 'Erro ao enviar mensagem no inbox');
+      res.status(500).json({ error: err.message || 'Falha ao enviar mensagem.' });
+    }
+  });
+
+  app.use('/api/inbox', inboxRouter);
+
   // --- SETTINGS STANDALONE ---
   app.get('/api/settings', (_req, res) => {
     const settings = standaloneStore.getSettings();
@@ -979,6 +1172,17 @@ export function createApp(config: ApiConfig = {}): Express {
     const orgId = req.params.organizationId;
     if (!config.supabaseUrl || !config.anonKey || orgId === 'undefined' || orgId === 'standalone-org' || orgId === 'null') {
       knowledgeRouter(req, res, next);
+      return;
+    }
+    next();
+  });
+
+  // Fallback for standalone org inbox requests
+  app.use('/api/organizations/:organizationId/inbox', (req, res, next) => {
+    const orgId = req.params.organizationId;
+    const authHeader = req.get('authorization') || '';
+    if (!config.supabaseUrl || !config.anonKey || orgId === 'undefined' || orgId === 'standalone-org' || orgId === 'null' || !authHeader) {
+      inboxRouter(req, res, next);
       return;
     }
     next();

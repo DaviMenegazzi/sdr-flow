@@ -98,13 +98,27 @@ export function InboxPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const isStandalone = !activeOrg || !session?.access_token || activeOrg === 'standalone-org';
+  const inboxBaseUrl = isStandalone ? '/api/inbox' : `/api/organizations/${activeOrg}/inbox`;
+
+  const getHeaders = (hasBody = false) => {
+    const headers: Record<string, string> = {};
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+    if (hasBody) {
+      headers['Content-Type'] = 'application/json';
+    }
+    return headers;
+  };
+
   useEffect(() => {
     async function loadConnections() {
       const merged: Array<{ id: string; name: string; provider: string; status: string }> = [];
       const seen = new Set<string>();
 
       // Load org connections if authenticated
-      if (session && activeOrg) {
+      if (session && activeOrg && !isStandalone) {
         try {
           const res = await fetch(`/api/organizations/${activeOrg}/connections`, {
             headers: { Authorization: `Bearer ${session.access_token}` },
@@ -135,26 +149,13 @@ export function InboxPage() {
       setConnections(merged);
     }
     void loadConnections();
-  }, [session, activeOrg]);
+  }, [session, activeOrg, isStandalone]);
 
-  useEffect(() => {
-    if (!session || !activeOrg) return;
-    loadConversations();
-  }, [session, activeOrg, stageFilter, agentFilter, connectionFilter]);
-
-  useEffect(() => {
-    if (!session || !activeOrg || !selectedId) return;
-    loadConversationDetail(selectedId);
-  }, [session, activeOrg, selectedId]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  async function loadConversations() {
-    if (!session || !activeOrg) return;
-    setLoadingList(true);
-    setError(null);
+  async function loadConversations(isBackground = false) {
+    if (!isBackground) {
+      setLoadingList(true);
+      setError(null);
+    }
     try {
       const params = new URLSearchParams();
       if (connectionFilter !== 'ALL') params.set('connectionId', connectionFilter);
@@ -162,48 +163,82 @@ export function InboxPage() {
       if (agentFilter !== 'ALL') params.set('handledBy', agentFilter);
       if (searchTerm.trim()) params.set('search', searchTerm.trim());
 
-      const res = await fetch(`/api/organizations/${activeOrg}/inbox/conversations?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${session.access_token}` },
+      const res = await fetch(`${inboxBaseUrl}/conversations?${params.toString()}`, {
+        headers: getHeaders(),
       });
       if (!res.ok) throw new Error('Erro ao listar conversas');
       const data = await res.json();
-      setConversations(data.conversations || []);
+      const list: ConversationItem[] = data.conversations || [];
+      setConversations(list);
 
-      if (data.conversations?.length > 0 && !selectedId) {
-        setSelectedId(data.conversations[0].id);
-      }
+      setSelectedId(prev => {
+        if (!prev && list.length > 0 && list[0]) return list[0].id;
+        return prev;
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar lista de conversas.');
+      if (!isBackground) {
+        setError(err instanceof Error ? err.message : 'Erro ao carregar lista de conversas.');
+      }
     } finally {
-      setLoadingList(false);
+      if (!isBackground) {
+        setLoadingList(false);
+      }
     }
   }
 
-  async function loadConversationDetail(id: string) {
-    if (!session || !activeOrg) return;
-    setLoadingMessages(true);
+  async function loadConversationDetail(id: string, isBackground = false) {
+    if (!isBackground) {
+      setLoadingMessages(true);
+    }
     try {
-      const res = await fetch(`/api/organizations/${activeOrg}/inbox/conversations/${id}`, {
-        headers: { Authorization: `Bearer ${session.access_token}` },
+      const res = await fetch(`${inboxBaseUrl}/conversations/${id}`, {
+        headers: getHeaders(),
       });
       if (!res.ok) throw new Error('Erro ao carregar conversa');
       const data = await res.json();
       setSelectedConv(data.conversation);
       setMessages(data.messages || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar mensagens.');
+      if (!isBackground) {
+        setError(err instanceof Error ? err.message : 'Erro ao carregar mensagens.');
+      }
     } finally {
-      setLoadingMessages(false);
+      if (!isBackground) {
+        setLoadingMessages(false);
+      }
     }
   }
+
+  // Load conversations when filters change, and poll every 5 seconds
+  useEffect(() => {
+    loadConversations(false);
+    const interval = setInterval(() => {
+      loadConversations(true);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [inboxBaseUrl, stageFilter, agentFilter, connectionFilter, searchTerm]);
+
+  // Load conversation detail when selectedId changes, and poll every 4 seconds
+  useEffect(() => {
+    if (!selectedId) return;
+    loadConversationDetail(selectedId, false);
+    const interval = setInterval(() => {
+      loadConversationDetail(selectedId, true);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [inboxBaseUrl, selectedId]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages.length]);
 
   async function handleTakeover() {
     if (!selectedConv) return;
     setActionLoading(true);
     try {
-      const res = await fetch(`/api/organizations/${activeOrg}/inbox/conversations/${selectedConv.id}/takeover`, {
+      const res = await fetch(`${inboxBaseUrl}/conversations/${selectedConv.id}/takeover`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${session?.access_token}`, 'Content-Type': 'application/json' },
+        headers: getHeaders(true),
       });
       if (!res.ok) throw new Error('Falha ao assumir conversa.');
       const updated = await res.json();
@@ -220,9 +255,9 @@ export function InboxPage() {
     if (!selectedConv) return;
     setActionLoading(true);
     try {
-      const res = await fetch(`/api/organizations/${activeOrg}/inbox/conversations/${selectedConv.id}/release`, {
+      const res = await fetch(`${inboxBaseUrl}/conversations/${selectedConv.id}/release`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${session?.access_token}`, 'Content-Type': 'application/json' },
+        headers: getHeaders(true),
       });
       if (!res.ok) throw new Error('Falha ao devolver conversa.');
       const updated = await res.json();
@@ -238,9 +273,9 @@ export function InboxPage() {
   async function handleStageChange(newStage: string) {
     if (!selectedConv) return;
     try {
-      const res = await fetch(`/api/organizations/${activeOrg}/inbox/conversations/${selectedConv.id}/stage`, {
+      const res = await fetch(`${inboxBaseUrl}/conversations/${selectedConv.id}/stage`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${session?.access_token}`, 'Content-Type': 'application/json' },
+        headers: getHeaders(true),
         body: JSON.stringify({ stage: newStage }),
       });
       if (!res.ok) throw new Error('Falha ao atualizar estágio.');
@@ -260,9 +295,9 @@ export function InboxPage() {
     setReplyText('');
 
     try {
-      const res = await fetch(`/api/organizations/${activeOrg}/inbox/conversations/${selectedConv.id}/messages`, {
+      const res = await fetch(`${inboxBaseUrl}/conversations/${selectedConv.id}/messages`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${session?.access_token}`, 'Content-Type': 'application/json' },
+        headers: getHeaders(true),
         body: JSON.stringify({ content }),
       });
       if (!res.ok) throw new Error('Falha ao enviar mensagem.');
@@ -300,7 +335,7 @@ export function InboxPage() {
               <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0 }}>Inbox</h2>
             </div>
             <button
-              onClick={loadConversations}
+              onClick={() => { void loadConversations(); }}
               style={{ minHeight: '28px', padding: '4px 8px', border: 0, background: 'transparent' }}
               title="Atualizar lista"
             >
@@ -335,7 +370,7 @@ export function InboxPage() {
               placeholder="Buscar por nome, telefone..."
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && loadConversations()}
+              onKeyDown={e => e.key === 'Enter' && void loadConversations()}
             />
           </div>
 
