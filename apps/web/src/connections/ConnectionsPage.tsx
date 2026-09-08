@@ -83,11 +83,55 @@ export function ConnectionsPage() {
 
   // Modal for viewing QR of existing connection
   const [activeQrModal, setActiveQrModal] = useState<string | null>(null);
+  const [qrError, setQrError] = useState<string | null>(null);
 
   useEffect(() => {
     void loadConnections();
     void loadActiveFlows();
   }, [activeOrg, session?.access_token]);
+
+  // Polling for QR when the existing-connection QR modal is open
+  useEffect(() => {
+    if (!activeQrModal) return;
+    let timer: any = null;
+    let cancelled = false;
+
+    async function pollQr() {
+      if (cancelled || !activeQrModal) return;
+      try {
+        const url = activeOrg && session?.access_token
+          ? `/api/organizations/${activeOrg}/connections/${activeQrModal}/qr`
+          : `/api/connections/evolution/qr/${encodeURIComponent(activeQrModal)}`;
+        const headers: Record<string, string> = session?.access_token
+          ? { Authorization: `Bearer ${session.access_token}` }
+          : {};
+        const res = await fetch(url, { headers });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.connected || data.status === 'connected') {
+            setActiveQrModal(null);
+            setMessage('Conexão estabelecida com sucesso!');
+            void loadConnections();
+            return;
+          }
+          if (data.base64) { setQrBase64(data.base64); setQrError(null); }
+          else if (data.error) setQrError(data.error);
+          if (data.code) setQrCodeString(data.code);
+        } else {
+          const err = await res.json().catch(() => null);
+          setQrError(err?.error || `Erro ${res.status}`);
+        }
+      } catch {
+        setQrError('Falha na comunicação com o servidor.');
+      }
+      if (!cancelled) timer = setTimeout(pollQr, 3000);
+    }
+
+    setQrBase64(null);
+    setQrError(null);
+    void pollQr();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [activeQrModal, activeOrg, session?.access_token]);
 
   // Polling for QR / Connection status during wizard step 3
   useEffect(() => {
@@ -748,10 +792,7 @@ export function ConnectionsPage() {
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                       {conn.provider === 'evolution' && conn.status !== 'connected' && (
                         <button
-                          onClick={() => {
-                            setActiveQrModal(conn.id);
-                            void fetchLiveQr(conn.id);
-                          }}
+                          onClick={() => setActiveQrModal(conn.name || conn.id)}
                           style={{ padding: '4px 8px', minHeight: 26, fontSize: 11, gap: 4 }}
                         >
                           <QrCode size={13} /> QR Code
@@ -950,18 +991,26 @@ export function ConnectionsPage() {
         >
           <div style={{ background: 'var(--color-bg-primary)', padding: 30, borderRadius: 12, maxWidth: 420, width: '90%', textAlign: 'center' }}>
             <h2>Escanear QR Code</h2>
-            <p className="muted">Abra o WhatsApp e aponte para reconectar.</p>
+            <p className="muted">Abra o WhatsApp &gt; Dispositivos Conectados &gt; Conectar um aparelho e aponte a câmera.</p>
             {qrBase64 ? (
-              <img
-                src={qrBase64.startsWith('data:') ? qrBase64 : `data:image/png;base64,${qrBase64}`}
-                alt="QR Code"
-                style={{ width: 220, height: 220, margin: '16px auto', display: 'block' }}
-              />
+              <div style={{ margin: '20px auto', padding: 16, background: '#fff', border: '1px solid var(--color-border-secondary)', borderRadius: 12, display: 'inline-block' }}>
+                <img
+                  src={qrBase64.startsWith('data:') ? qrBase64 : `data:image/png;base64,${qrBase64}`}
+                  alt="QR Code"
+                  style={{ width: 220, height: 220, display: 'block' }}
+                />
+              </div>
+            ) : qrError ? (
+              <div style={{ margin: '20px 0', padding: 12, background: '#fee2e2', color: '#b91c1c', borderRadius: 8, fontSize: 13 }}>
+                {qrError}
+              </div>
             ) : (
-              <p className="muted" style={{ margin: '30px 0' }}>Gerando QR Code...</p>
+              <div style={{ padding: 30, margin: '20px 0' }}>
+                <RefreshCw size={24} className="spin" style={{ margin: '0 auto 10px', display: 'block', animation: 'spin 1s linear infinite' }} />
+                <p className="muted">Aguardando QR Code da Evolution API...</p>
+              </div>
             )}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-              <button onClick={() => void fetchLiveQr(activeQrModal)}>Atualizar</button>
               <button className="primary" onClick={() => setActiveQrModal(null)}>Fechar</button>
             </div>
           </div>

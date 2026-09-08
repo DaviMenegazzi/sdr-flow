@@ -64,26 +64,36 @@ export function createApp(config: ApiConfig = {}): Express {
 
   // Direct WhatsApp & Evolution Endpoints (Standalone Mode)
   const getEvoClient = (serverUrl?: string, apiKey?: string) => {
-    const url = serverUrl?.trim() || config.evolutionServerUrl || process.env.EVOLUTION_SERVER_URL || 'http://127.0.0.1:8080';
-    const key = apiKey?.trim() || config.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'EvolutionApiSecretKey_2026';
+    const settings = standaloneStore.getSettings();
+    const url = serverUrl?.trim() || settings.evolutionServerUrl || config.evolutionServerUrl || process.env.EVOLUTION_SERVER_URL || 'http://127.0.0.1:8080';
+    const key = apiKey?.trim() || settings.evolutionApiKey || config.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'EvolutionApiSecretKey_2026';
     return new EvolutionClient(url, key);
+  };
+  const getPublicApiUrl = () => {
+    const settings = standaloneStore.getSettings();
+    return settings.publicApiUrl || config.publicApiUrl || process.env.PUBLIC_API_URL || '';
   };
 
   app.get('/api/connections/instances', async (req, res) => {
     try {
       const client = getEvoClient(req.query.serverUrl as string, req.query.apiKey as string);
       const instances = await client.fetchInstances();
-      const mapped = instances.map((inst: any) => ({
-        id: inst.id || inst.name,
-        name: inst.name,
-        provider: 'evolution' as const,
-        status: inst.connectionStatus === 'open' ? 'connected' : inst.connectionStatus === 'connecting' ? 'connecting' : 'disconnected',
-        phone: inst.number || (inst.ownerJid ? inst.ownerJid.replace(/@.*$/, '') : null),
-        provider_instance_id: inst.name,
-        created_at: inst.createdAt || new Date().toISOString(),
-        profileName: inst.profileName,
-        profilePicUrl: inst.profilePicUrl,
-      }));
+      const mapped = instances.map((inst: any) => {
+        const instanceName = inst.instance?.instanceName || inst.name || inst.instanceName || inst.id || 'unknown';
+        const connStatus = inst.instance?.status || inst.connectionStatus || inst.state;
+        return {
+          id: instanceName,
+          name: instanceName,
+          provider: 'evolution' as const,
+          status: connStatus === 'open' || connStatus === 'connected' ? 'connected' : connStatus === 'connecting' ? 'connecting' : 'disconnected',
+          phone: inst.number || inst.instance?.number || (inst.ownerJid ? inst.ownerJid.replace(/@.*$/, '') : (inst.instance?.ownerJid ? inst.instance.ownerJid.replace(/@.*$/, '') : null)),
+          provider_instance_id: instanceName,
+          created_at: inst.createdAt || inst.instance?.createdAt || new Date().toISOString(),
+          profileName: inst.profileName || inst.instance?.profileName,
+          profilePicUrl: inst.profilePicUrl || inst.instance?.profilePicUrl,
+          webhook_url: `/api/webhooks/evolution/instance/${encodeURIComponent(instanceName)}`,
+        };
+      });
       res.json(mapped);
     } catch (err) {
       logger.error({ err }, 'Falha ao buscar instâncias da Evolution API');
@@ -107,6 +117,22 @@ export function createApp(config: ApiConfig = {}): Express {
         logger.info({ instanceName, err: err.message }, 'Instância já pode existir, prosseguindo com conexão');
       }
 
+      // Auto-configure webhook so incoming messages reach our API
+      const webhookPath = `/api/webhooks/evolution/instance/${encodeURIComponent(instanceName)}`;
+      const publicUrl = getPublicApiUrl();
+      let webhookWarning: string | undefined;
+      if (publicUrl) {
+        try {
+          await client.setWebhook(instanceName, `${publicUrl}${webhookPath}`);
+          logger.info({ instanceName, webhookUrl: `${publicUrl}${webhookPath}` }, 'Webhook configurado automaticamente');
+        } catch (err: any) {
+          webhookWarning = `Webhook não pôde ser configurado automaticamente: ${err.message}. Configure manualmente.`;
+          logger.warn({ instanceName, err: err.message }, 'Falha ao configurar webhook automaticamente');
+        }
+      } else {
+        webhookWarning = 'URL pública da API não configurada em Configurações. Configure o webhook manualmente na Evolution API.';
+      }
+
       const qr = await client.getConnectQr(instanceName);
       const state = await client.getConnectionState(instanceName);
 
@@ -119,6 +145,8 @@ export function createApp(config: ApiConfig = {}): Express {
         phone: phone || null,
         created_at: new Date().toISOString(),
         qr,
+        webhook_url: webhookPath,
+        setupWarning: webhookWarning,
       });
     } catch (err) {
       logger.error({ err }, 'Erro ao criar instância Evolution');
