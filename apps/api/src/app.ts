@@ -72,6 +72,69 @@ export function createApp(config: ApiConfig = {}): Express {
       },
     });
   });
+  app.get('/api/debug/inbox-test', async (_req, res) => {
+    const steps: Array<{ step: string; ok: boolean; detail?: any }> = [];
+    if (!config.supabaseUrl || !config.serviceRoleKey) {
+      res.json({ error: 'Supabase não configurado', steps });
+      return;
+    }
+    const db = serviceDatabase(config.supabaseUrl, config.serviceRoleKey);
+
+    // 1. Read orgs
+    const { data: orgs, error: orgReadErr } = await db.from('organizations').select('id, name');
+    steps.push({ step: 'read_orgs', ok: !orgReadErr, detail: orgReadErr || { count: orgs?.length, orgs } });
+
+    // 2. Create org if needed
+    let orgId = orgs?.[0]?.id;
+    if (!orgId) {
+      const { data: newOrg, error: orgErr } = await db.from('organizations').insert({ name: 'SDR Flow Test' }).select('id').single();
+      steps.push({ step: 'create_org', ok: !orgErr, detail: orgErr || newOrg });
+      orgId = newOrg?.id;
+    } else {
+      steps.push({ step: 'create_org', ok: true, detail: 'already exists: ' + orgId });
+    }
+
+    if (!orgId) { res.json({ error: 'Falha ao obter org', steps }); return; }
+
+    // 3. Create connection
+    const { data: conn, error: connErr } = await db.from('connections').insert({
+      organization_id: orgId, name: 'debug-test', provider: 'evolution', status: 'connected', provider_instance_id: 'debug-test',
+    }).select().single();
+    steps.push({ step: 'create_connection', ok: !connErr, detail: connErr || { id: conn?.id } });
+
+    // 4. Create lead
+    const convRepo = new ConversationRepository(db);
+    try {
+      const lead = await convRepo.findOrCreateLead(orgId, '5500000000000', 'Debug Test');
+      steps.push({ step: 'create_lead', ok: true, detail: { id: lead.id } });
+
+      // 5. Create conversation
+      if (conn) {
+        const conversation = await convRepo.findOrCreateConversation(orgId, conn.id, lead.id);
+        steps.push({ step: 'create_conversation', ok: true, detail: { id: conversation.id } });
+
+        // 6. Save message
+        const msg = await convRepo.saveMessage({
+          organizationId: orgId, connectionId: conn.id, conversationId: conversation.id,
+          direction: 'INBOUND', sender: 'lead', content: 'Mensagem de teste do debug endpoint', messageType: 'text',
+        });
+        steps.push({ step: 'save_message', ok: true, detail: { id: msg.id } });
+      }
+    } catch (e: any) {
+      steps.push({ step: 'db_operation', ok: false, detail: e?.message || String(e) });
+    }
+
+    // Cleanup in FK order: messages → conversations → leads → connections
+    if (conn) {
+      await db.from('messages').delete().eq('connection_id', conn.id);
+      await db.from('conversations').delete().eq('connection_id', conn.id);
+      await db.from('connections').delete().eq('id', conn.id);
+    }
+    await db.from('leads').delete().eq('phone', '5500000000000').eq('organization_id', orgId);
+
+    res.json({ success: steps.every(s => s.ok), steps });
+  });
+
   app.get('/api/catalog', (_req,res) => res.json(Object.values(catalog).map(({ schema: _schema, ...node }) => node)));
   app.post('/api/flows/validate', (req,res) => {
     const input = req.body && typeof req.body === 'object' && 'graph' in req.body ? req.body.graph : req.body;
