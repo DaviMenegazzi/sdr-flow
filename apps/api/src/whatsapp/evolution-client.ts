@@ -77,6 +77,17 @@ export class EvolutionClient {
     }, 20000);
   }
 
+  async fetchInstances(): Promise<any[]> {
+    try {
+      const data = await this.request<any[]>('/instance/fetchInstances', {
+        method: 'GET',
+      }, 10000);
+      return Array.isArray(data) ? data : [];
+    } catch {
+      return [];
+    }
+  }
+
   async getConnectQr(instanceName: string): Promise<EvolutionQrResponse> {
     try {
       const data = await this.request<any>(`/instance/connect/${encodeURIComponent(instanceName)}`, {

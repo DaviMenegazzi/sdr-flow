@@ -26,7 +26,14 @@ import { AlertMonitor } from './alerts/alert-monitor.js';
 import { OpenAIProvider, type RuntimeConfig } from '@sdr/flow/server';
 import { secretMatches, verifyMetaSignature } from './whatsapp/webhook-auth.js';
 
-export interface ApiConfig extends RuntimeConfig { supabaseUrl?: string; anonKey?: string; serviceRoleKey?: string; publicApiUrl?: string }
+export interface ApiConfig extends RuntimeConfig {
+  supabaseUrl?: string;
+  anonKey?: string;
+  serviceRoleKey?: string;
+  publicApiUrl?: string;
+  evolutionServerUrl?: string;
+  evolutionApiKey?: string;
+}
 export function createApp(config: ApiConfig = {}): Express {
   const app = express();
   app.disable('x-powered-by');
@@ -48,6 +55,131 @@ export function createApp(config: ApiConfig = {}): Express {
   });
   app.get('/api/catalog', (_req,res) => res.json(Object.values(catalog).map(({ schema: _schema, ...node }) => node)));
   app.post('/api/flows/validate', (req,res) => { const result = validateGraph(req.body); res.status(result.valid ? 200 : 422).json(result); });
+
+  // Direct WhatsApp & Evolution Endpoints (Standalone Mode)
+  const getEvoClient = (serverUrl?: string, apiKey?: string) => {
+    const url = serverUrl?.trim() || config.evolutionServerUrl || process.env.EVOLUTION_SERVER_URL || 'http://127.0.0.1:8080';
+    const key = apiKey?.trim() || config.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'EvolutionApiSecretKey_2026';
+    return new EvolutionClient(url, key);
+  };
+
+  app.get('/api/connections/instances', async (req, res) => {
+    try {
+      const client = getEvoClient(req.query.serverUrl as string, req.query.apiKey as string);
+      const instances = await client.fetchInstances();
+      const mapped = instances.map((inst: any) => ({
+        id: inst.id || inst.name,
+        name: inst.name,
+        provider: 'evolution' as const,
+        status: inst.connectionStatus === 'open' ? 'connected' : inst.connectionStatus === 'connecting' ? 'connecting' : 'disconnected',
+        phone: inst.number || (inst.ownerJid ? inst.ownerJid.replace(/@.*$/, '') : null),
+        provider_instance_id: inst.name,
+        created_at: inst.createdAt || new Date().toISOString(),
+        profileName: inst.profileName,
+        profilePicUrl: inst.profilePicUrl,
+      }));
+      res.json(mapped);
+    } catch (err) {
+      logger.error({ err }, 'Falha ao buscar instâncias da Evolution API');
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao comunicar com Evolution API.' });
+    }
+  });
+
+  app.post('/api/connections/evolution/create', async (req, res) => {
+    try {
+      const { name, serverUrl, apiKey, phone } = req.body;
+      if (!name || typeof name !== 'string') {
+        res.status(400).json({ error: 'Nome da instância é obrigatório.' });
+        return;
+      }
+      const instanceName = name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+      const client = getEvoClient(serverUrl, apiKey);
+
+      try {
+        await client.createInstance(instanceName, phone);
+      } catch (err: any) {
+        logger.info({ instanceName, err: err.message }, 'Instância já pode existir, prosseguindo com conexão');
+      }
+
+      const qr = await client.getConnectQr(instanceName);
+      const state = await client.getConnectionState(instanceName);
+
+      res.status(201).json({
+        id: instanceName,
+        name: instanceName,
+        provider: 'evolution',
+        provider_instance_id: instanceName,
+        status: state.state === 'open' ? 'connected' : 'connecting',
+        phone: phone || null,
+        created_at: new Date().toISOString(),
+        qr,
+      });
+    } catch (err) {
+      logger.error({ err }, 'Erro ao criar instância Evolution');
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao criar instância na Evolution.' });
+    }
+  });
+
+  app.get('/api/connections/evolution/qr/:instanceName', async (req, res) => {
+    try {
+      const instanceName = req.params.instanceName;
+      const client = getEvoClient(req.query.serverUrl as string, req.query.apiKey as string);
+
+      const state = await client.getConnectionState(instanceName);
+      if (state.state === 'open') {
+        res.json({ connected: true, status: 'connected' });
+        return;
+      }
+
+      const qr = await client.getConnectQr(instanceName);
+      res.json({
+        connected: false,
+        status: state.state || 'connecting',
+        code: qr.code,
+        base64: qr.base64,
+        pairingCode: qr.pairingCode,
+        error: qr.error,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao obter QR code.' });
+    }
+  });
+
+  app.get('/api/connections/evolution/status/:instanceName', async (req, res) => {
+    try {
+      const instanceName = req.params.instanceName;
+      const client = getEvoClient(req.query.serverUrl as string, req.query.apiKey as string);
+      const state = await client.getConnectionState(instanceName);
+      res.json({
+        status: state.state === 'open' ? 'connected' : state.state === 'connecting' ? 'connecting' : 'disconnected',
+        state: state.state,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao verificar status.' });
+    }
+  });
+
+  app.post('/api/connections/evolution/restart/:instanceName', async (req, res) => {
+    try {
+      const instanceName = req.params.instanceName;
+      const client = getEvoClient(req.body?.serverUrl, req.body?.apiKey);
+      await client.restartInstance(instanceName);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao reiniciar instância.' });
+    }
+  });
+
+  app.delete('/api/connections/evolution/:instanceName', async (req, res) => {
+    try {
+      const instanceName = req.params.instanceName;
+      const client = getEvoClient(req.query.serverUrl as string, req.query.apiKey as string);
+      await client.deleteInstance(instanceName);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao excluir instância.' });
+    }
+  });
 
   // Webhooks
   async function webhookCredentials(id: string, provider: 'evolution' | 'meta') {

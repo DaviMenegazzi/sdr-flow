@@ -39,9 +39,9 @@ export function ConnectionsPage() {
   const [provider, setProvider] = useState<'evolution' | 'meta'>('evolution');
   const [phone, setPhone] = useState('');
 
-  // Evolution fields
-  const [evolutionUrl, setEvolutionUrl] = useState('http://localhost:8080');
-  const [evolutionApiKey, setEvolutionApiKey] = useState('');
+  // Evolution fields (prefilled with VPS default values)
+  const [evolutionUrl, setEvolutionUrl] = useState('http://127.0.0.1:8080');
+  const [evolutionApiKey, setEvolutionApiKey] = useState('EvolutionApiSecretKey_2026');
 
   // Meta fields
   const [metaPhoneNumberId, setMetaPhoneNumberId] = useState('');
@@ -61,23 +61,27 @@ export function ConnectionsPage() {
   const [activeQrModal, setActiveQrModal] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!activeOrg || !session?.access_token) return;
     void loadConnections();
   }, [activeOrg, session?.access_token]);
 
   // Polling for QR / Connection status during wizard step 3
   useEffect(() => {
-    if (wizardStep !== 3 || !createdConnectionId || provider !== 'evolution' || !session?.access_token) return;
+    if (wizardStep !== 3 || !createdConnectionId || provider !== 'evolution') return;
 
     let timer: any = null;
     let cancelled = false;
 
     async function pollQrAndStatus() {
-      if (cancelled || !createdConnectionId || !session?.access_token) return;
+      if (cancelled || !createdConnectionId) return;
       try {
-        const res = await fetch(`/api/organizations/${activeOrg}/connections/${createdConnectionId}/qr`, {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        });
+        const url = activeOrg && session?.access_token
+          ? `/api/organizations/${activeOrg}/connections/${createdConnectionId}/qr`
+          : `/api/connections/evolution/qr/${encodeURIComponent(createdConnectionId)}`;
+        const headers: Record<string, string> = session?.access_token
+          ? { Authorization: `Bearer ${session.access_token}` }
+          : {};
+
+        const res = await fetch(url, { headers });
         if (res.ok) {
           const data = await res.json();
           if (data.connected || data.status === 'connected') {
@@ -103,15 +107,24 @@ export function ConnectionsPage() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [wizardStep, createdConnectionId, activeOrg, session?.access_token]);
+  }, [wizardStep, createdConnectionId, activeOrg, session?.access_token, provider]);
 
   async function loadConnections() {
-    if (!activeOrg || !session?.access_token) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/organizations/${activeOrg}/connections`, {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
+      if (activeOrg && session?.access_token) {
+        const res = await fetch(`/api/organizations/${activeOrg}/connections`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setConnections(data);
+          return;
+        }
+      }
+
+      // Standalone direct Evolution mode
+      const res = await fetch('/api/connections/instances');
       if (res.ok) {
         const data = await res.json();
         setConnections(data);
@@ -128,8 +141,8 @@ export function ConnectionsPage() {
     setName('');
     setProvider('evolution');
     setPhone('');
-    setEvolutionUrl('http://localhost:8080');
-    setEvolutionApiKey('');
+    setEvolutionUrl('http://127.0.0.1:8080');
+    setEvolutionApiKey('EvolutionApiSecretKey_2026');
     setMetaPhoneNumberId('');
     setMetaWabaId('');
     setMetaAccessToken('');
@@ -143,57 +156,99 @@ export function ConnectionsPage() {
   }
 
   async function handleCreateConnection() {
-    if (!activeOrg || !session?.access_token) return;
+    if (!name.trim()) {
+      setMessage('Informe um nome para a conexão.');
+      return;
+    }
+
     setBusy(true);
     setMessage('');
 
     try {
-      const payload: any = {
-        name: name.trim(),
-        provider,
-        phone: phone.trim() || undefined,
-      };
+      // 1. Multi-tenant Supabase Mode (se autenticado)
+      if (activeOrg && session?.access_token) {
+        const payload: any = {
+          name: name.trim(),
+          provider,
+          phone: phone.trim() || undefined,
+        };
 
-      if (provider === 'evolution') {
-        payload.credentials = {
-          serverUrl: evolutionUrl.trim(),
-          apiKey: evolutionApiKey.trim(),
-        };
-      } else {
-        payload.credentials = {
-          phoneNumberId: metaPhoneNumberId.trim(),
-          wabaId: metaWabaId.trim(),
-          accessToken: metaAccessToken.trim(),
-          appSecret: metaAppSecret.trim(),
-          verifyToken: metaVerifyToken.trim(),
-        };
+        if (provider === 'evolution') {
+          payload.credentials = {
+            serverUrl: evolutionUrl.trim(),
+            apiKey: evolutionApiKey.trim(),
+          };
+        } else {
+          payload.credentials = {
+            phoneNumberId: metaPhoneNumberId.trim(),
+            wabaId: metaWabaId.trim(),
+            accessToken: metaAccessToken.trim(),
+            appSecret: metaAppSecret.trim(),
+            verifyToken: metaVerifyToken.trim(),
+          };
+        }
+
+        const res = await fetch(`/api/organizations/${activeOrg}/connections`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || 'Falha ao criar conexão.');
+        }
+
+        setCreatedConnectionId(data.id);
+        if (data.setupWarning) setMessage(data.setupWarning);
+        if (data.phone) setPhone(data.phone);
+
+        if (provider === 'evolution') {
+          setWizardStep(3);
+          void fetchLiveQr(data.id);
+        } else {
+          setWizardStep(4);
+        }
+        void loadConnections();
+        return;
       }
 
-      const res = await fetch(`/api/organizations/${activeOrg}/connections`, {
+      // 2. Direct Evolution Standalone Mode (sem necessidade de login/Supabase)
+      if (provider !== 'evolution') {
+        setMessage('A conexão oficial Meta Cloud API requer autenticação de organização.');
+        setBusy(false);
+        return;
+      }
+
+      const res = await fetch('/api/connections/evolution/create', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          serverUrl: evolutionUrl.trim(),
+          apiKey: evolutionApiKey.trim(),
+          phone: phone.trim() || undefined,
+        }),
       });
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Falha ao criar conexão.');
+        throw new Error(data.error || 'Falha ao criar instância na Evolution.');
       }
 
       setCreatedConnectionId(data.id);
-      if (data.setupWarning) setMessage(data.setupWarning);
-      if (data.phone) setPhone(data.phone);
+      if (data.qr?.base64) setQrBase64(data.qr.base64);
+      if (data.qr?.code) setQrCodeString(data.qr.code);
 
-      if (provider === 'evolution') {
-        setWizardStep(3);
-        // Fetch initial QR immediately
-        void fetchLiveQr(data.id);
-      } else {
-        // Meta connects immediately upon verification
+      if (data.status === 'connected') {
         setWizardStep(4);
+      } else {
+        setWizardStep(3);
+        // Garantir busca do QR code caso a resposta inicial venha vazia
+        if (!data.qr?.base64) void fetchLiveQr(data.id);
       }
 
       void loadConnections();
@@ -205,11 +260,15 @@ export function ConnectionsPage() {
   }
 
   async function fetchLiveQr(connectionId: string) {
-    if (!activeOrg || !session?.access_token) return;
     try {
-      const res = await fetch(`/api/organizations/${activeOrg}/connections/${connectionId}/qr`, {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
+      const url = activeOrg && session?.access_token
+        ? `/api/organizations/${activeOrg}/connections/${connectionId}/qr`
+        : `/api/connections/evolution/qr/${encodeURIComponent(connectionId)}`;
+      const headers: Record<string, string> = session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : {};
+
+      const res = await fetch(url, { headers });
       if (res.ok) {
         const data = await res.json();
         if (data.base64) setQrBase64(data.base64);
@@ -225,13 +284,16 @@ export function ConnectionsPage() {
   }
 
   async function handleVerify(connId: string) {
-    if (!activeOrg || !session?.access_token) return;
     setMessage(`Verificando conexão...`);
     try {
-      const res = await fetch(`/api/organizations/${activeOrg}/connections/${connId}/verify`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
+      const url = activeOrg && session?.access_token
+        ? `/api/organizations/${activeOrg}/connections/${connId}/verify`
+        : `/api/connections/evolution/status/${encodeURIComponent(connId)}`;
+      const headers: Record<string, string> = session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : {};
+
+      const res = await fetch(url, { method: activeOrg ? 'POST' : 'GET', headers });
       const data = await res.json();
       if (res.ok) {
         setMessage(`Status verificado: ${data.status}`);
@@ -245,12 +307,15 @@ export function ConnectionsPage() {
   }
 
   async function handleRestart(connId: string) {
-    if (!activeOrg || !session?.access_token) return;
     try {
-      await fetch(`/api/organizations/${activeOrg}/connections/${connId}/restart`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
+      const url = activeOrg && session?.access_token
+        ? `/api/organizations/${activeOrg}/connections/${connId}/restart`
+        : `/api/connections/evolution/restart/${encodeURIComponent(connId)}`;
+      const headers: Record<string, string> = session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }
+        : { 'Content-Type': 'application/json' };
+
+      await fetch(url, { method: 'POST', headers });
       setMessage('Comando de reinício enviado à instância.');
       setTimeout(() => void loadConnections(), 2000);
     } catch {
@@ -259,13 +324,16 @@ export function ConnectionsPage() {
   }
 
   async function handleDelete(connId: string) {
-    if (!activeOrg || !session?.access_token) return;
     if (!confirm('Deseja realmente remover esta conexão? O atendimento neste número será interrompido.')) return;
     try {
-      const res = await fetch(`/api/organizations/${activeOrg}/connections/${connId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
+      const url = activeOrg && session?.access_token
+        ? `/api/organizations/${activeOrg}/connections/${connId}`
+        : `/api/connections/evolution/${encodeURIComponent(connId)}`;
+      const headers: Record<string, string> = session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : {};
+
+      const res = await fetch(url, { method: 'DELETE', headers });
       if (res.ok) {
         setMessage('Conexão removida com sucesso.');
         void loadConnections();
