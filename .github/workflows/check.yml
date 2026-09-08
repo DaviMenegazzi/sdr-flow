@@ -1,0 +1,46 @@
+name: CI / CD Pipeline — SDR Flow
+on: [push, pull_request]
+
+jobs:
+  verify:
+    name: Typecheck, Test, Build & Compose Config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:types:check
+      - run: pnpm check
+      - run: docker compose config --quiet
+
+  docker-build:
+    name: Multi-stage Docker Build Verification
+    runs-on: ubuntu-latest
+    needs: [verify]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Web Target
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: web
+          push: false
+      - name: Build API Target
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: api
+          push: false
+      - name: Build Worker Target
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: worker
+          push: false

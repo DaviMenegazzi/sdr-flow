@@ -1,0 +1,112 @@
+name: sdr-flow
+services:
+  traefik:
+    image: traefik:v3.6
+    command:
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --ping=true
+    ports:
+      - "${PORT_HTTP:-8080}:80"
+      - "${PORT_HTTPS:-8443}:443"
+    volumes:
+      - ${TRAEFIK_CONFIG:-./infra/traefik.yml}:/etc/traefik/dynamic.yml:ro
+      - traefik_acme:/etc/traefik/acme
+    depends_on:
+      web: { condition: service_healthy }
+    healthcheck:
+      test: [CMD, traefik, healthcheck, --ping]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        VITE_SUPABASE_URL: ${SUPABASE_URL:-}
+        VITE_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1/health]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+  api:
+    build: { context: ., target: api }
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3001
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      OPENAI_TIMEOUT_MS: ${OPENAI_TIMEOUT_MS:-60000}
+      WHATSAPP_SEND_ENABLED: ${WHATSAPP_SEND_ENABLED:-false}
+      META_GRAPH_VERSION: ${META_GRAPH_VERSION:-v21.0}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+  worker:
+    build: { context: ., target: worker }
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      OPENAI_TIMEOUT_MS: ${OPENAI_TIMEOUT_MS:-60000}
+      WHATSAPP_SEND_ENABLED: ${WHATSAPP_SEND_ENABLED:-false}
+      META_GRAPH_VERSION: ${META_GRAPH_VERSION:-v21.0}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+    depends_on:
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3002').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+  redis:
+    image: redis:7.4-alpine
+    command: [redis-server, --appendonly, "yes", --appendfsync, everysec, --maxmemory-policy, noeviction]
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  # Enable when provider credentials and a dedicated Evolution database are available.
+  evolution:
+    image: ${EVOLUTION_IMAGE:-evoapicloud/evolution-api:v2.3.7}
+    profiles: [whatsapp]
+    environment:
+      SERVER_PORT: 8080
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-}
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "false"
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: ${EVOLUTION_DATABASE_URL:-}
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://redis:6379/1
+      CACHE_REDIS_PREFIX_KEY: evolution
+      CACHE_LOCAL_ENABLED: "false"
+    volumes: [evolution_instances:/evolution/instances]
+    depends_on:
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+volumes:
+  redis_data:
+  evolution_instances:
+  traefik_acme:

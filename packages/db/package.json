@@ -1,0 +1,20 @@
+{
+  "name": "@sdr/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sdr/shared": "workspace:*",
+    "@supabase/supabase-js": "^2.116.0"
+  }
+}

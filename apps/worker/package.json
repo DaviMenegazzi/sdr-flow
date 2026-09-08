@@ -1,0 +1,21 @@
+{
+  "name": "@sdr/worker",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sdr/db": "workspace:*",
+    "@sdr/shared": "workspace:*",
+    "@sdr/flow": "workspace:*",
+    "bullmq": "^5.60.0",
+    "dotenv": "^17.4.2",
+    "pino": "^9.6.0"
+  },
+  "devDependencies": {}
+}

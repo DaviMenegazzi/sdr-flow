@@ -1,0 +1,79 @@
+# Traefik v3 Production Configuration — SDR Flow
+# Includes TLS via Let's Encrypt, HTTP-to-HTTPS redirect, WebSocket support and security headers.
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+
+  websecure:
+    address: ":443"
+    http:
+      tls:
+        certResolver: letsencrypt
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: ${ACME_EMAIL:-admin@sdrflow.com}
+      storage: /etc/traefik/acme/acme.json
+      httpChallenge:
+        entryPoint: web
+
+http:
+  routers:
+    api-router:
+      rule: PathPrefix(`/api`) || PathPrefix(`/ws`)
+      entryPoints: [websecure]
+      service: api-service
+      middlewares: [secure-headers, api-ratelimit]
+
+    web-router:
+      rule: PathPrefix(`/`)
+      entryPoints: [websecure]
+      service: web-service
+      middlewares: [secure-headers, compress]
+
+  middlewares:
+    secure-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        customFrameOptionsValue: SAMEORIGIN
+        referrerPolicy: "strict-origin-when-cross-origin"
+
+    api-ratelimit:
+      rateLimit:
+        average: 100
+        burst: 50
+        period: 1s
+
+    compress:
+      compress: true
+
+  services:
+    api-service:
+      loadBalancer:
+        servers:
+          - url: http://api:3001
+        passHostHeader: true
+        responseForwarding:
+          flushInterval: 100ms
+
+    web-service:
+      loadBalancer:
+        servers:
+          - url: http://web:80
+        passHostHeader: true

@@ -1,0 +1,12 @@
+import { config } from 'dotenv';
+import { fileURLToPath } from 'node:url';
+import pino from 'pino';
+import { createApp } from './app.js';
+import { wsServer } from './ws.js';
+import { runtimeConfigFromEnv } from '@sdr/flow/server';
+config({ path: fileURLToPath(new URL('../../../.env', import.meta.url)), quiet: true });
+const logger = pino({ redact: ['req.headers.authorization', '*.key', '*.token'] });
+const app = createApp({ ...runtimeConfigFromEnv(process.env), publicApiUrl: process.env.PUBLIC_API_URL, supabaseUrl: process.env.SUPABASE_URL, anonKey: process.env.SUPABASE_ANON_KEY, serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY });
+const server = app.listen(Number(process.env.PORT ?? 3001),process.env.HOST ?? '127.0.0.1',() => logger.info({ port: process.env.PORT ?? 3001 },'SDR Flow API ready'));
+wsServer.attach(server);
+for (const signal of ['SIGINT','SIGTERM']) process.on(signal,() => { wsServer.close(); server.close(() => process.exit(0)); });

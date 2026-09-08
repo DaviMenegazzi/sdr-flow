@@ -1,0 +1,26 @@
+{
+  "name": "@sdr/api",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sdr/db": "workspace:*",
+    "@sdr/flow": "workspace:*",
+    "@sdr/shared": "workspace:*",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "pino": "^9.6.0",
+    "ws": "^8.21.3",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/ws": "^8.18.1"
+  }
+}

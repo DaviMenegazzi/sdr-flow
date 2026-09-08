@@ -1,0 +1,34 @@
+{
+  "name": "sdr-flow",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "dev:web": "pnpm --filter @sdr/web dev",
+    "dev:api": "pnpm --filter @sdr/api dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "db:types": "tsx scripts/generate-db-types.ts",
+    "db:types:check": "tsx scripts/generate-db-types.ts --check",
+    "test:db": "vitest run tests/database.test.ts"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@types/node": "^22.9.0",
+    "@types/supertest": "^6.0.2",
+    "@types/ws": "^8.18.1",
+    "supertest": "^7.1.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0",
+    "ws": "^8.21.3"
+  }
+}
