@@ -245,6 +245,35 @@ export class InboxRepository {
       last_message: null,
     }));
 
+    // Supabase's query builder has no lateral join, so fetch the latest
+    // message per conversation in a second pass and merge it in.
+    if (conversations.length > 0) {
+      const { data: recentMessages } = await this.db
+        .from('messages')
+        .select('id, conversation_id, sender, direction, content, created_at')
+        .in('conversation_id', conversations.map(c => c.id))
+        .order('created_at', { ascending: false });
+
+      const lastByConversation = new Map<string, any>();
+      for (const message of recentMessages || []) {
+        if (!lastByConversation.has(message.conversation_id)) {
+          lastByConversation.set(message.conversation_id, message);
+        }
+      }
+      for (const conversation of conversations) {
+        const message = lastByConversation.get(conversation.id);
+        if (message) {
+          conversation.last_message = {
+            id: message.id,
+            sender: message.sender,
+            direction: message.direction,
+            content: message.content,
+            created_at: message.created_at,
+          };
+        }
+      }
+    }
+
     return { conversations, total: count || conversations.length };
   }
 
