@@ -95,8 +95,11 @@ export function InboxPage() {
   const [loadingMessages, setLoadingMessages] = useState<boolean>(false);
   const [actionLoading, setActionLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [syncStalled, setSyncStalled] = useState<boolean>(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const listFailureStreak = useRef(0);
+  const detailFailureStreak = useRef(0);
 
   const isStandalone = !activeOrg || !session?.access_token || activeOrg === 'standalone-org';
   const inboxBaseUrl = isStandalone ? '/api/inbox' : `/api/organizations/${activeOrg}/inbox`;
@@ -170,13 +173,20 @@ export function InboxPage() {
       const data = await res.json();
       const list: ConversationItem[] = data.conversations || [];
       setConversations(list);
+      listFailureStreak.current = 0;
+      if (detailFailureStreak.current === 0) setSyncStalled(false);
 
       setSelectedId(prev => {
         if (!prev && list.length > 0 && list[0]) return list[0].id;
         return prev;
       });
     } catch (err) {
-      if (!isBackground) {
+      listFailureStreak.current += 1;
+      if (isBackground) {
+        // eslint-disable-next-line no-console
+        console.warn('[inbox] Falha ao atualizar lista de conversas em segundo plano:', err);
+        if (listFailureStreak.current >= 3) setSyncStalled(true);
+      } else {
         setError(err instanceof Error ? err.message : 'Erro ao carregar lista de conversas.');
       }
     } finally {
@@ -198,8 +208,15 @@ export function InboxPage() {
       const data = await res.json();
       setSelectedConv(data.conversation);
       setMessages(data.messages || []);
+      detailFailureStreak.current = 0;
+      if (listFailureStreak.current === 0) setSyncStalled(false);
     } catch (err) {
-      if (!isBackground) {
+      detailFailureStreak.current += 1;
+      if (isBackground) {
+        // eslint-disable-next-line no-console
+        console.warn('[inbox] Falha ao atualizar mensagens em segundo plano:', err);
+        if (detailFailureStreak.current >= 3) setSyncStalled(true);
+      } else {
         setError(err instanceof Error ? err.message : 'Erro ao carregar mensagens.');
       }
     } finally {
@@ -227,6 +244,24 @@ export function InboxPage() {
     }, 4000);
     return () => clearInterval(interval);
   }, [inboxBaseUrl, selectedId]);
+
+  // Background tabs throttle setInterval heavily (sometimes to once a minute
+  // or less), which can make the inbox look frozen for a while even though
+  // nothing is broken. Force an immediate refresh whenever the tab regains
+  // focus so it never stays stale for longer than the user was away.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      void loadConversations(true);
+      if (selectedId) void loadConversationDetail(selectedId, true);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [inboxBaseUrl, selectedId, stageFilter, agentFilter, connectionFilter, searchTerm]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -333,9 +368,27 @@ export function InboxPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <MessageSquare size={19} color="var(--color-bg-accent)" />
               <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0 }}>Inbox</h2>
+              {syncStalled && (
+                <span
+                  title="As atualizações automáticas pararam de responder. Clique em atualizar ou recarregue a página."
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px',
+                    color: '#dc2626', background: '#dc262614', border: '1px solid #dc262633',
+                    borderRadius: '5px', padding: '2px 6px', fontWeight: 600,
+                  }}
+                >
+                  <AlertCircle size={11} /> Desatualizado
+                </span>
+              )}
             </div>
             <button
-              onClick={() => { void loadConversations(); }}
+              onClick={() => {
+                listFailureStreak.current = 0;
+                detailFailureStreak.current = 0;
+                setSyncStalled(false);
+                void loadConversations();
+                if (selectedId) void loadConversationDetail(selectedId);
+              }}
               style={{ minHeight: '28px', padding: '4px 8px', border: 0, background: 'transparent' }}
               title="Atualizar lista"
             >
