@@ -1095,6 +1095,24 @@ export function createApp(config: ApiConfig = {}): Express {
           { instanceName, phone: event.phone, executionId, error: result.error, steps: result.steps },
           'Falha na execução do fluxo — mensagem não foi enviada de volta ao WhatsApp'
         );
+      } else {
+        const sentSomething = result.steps.some(
+          step => step.nodeType.startsWith('output.') && (step.output as any)?.sent
+        );
+        if (!sentSomething) {
+          const lastStep = result.steps[result.steps.length - 1];
+          logger.warn(
+            {
+              instanceName,
+              phone: event.phone,
+              executionId,
+              status: result.status,
+              lastNode: lastStep ? { id: lastStep.nodeId, type: lastStep.nodeType, output: lastStep.output } : null,
+              steps: result.steps,
+            },
+            'Fluxo terminou sem enviar mensagem — provável porta sem conexão (ex: guard.response_policy → rewrite/blocked)'
+          );
+        }
       }
 
       res.status(200).json({ ok: true, executionId, status: result.status });
