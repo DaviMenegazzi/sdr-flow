@@ -118,6 +118,9 @@ if (!redis) {
             const res = await convRepo.syncDeal(_o, lId, deal);
             return { id: res.id };
           },
+          getMessages: async (_o, convId, limit) => {
+            return convRepo.getMessages(_o, convId, limit);
+          },
         },
         now: () => new Date(),
       };

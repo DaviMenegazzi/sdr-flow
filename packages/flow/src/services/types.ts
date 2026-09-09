@@ -32,6 +32,7 @@ export interface DatabaseService {
     providerMessageId?: string;
   }): Promise<{ id: string }>;
   syncDeal(organizationId: string, leadId: string, deal: { title: string; status: 'OPEN' | 'WON' | 'LOST'; score?: number }): Promise<{ id: string }>;
+  getMessages?(organizationId: string, conversationId: string, limit: number): Promise<Array<{ id: string; content: string; sender: string; direction: string }>>;
   searchKnowledge?(organizationId: string, collection: string, query: string, limit: number, threshold: number): Promise<string[]>;
   getConversationSummary?(organizationId: string, conversationId: string): Promise<string | null>;
   saveConversationSummary?(organizationId: string, conversationId: string, summary: string, messageCount: number, tokensUsed: number): Promise<void>;

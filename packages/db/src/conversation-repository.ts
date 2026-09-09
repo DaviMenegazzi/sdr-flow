@@ -185,6 +185,25 @@ export class ConversationRepository {
     return data;
   }
 
+  async getMessages(
+    organizationId: string,
+    conversationId: string,
+    limit = 50
+  ): Promise<Array<{ id: string; content: string; sender: string; direction: string }>> {
+    const { data, error } = await this.db
+      .from('messages')
+      .select('id, content, sender, direction')
+      .eq('organization_id', organizationId)
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+    const rows = data || [];
+    rows.reverse();
+    return rows;
+  }
+
   async syncDeal(
     organizationId: string,
     leadId: string,

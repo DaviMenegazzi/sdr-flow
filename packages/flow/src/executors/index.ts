@@ -202,7 +202,23 @@ export const executors: Record<NodeType, NodeExecutor> = {
   // --- CONTEXT ---
   'context.memory': async (ctx, config, services) => {
     const commercialMemory = MemoryService.getCommercialMemory(ctx.lead);
-    const recentMessages = MemoryService.formatRecentMessages(ctx.messages, config.recentMessages);
+    const count = config.recentMessages ?? 6;
+
+    let messages = ctx.messages;
+    if (services.db?.getMessages) {
+      try {
+        const rows = await services.db.getMessages(ctx.organizationId, ctx.conversationId, count);
+        if (rows.length > 0) {
+          messages = rows.map(r => ({
+            id: r.id,
+            text: r.content,
+            fromMe: r.direction === 'OUTBOUND',
+          }));
+        }
+      } catch { /* fall back to ctx.messages */ }
+    }
+
+    const recentMessages = MemoryService.formatRecentMessages(messages, count);
     let summary: string | null = null;
     if (services.db?.getConversationSummary) {
       summary = await services.db.getConversationSummary(ctx.organizationId, ctx.conversationId);

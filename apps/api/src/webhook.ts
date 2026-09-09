@@ -426,6 +426,9 @@ export async function processInboundWebhook(
           const res = await convRepo.syncDeal(_org, leadId, deal);
           return { id: res.id };
         },
+        getMessages: async (_org, convId, limit) => {
+          return convRepo.getMessages(_org, convId, limit);
+        },
       },
       now: () => new Date(),
     };
