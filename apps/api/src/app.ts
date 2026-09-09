@@ -1090,6 +1090,13 @@ export function createApp(config: ApiConfig = {}): Express {
         },
       });
 
+      if (result.status === 'failed') {
+        logger.error(
+          { instanceName, phone: event.phone, executionId, error: result.error, steps: result.steps },
+          'Falha na execução do fluxo — mensagem não foi enviada de volta ao WhatsApp'
+        );
+      }
+
       res.status(200).json({ ok: true, executionId, status: result.status });
     } catch (err) {
       logger.error({ err }, 'Erro ao processar webhook da instância Evolution');
