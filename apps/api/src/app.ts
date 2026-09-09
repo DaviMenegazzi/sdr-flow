@@ -1248,6 +1248,10 @@ export function createApp(config: ApiConfig = {}): Express {
             }
             return { id: crypto.randomUUID() };
           },
+          async getMessages(_org, convId, limit) {
+            if (!capturedConvRepo) return [];
+            return capturedConvRepo.getMessages(_org, convId, limit);
+          },
           async searchKnowledge(_org, collection, query, limit, threshold) {
             const hits = standaloneStore.searchKnowledge(query, {
               collection: collection === 'default' ? undefined : collection,

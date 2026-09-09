@@ -107,6 +107,9 @@ Abaixo estão todos os nós aceitos e como deve ser preenchido o seu respectivo 
 
 #### C) Entrada (`input.*`)
 - `input.buffer`: `"config": { "windowSeconds": 10 }` (min: 5, max: 120).
+  Com `REDIS_URL` configurada, cada mensagem reinicia essa janela no Redis/BullMQ. Apenas a geração
+  mais recente roda e ela recebe o lote completo; execuções ultrapassadas não podem enviar mensagem,
+  chamar webhook nem alterar agenda. Sem Redis, a execução permanece inline — não há buffer em memória.
 - `input.media`: `"config": { "transcribeAudio": true, "describeImages": true }`.
 - `input.normalize`: `"config": { "country": "BR" }` (valores: `"BR"` ou `"international"`).
 

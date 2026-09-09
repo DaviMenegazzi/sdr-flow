@@ -1,0 +1,283 @@
+{
+  "schemaVersion": 1,
+  "nodes": [
+    {
+      "id": "start",
+      "type": "trigger.message_received",
+      "label": "Mensagem recebida",
+      "position": { "x": 0, "y": 300 },
+      "config": {}
+    },
+    {
+      "id": "test_mode",
+      "type": "guard.test_mode",
+      "label": "Modo teste",
+      "position": { "x": 280, "y": 300 },
+      "config": {
+        "enabled": true,
+        "allowedPhones": ["555592311146"]
+      }
+    },
+    {
+      "id": "end_blocked",
+      "type": "output.end",
+      "label": "Fim (bloqueado)",
+      "position": { "x": 280, "y": 100 },
+      "config": {}
+    },
+    {
+      "id": "guard_human",
+      "type": "guard.human_takeover",
+      "label": "Humano ativo?",
+      "position": { "x": 560, "y": 300 },
+      "config": {}
+    },
+    {
+      "id": "buffer",
+      "type": "input.buffer",
+      "label": "Agrupar (5s)",
+      "position": { "x": 840, "y": 300 },
+      "config": {
+        "windowSeconds": 5
+      }
+    },
+    {
+      "id": "media",
+      "type": "input.media",
+      "label": "Audio e imagem",
+      "position": { "x": 1120, "y": 300 },
+      "config": {
+        "transcribeAudio": true,
+        "describeImages": true
+      }
+    },
+    {
+      "id": "memory",
+      "type": "context.memory",
+      "label": "Memoria comercial",
+      "position": { "x": 1400, "y": 300 },
+      "config": {
+        "recentMessages": 15
+      }
+    },
+    {
+      "id": "storage",
+      "type": "context.storage",
+      "label": "Base Vida Card",
+      "position": { "x": 1680, "y": 300 },
+      "config": {
+        "content": "{\"brand\":\"Vida Card\",\"tipo\":\"Cartao de beneficios e descontos em saude. NAO e plano de saude.\",\"proposta\":\"Terceira via: SUS tem filas de meses, planos custam R$400-900/pessoa. Vida Card: mensalidade fixa, carencia zero, sem fidelidade, ate 5 pessoas.\",\"cartoes\":{\"essence\":{\"valor\":\"R$ 59,90/mes\",\"pessoas\":\"ate 5\",\"extra\":\"+R$ 6/mes cada\",\"consultas\":\"desconto ate 75%\",\"farmacia\":\"Sao Joao, Panvel, Raia\",\"odonto\":\"pagamento facilitado\",\"equipamentos\":\"30 dias\",\"telemedicina\":\"nao\",\"seguro_vida\":\"nao\",\"funeral\":\"nao\"},\"smart\":{\"valor\":\"R$ 69,90/mes\",\"pessoas\":\"ate 5\",\"extra\":\"+R$ 12/mes cada\",\"consultas\":\"desconto ate 75%\",\"farmacia\":\"Sao Joao, Panvel, Raia\",\"odonto\":\"pagamento facilitado\",\"equipamentos\":\"60 dias\",\"telemedicina\":\"24h (Clinico e Pediatra)\",\"seguro_vida\":\"sim + sorteios R$5mil/mes\",\"funeral\":\"nao\",\"destaque\":\"MAIS VENDIDO\"},\"premium\":{\"valor\":\"R$ 89,90/mes\",\"pessoas\":\"ate 5\",\"extra\":\"+R$ 18/mes cada\",\"consultas\":\"desconto ate 75%\",\"farmacia\":\"Sao Joao, Panvel, Raia\",\"odonto\":\"pagamento facilitado\",\"equipamentos\":\"90 dias\",\"telemedicina\":\"24h (Clinico e Pediatra)\",\"seguro_vida\":\"sim + sorteios R$5mil/mes\",\"funeral\":\"sim\",\"destaque\":\"MAIS COMPLETO\"}},\"pj\":{\"individual\":\"R$ 25/colaborador/mes\",\"familiar\":\"R$ 45/colaborador/mes (5 pessoas)\"},\"diferenciais\":[\"Carencia zero - carteirinha digital ativa no mesmo dia\",\"Ate 5 pessoas, sem limite de idade ou parentesco\",\"Consultas R$80-150 vs particular R$250-450 (economia 70-75%)\",\"Sem reajuste por faixa etaria\",\"Cancela quando quiser, sem multa\",\"Pronto atendimento online 24h (Smart/Premium)\",\"Descontos farmacias Sao Joao, Panvel, Raia\",\"Emprestimo equipamentos reabilitacao\",\"Seguro morte acidental + sorteios R$5mil (Smart/Premium)\",\"Assistencia funeral completa (Premium)\"],\"compliance\":[\"NUNCA dizer: plano, plano de saude, convenio, carencia do plano, cobertura ilimitada\",\"SEMPRE dizer: cartao, cartao de beneficios, cartao de descontos, rede credenciada\",\"Se perguntarem 'e plano?': Nao somos plano de saude. O Vida Card e um cartao de beneficios e descontos em saude com carencia zero e sem fidelidade.\",\"Odontologia: nao divulgar tabela de precos. Informar condicoes facilitadas na rede parceira.\"],\"conversa\":[\"Max 2-3 frases por mensagem\",\"Uma pergunta por interacao\",\"Recomendar Cartao Smart como padrao\",\"Se irritacao: reconhecer e resolver sem pitch\",\"Se pedir humano: handoff imediato\"]}",
+        "variableName": "regras",
+        "outputPorts": ["next"]
+      }
+    },
+    {
+      "id": "knowledge",
+      "type": "context.knowledge",
+      "label": "Precos & Rede",
+      "position": { "x": 1960, "y": 300 },
+      "config": {
+        "collection": "pricing",
+        "topK": 5,
+        "threshold": 0.55
+      }
+    },
+    {
+      "id": "extract",
+      "type": "agent.extract",
+      "label": "Extrair dados",
+      "position": { "x": 2240, "y": 300 },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Leia {{recentMessages}}, {{commercialMemory}} e {{mediaEnrichedText}}.\nAtualize decision.lead_data preservando dados anteriores.\n\nCampos: name, city, interest, urgency, notes, custom_fields\n\nEm custom_fields quando aplicavel:\n- family_size: numero de pessoas a incluir\n- sales_stage: etapa (new, qualifying, presenting, objecting, closing, collecting, confirmed)\n- chosen_card: cartao escolhido (essence, smart, premium) — smart se nao especificou\n- cpf: CPF informado pelo lead\n- dependents: lista de dependentes informados (nomes e parentesco)\n- objection_type: tipo de objecao se houver (price, roi, sus, health, comparing, age, commitment)\n\nREGRAS\n- Nunca apague dado anterior com vazio/null.\n- Interprete respostas curtas pela ultima pergunta do atendente.\n- interest = assunto atual ou 'Vida Card' se interesse generico.\n- notes = resumo conciso do estado comercial atual, nao cumulativo, com no maximo 200 caracteres; substitua o resumo anterior.\n- sales_stage avanca conforme funil: new → qualifying → presenting → objecting → closing → collecting → confirmed\n- Nao invente dados. Nao gere resposta ao lead.\n- Remova referencias a problemas internos do sistema que nao vieram do lead."
+      }
+    },
+    {
+      "id": "update_lead",
+      "type": "action.update_lead",
+      "label": "Salvar lead",
+      "position": { "x": 2520, "y": 300 },
+      "config": {
+        "source": "decision.lead_data"
+      }
+    },
+    {
+      "id": "required",
+      "type": "flow.required_fields",
+      "label": "Campos obrigatorios",
+      "position": { "x": 2800, "y": 300 },
+      "config": {
+        "required": ["interest"],
+        "optional": ["city", "name", "family_size"]
+      }
+    },
+    {
+      "id": "next_action",
+      "type": "agent.next_action",
+      "label": "Decidir acao",
+      "position": { "x": 3080, "y": 300 },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Voce e um vendedor consultivo do Vida Card. Escolha UMA acao. Voce NAO redige a resposta.\n\nMemoria: {{commercialMemory}}\nDados: {{decision.lead_data}}\nHistorico: {{recentMessages}}\nCampos faltantes: {{required_fields.missing}}\nPrecos: {{context.knowledge}}\nRegras: {{regras}}\n\nACOES E QUANDO USAR:\n\nASK_MISSING_FIELD — Qualificar lead OU coletar dados para cadastro:\n  Qualificar (lead novo, precisa entender necessidade):\n    field: 'interest', 'city' ou 'family_size'\n    reason: 'qualify: [o que perguntar]'\n  Coletar dados (lead ja aceitou comprar):\n    field: 'name', 'cpf' ou 'dependents'\n    reason: 'coletar: [qual dado]'\n\nSHOW_PRICE — Apresentar o cartao recomendado:\n  Lead qualificado, sabe necessidade → apresentar Cartao Smart (padrao)\n  reason: 'apresentar: [qual cartao e por que]'\n\nSEND_INFORMATION — Responder, contornar objecao, fechar ou confirmar:\n  Objecao (ta caro, vou pensar, ja tenho SUS, e plano?) → reason: 'objecao: [tipo]'\n  Pergunta sobre produto/beneficio → reason: 'pergunta: [assunto]'\n  Fechar venda (lead demonstrou interesse) → reason: 'fechar: lead quer ativar'\n  Confirmar dados antes de pagamento → reason: 'confirmar: resumir dados do cadastro'\n  Informacao geral / saudacao → reason: '[assunto]'\n\nCREATE_APPOINTMENT — Encaminhar para pagamento (unico handoff planejado):\n  SOMENTE quando: nome + CPF + dependentes coletados E lead confirmou\n  reason: 'pagamento: lead confirmou, encaminhar para gateway'\n\nHANDOFF — Transferir para humano (emergencia):\n  Lead pediu humano explicitamente OU irritacao repetida\n  reason: '[motivo]'\n\nEND — Conversa encerrou naturalmente.\n\nFUNIL (progressao — nunca pular etapas):\n1. Lead novo → ASK_MISSING_FIELD (qualify)\n2. Qualificado → SHOW_PRICE\n3. Objecao → SEND_INFORMATION (objecao)\n4. Pergunta → SEND_INFORMATION (pergunta)\n5. Interesse demonstrado → SEND_INFORMATION (fechar)\n6. Aceitou comprar → ASK_MISSING_FIELD (coletar nome)\n7. Tem nome → ASK_MISSING_FIELD (coletar cpf)\n8. Tem CPF → ASK_MISSING_FIELD (coletar dependents)\n9. Dados completos → SEND_INFORMATION (confirmar)\n10. Confirmou → CREATE_APPOINTMENT (pagamento)\n\nINTERPRETACAO DE RESPOSTAS CURTAS:\n'sim', 'ok', 'quero', 'vamos' = confirmacao da ultima pergunta do atendente:\n  Apos qualificacao → SHOW_PRICE\n  Apos apresentacao → SEND_INFORMATION (fechar)\n  Apos fechamento ('quer ativar?') → ASK_MISSING_FIELD (coletar nome)\n  Apos pedido de dado → ASK_MISSING_FIELD (proximo dado) ou SEND_INFORMATION (confirmar)\n  Apos confirmacao de dados → CREATE_APPOINTMENT\n'nao', 'agora nao', 'vou pensar', 'ta caro' → SEND_INFORMATION (objecao)\nSaudacoes sem historico → ASK_MISSING_FIELD (qualify)\nLead usa 'plano' ou 'convenio' → SEND_INFORMATION (pergunta: esclarecer que e cartao)\n\nreason = nota interna curta (max 15 palavras). Nunca escreva a resposta ao lead no reason.",
+        "system": "Vendedor consultivo Vida Card. Escolha uma acao do funil. reason = nota interna curta, nao a resposta.",
+        "allowedActions": [
+          "ASK_MISSING_FIELD",
+          "SHOW_PRICE",
+          "SEND_INFORMATION",
+          "CREATE_APPOINTMENT",
+          "HANDOFF",
+          "END"
+        ]
+      }
+    },
+    {
+      "id": "route",
+      "type": "flow.switch",
+      "label": "Rotear acao",
+      "position": { "x": 3360, "y": 300 },
+      "config": {
+        "variable": "next_action.action",
+        "cases": [
+          "ASK_MISSING_FIELD",
+          "SHOW_PRICE",
+          "SEND_INFORMATION",
+          "CREATE_APPOINTMENT",
+          "HANDOFF",
+          "END"
+        ]
+      }
+    },
+    {
+      "id": "writer",
+      "type": "agent.decide",
+      "label": "Redigir resposta",
+      "position": { "x": 3640, "y": 300 },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Voce e a Eva, consultora virtual do Vida Card no WhatsApp. Redija UMA resposta ao lead.\n\nAcao: {{next_action.action}}\nCampo: {{next_action.field}}\nRazao interna (NAO copiar): {{next_action.reason}}\nMemoria: {{commercialMemory}}\nHistorico: {{recentMessages}}\nDados lead: {{decision.lead_data}}\nPrecos: {{context.knowledge}}\nRegras: {{regras}}\nViolacoes: {{response_policy.violations}}\n\nFORMA\n- Max 3 frases, 450 caracteres.\n- Uma pergunta por interacao.\n- Tom consultivo, empatico, direto. Nao pareca robo.\n- Use nome do lead quando souber.\n- Nunca repita saudacao, pergunta ou explicacao ja dita.\n- Nunca use termos proibidos (plano de saude, convenio, cobertura ilimitada, carencia do plano, coparticipacao).\n- Nunca copie o campo reason. Nunca inclua tags internas.\n\nPOR ACAO + REASON:\n\nASK_MISSING_FIELD:\n  Se reason comeca com 'qualify' → qualificacao. Pergunte UMA coisa por vez:\n    Primeira interacao: 'Que bom ter voce aqui! Pra te indicar a melhor opcao, me conta: o que voce ta precisando na area da saude?'\n    Necessidade conhecida mas sem cidade: 'Em qual cidade voce esta?'\n    Sem info de familia: 'Quantas pessoas da sua familia voce gostaria de incluir?'\n  Se reason comeca com 'coletar' → coleta de dados para cadastro. Peca UM dado:\n    Nome: 'Pra montar seu cadastro, me passa seu nome completo?'\n    CPF: 'Agora preciso do seu CPF pra registrar.'\n    Dependentes: 'Quais sao os nomes e parentesco dos dependentes que vai incluir?'\n\nSHOW_PRICE: Apresente o Cartao Smart (R$69,90/mes, ate 5 pessoas, carencia zero). Destaque o beneficio MAIS relevante pro lead:\n  Familia grande → '5 pessoas na mesma mensalidade, sem limite de idade'\n  Precisa especialista → 'consultas de R$80-150 vs R$350+ no particular'\n  Idosos → 'sem reajuste por faixa etaria'\n  Praticidade → 'pronto atendimento 24h pelo celular'\n  Termine com: 'O que acha?' ou 'Quer saber mais?'\n  Se lead pediu Essence ou Premium especificamente, apresente o que pediu.\n\nSEND_INFORMATION — verifique o prefixo do reason:\n  'objecao:' → Contorne com empatia + dado concreto:\n    'E plano?' → 'Nao somos plano de saude — e essa e a vantagem! Plano custa R$400-800/pessoa. O Vida Card sai R$69,90 para ate 5 pessoas, carencia zero.'\n    'Pago e ainda pago consulta?' → 'Consulta particular: R$350-450. Com o cartao: R$80-150. Uma ida ao medico economiza quase 3 meses de mensalidade da familia toda.'\n    'Tenho SUS' → 'O SUS e fundamental! Mas quando surge urgencia, esperar meses preocupa. Com o cartao, agenda na mesma semana ou usa pronto atendimento 24h.'\n    'Quase nunca fico doente' → 'O cartao protege ate 5 pessoas. Farmacia com desconto, dentista, exames — a gente usa todo mes.'\n    'Pesquisando outro' → 'No Smart: 5 pessoas, telemedicina 24h, equipamentos, seguro de vida. R$69,90. Outro oferece tudo isso?'\n    'Idosos/adultos' → 'Sem reajuste por idade nem corte por maioridade! Mesma mensalidade fixa.'\n    'Carencia/multa?' → 'Zero carencia e zero fidelidade! Ativo no mesmo dia, cancela sem multa.'\n    'Ta caro/vou pensar' → 'Uma consulta particular ja custa R$350+. Uma ida ao medico paga quase 3 meses de cartao pra familia toda.'\n    Sempre termine com pergunta que reconecte ao interesse.\n  'pergunta:' → Responda com base no conhecimento. Se nao souber, diga que vai confirmar. Termine com pergunta que avance a venda.\n    Odontologia: nao divulgar tabela de precos, informar condicoes facilitadas na rede parceira.\n  'fechar:' → Convide naturalmente:\n    'Posso ja iniciar o cadastro do seu cartao?'\n    'Quer ativar o Smart pra sua familia agora?'\n    'Seu cartao fica ativo hoje mesmo. Vamos fazer?'\n    Nao pressione — convide.\n  'confirmar:' → Resuma os dados: 'Resumindo: Cartao [tipo] (R$XX/mes) para [nome] + [X dependentes: nomes]. Tudo certo pra gente finalizar?'\n  Outros → Responda diretamente. Se saudacao, acolha e pergunte como ajudar.\n\nSe reescrevendo apos violacao: corrija SOMENTE as violacoes apontadas.",
+        "system": "Consultora de vendas Vida Card no WhatsApp. Linguagem humana, curta, consultiva. Max 450 chars, 3 frases. Nunca pareca robo. Vida Card e cartao de beneficios e descontos em saude, NUNCA plano de saude. Nunca invente preco ou beneficio."
+      }
+    },
+    {
+      "id": "policy",
+      "type": "guard.response_policy",
+      "label": "Validar resposta",
+      "position": { "x": 3920, "y": 300 },
+      "config": {
+        "text": "{{decision.reply}}",
+        "maxCharacters": 450,
+        "knownFields": ["name", "city", "interest", "family_size", "cpf"],
+        "blockedTerms": [
+          "plano de saude",
+          "convenio",
+          "cobertura medica ilimitada",
+          "carencia do plano",
+          "consultas gratuitas",
+          "consultas ilimitadas",
+          "exames ilimitados",
+          "clinicas proprias",
+          "coparticipacao",
+          "REPARO:",
+          "ASK_MISSING_FIELD",
+          "SHOW_PRICE",
+          "CREATE_APPOINTMENT",
+          "SEND_INFORMATION",
+          "HANDOFF"
+        ],
+        "requireGroundedPrice": false
+      }
+    },
+    {
+      "id": "smart",
+      "type": "output.smart_message",
+      "label": "Enviar mensagem",
+      "position": { "x": 4200, "y": 300 },
+      "config": {
+        "text": "{{response_policy.message}}",
+        "typing": true,
+        "maxBubbles": 1,
+        "maxCharactersPerBubble": 450
+      }
+    },
+    {
+      "id": "payment_msg",
+      "type": "output.smart_message",
+      "label": "Aviso pagamento",
+      "position": { "x": 3640, "y": 600 },
+      "config": {
+        "text": "Perfeito! Vou te passar agora para nosso consultor finalizar o pagamento e ativar seu cartao. Seu cadastro ja esta todo preparado, vai ser bem rapido!",
+        "typing": true,
+        "maxBubbles": 1,
+        "maxCharactersPerBubble": 450
+      }
+    },
+    {
+      "id": "smart_fallback",
+      "type": "output.smart_message",
+      "label": "Aviso antes handoff",
+      "position": { "x": 3640, "y": 750 },
+      "config": {
+        "text": "Vou te encaminhar para nossa equipe pra te ajudar melhor. Um momento!",
+        "typing": true,
+        "maxBubbles": 1,
+        "maxCharactersPerBubble": 450
+      }
+    },
+    {
+      "id": "handoff",
+      "type": "action.handoff",
+      "label": "Transferir p/ humano",
+      "position": { "x": 4200, "y": 680 },
+      "config": {
+        "reason": "{{next_action.reason}}"
+      }
+    },
+    {
+      "id": "end",
+      "type": "output.end",
+      "label": "Encerrar fluxo",
+      "position": { "x": 4480, "y": 300 },
+      "config": {}
+    }
+  ],
+  "edges": [
+    { "id": "e01", "source": "start", "target": "test_mode", "sourcePort": "next" },
+    { "id": "e02", "source": "test_mode", "target": "guard_human", "sourcePort": "pass" },
+    { "id": "e03", "source": "test_mode", "target": "end_blocked", "sourcePort": "blocked" },
+    { "id": "e04", "source": "guard_human", "target": "buffer", "sourcePort": "pass" },
+    { "id": "e05", "source": "guard_human", "target": "end", "sourcePort": "blocked" },
+    { "id": "e06", "source": "buffer", "target": "media", "sourcePort": "next" },
+    { "id": "e07", "source": "media", "target": "memory", "sourcePort": "next" },
+    { "id": "e08", "source": "memory", "target": "storage", "sourcePort": "next" },
+    { "id": "e09", "source": "storage", "target": "knowledge", "sourcePort": "next" },
+    { "id": "e10", "source": "knowledge", "target": "extract", "sourcePort": "next" },
+    { "id": "e11", "source": "extract", "target": "update_lead", "sourcePort": "next" },
+    { "id": "e12", "source": "update_lead", "target": "required", "sourcePort": "next" },
+    { "id": "e13", "source": "required", "target": "next_action", "sourcePort": "complete" },
+    { "id": "e14", "source": "required", "target": "next_action", "sourcePort": "missing" },
+    { "id": "e15", "source": "next_action", "target": "route", "sourcePort": "next" },
+    { "id": "e16", "source": "route", "target": "writer", "sourcePort": "ASK_MISSING_FIELD" },
+    { "id": "e17", "source": "route", "target": "writer", "sourcePort": "SHOW_PRICE" },
+    { "id": "e18", "source": "route", "target": "writer", "sourcePort": "SEND_INFORMATION" },
+    { "id": "e19", "source": "route", "target": "payment_msg", "sourcePort": "CREATE_APPOINTMENT" },
+    { "id": "e20", "source": "route", "target": "smart_fallback", "sourcePort": "HANDOFF" },
+    { "id": "e21", "source": "route", "target": "end", "sourcePort": "END" },
+    { "id": "e22", "source": "route", "target": "writer", "sourcePort": "default" },
+    { "id": "e23", "source": "writer", "target": "policy", "sourcePort": "next" },
+    { "id": "e24", "source": "policy", "target": "smart", "sourcePort": "pass" },
+    { "id": "e25", "source": "policy", "target": "writer", "sourcePort": "rewrite" },
+    { "id": "e26", "source": "policy", "target": "smart_fallback", "sourcePort": "blocked" },
+    { "id": "e27", "source": "smart", "target": "end", "sourcePort": "next" },
+    { "id": "e28", "source": "payment_msg", "target": "handoff", "sourcePort": "next" },
+    { "id": "e29", "source": "smart_fallback", "target": "handoff", "sourcePort": "next" },
+    { "id": "e30", "source": "handoff", "target": "end", "sourcePort": "next" }
+  ],
+  "testMode": {
+    "enabled": true,
+    "phone": "555592311146"
+  },
+  "loopLimit": 2
+}

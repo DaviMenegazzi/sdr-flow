@@ -72,7 +72,11 @@ export class MemoryService {
     if (extracted.budget !== undefined) current.budget = extracted.budget;
     if (extracted.timeline !== undefined) current.timeline = extracted.timeline;
     if (extracted.decision_maker !== undefined) current.decision_maker = extracted.decision_maker;
-    if (extracted.notes !== undefined) current.notes = extracted.notes;
+    if (extracted.notes !== undefined) {
+      current.notes = typeof extracted.notes === 'string'
+        ? extracted.notes.trim().slice(0, 200)
+        : extracted.notes;
+    }
     if (extracted.stage_intent !== undefined) current.stage_intent = extracted.stage_intent;
 
     if (extracted.pain_points) {

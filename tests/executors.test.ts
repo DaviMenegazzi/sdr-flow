@@ -210,6 +210,33 @@ describe('Flow Executors — core catalog', () => {
     expect((res.variables?.commercialMemory as any).name).toBe('João Silva');
   });
 
+  it('context.memory prefers the persisted conversation history and reports its source', async () => {
+    const ctx = createTestContext();
+    const services = createTestServices({
+      db: {
+        ...createTestServices().db!,
+        getMessages: vi.fn().mockResolvedValue([
+          { id: 'm1', content: 'Quero conhecer o cartão', sender: 'lead', direction: 'INBOUND' },
+          { id: 'm2', content: 'O Smart custa R$ 69,90. O que acha?', sender: 'ai', direction: 'OUTBOUND' },
+          { id: 'm3', content: 'Quero sim, me fala aí', sender: 'lead', direction: 'INBOUND' },
+        ]),
+      },
+    });
+
+    const res = await executors['context.memory'](ctx, { recentMessages: 15 }, services);
+
+    expect(res.variables?.recentMessages).toBe(
+      '[Lead]: Quero conhecer o cartão\n[AI]: O Smart custa R$ 69,90. O que acha?\n[Lead]: Quero sim, me fala aí',
+    );
+    expect((res.output as any).history).toEqual({
+      source: 'database',
+      messagesCount: 3,
+      requestedLimit: 15,
+      databaseReaderAvailable: true,
+      error: null,
+    });
+  });
+
   it('context.crm sets crm context', async () => {
     const ctx = createTestContext();
     const services = createTestServices();
@@ -432,6 +459,21 @@ describe('Flow Executors — core catalog', () => {
     expect(res.port).toBe('next');
     expect(ctx.lead?.city).toBe('Campinas');
     expect(services.db?.updateLead).toHaveBeenCalled();
+  });
+
+  it('action.update_lead bounds commercial notes to a concise non-growing value', async () => {
+    const ctx = createTestContext({
+      variables: {
+        decision: {
+          lead_data: { notes: 'x'.repeat(260) },
+        },
+      },
+    });
+    const services = createTestServices();
+
+    await executors['action.update_lead'](ctx, { source: 'decision.lead_data' }, services);
+
+    expect((ctx.lead?.memory as any).notes).toHaveLength(200);
   });
 
   it('action.crm_sync creates/syncs deal', async () => {

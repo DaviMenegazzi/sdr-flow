@@ -7,7 +7,7 @@ As fases 0 a 7 possuem implementação e testes locais. A homologação de ponta
 | Fase | Escopo Entregue | Status de Verificação |
 |---|---|---|
 | **Fase 0 & 1 — Fundação & Modelagem** | 6 pacotes pnpm, TS estrito, 44 schemas Zod, visual builder React Flow, auto-layout Dagre, migrações PostgreSQL com RLS multi-tenant, RPC `publish_flow` atômica. | Testes locais passaram (`tests/flow.test.ts`, `tests/builder.test.ts`, `tests/database.test.ts`) |
-| **Fase 2 — Runtime & Execução** | 44 executores de nós, motor DAG sequencial, suspensão e retomada (`flow.wait_reply`), memória comercial em PostgreSQL JSONB, CRM em `deals`, gravação de traces (`flow_executions`/`flow_execution_steps`), replay sandbox determinístico, webhooks Evolution/Meta com deduplicação no `IdempotencyGate`, streaming via WebSocket (`/ws`), worker BullMQ. | Testes locais passaram (`tests/engine.test.ts`, `tests/executors.test.ts`, `tests/replay.test.ts`, `tests/ws-trace.test.ts`, `tests/sales-action-nodes.test.ts`) |
+| **Fase 2 — Runtime & Execução** | 44 executores de nós, motor DAG sequencial, suspensão e retomada (`flow.wait_reply`), memória comercial em PostgreSQL JSONB, CRM em `deals`, gravação de traces (`flow_executions`/`flow_execution_steps`), replay sandbox determinístico, webhooks Evolution/Meta com deduplicação no `IdempotencyGate`, buffer persistente de conversa com Redis/BullMQ, streaming via WebSocket (`/ws`), worker BullMQ. | Testes locais passaram (`tests/engine.test.ts`, `tests/executors.test.ts`, `tests/replay.test.ts`, `tests/ws-trace.test.ts`, `tests/sales-action-nodes.test.ts`, `tests/conversation-turn-queue.test.ts`) |
 | **Fase 3 — Login & Organizações** | Autenticação Supabase (senha, magic link, Google OAuth), convites com hash/expiração, papéis (`owner`, `admin`, `agent`, `viewer`), API keys S2S com SHA-256 e escopos granulares, isolamento RLS multi-inquilino. | Testes locais passaram (`tests/auth-orgs.test.ts`) |
 | **Fase 4 — Conexões de WhatsApp** | Multi-provedor (Evolution API v2.3.7 & Meta Cloud API Graph v21.0), encriptação de credenciais em repouso com AES-256-GCM, polling de QR code ao vivo via WebSocket, wizard de 4 passos na UI. | Testes locais passaram (`tests/connections.test.ts`) |
 | **Fase 5 — Contexto do Agente** | Base de conhecimento vetorial com `pgvector` e fallback determinístico, nó `context.knowledge` com filtro por coleção/similaridade, memória comercial formalizada em Zod, resumo progressivo de conversas, interpolação com aliases em português (`{{lead.nome}}`), guarda de alucinação para preços/agenda, playground interativo no frontend. | Testes locais passaram (`tests/knowledge-context.test.ts`) |
@@ -21,7 +21,10 @@ As fases 0 a 7 possuem implementação e testes locais. A homologação de ponta
 1. **Verificação de Tipos**:
    - `pnpm -r typecheck`: 6 pacotes de 6 do monorepo checados (`@sdr/shared`, `@sdr/flow`, `@sdr/db`, `@sdr/api`, `@sdr/web`, `@sdr/worker`) com **0 erros de tipagem**.
 2. **Suíte de Testes Automatizados**:
-   - A suíte possui **298 testes em 25 arquivos**. Em 09/09/2026, os 7 testes do debug do Inbox, exportação JSON e WebSocket passaram; a execução completa ficou em 289/298 por nove divergências preexistentes entre testes e comportamento atual (`api-auth`, health legado, modo teste e política de ciclos do validador).
+   - A suíte possui **305 testes em 27 arquivos**. Em 09/09/2026, a execução completa anterior ao
+     teste unitário final ficou em 295/304; o novo teste do repositório passou isoladamente. Permanecem
+     nove divergências preexistentes entre testes e comportamento atual (`api-auth`, health legado,
+     modo teste e política de ciclos do validador), sem falha nova introduzida por esta entrega.
 3. **Compilação de Produção**:
    - `pnpm -r build`: compilação limpa de todos os pacotes com empacotamento Vite do frontend web em aproximadamente 7 segundos.
 4. **Resolução de Banco de Dados**:
@@ -39,7 +42,27 @@ As fases 0 a 7 possuem implementação e testes locais. A homologação de ponta
 
 Responses API ligada à API e worker; playground com escolha explícita entre OpenAI e mock. Adaptadores Evolution e Meta ligados ao runtime, envio desativado por padrão, webhooks autenticados e acesso às credenciais privadas corrigido com RPCs de serviço. Testes novos cobrem respostas estruturadas, tokens, erros, bloqueio de envio, autenticação e isolamento de organização.
 
-O gateway ainda executa inline e deduplica em memória. Buffer persistente, fila de entrada e retomada automática precisam de integração e homologação. Nenhuma mensagem real foi enviada. Veja PROVIDERS.md para configurar e testar a IA sem WhatsApp.
+Com `REDIS_URL` configurada, o gateway persiste cada mensagem e agenda uma execução atrasada no
+BullMQ. O nó `input.buffer` define uma janela de silêncio de 5 a 120 segundos; cada nova mensagem da
+mesma conversa incrementa sua geração, reinicia a espera e faz a última execução receber o lote
+completo. Locks distribuídos impedem processamento simultâneo entre réplicas. Antes de enviar pelo
+WhatsApp, chamar webhooks ou operar a agenda, o runtime confirma que a geração ainda é a mais nova;
+execuções substituídas são encerradas sem efeitos externos e sem consumir a escuta do debug.
+
+A versão publicada (ou snapshot standalone) é registrada no trabalho atrasado, evitando trocar de
+grafo durante a janela. Sem `REDIS_URL`, o ambiente local mantém execução inline; não existe fallback
+de buffer em memória. A deduplicação HTTP pelo `IdempotencyGate` continua em memória e a homologação
+de ponta a ponta com Redis e provedores reais ainda está pendente. Nenhuma mensagem real foi enviada.
+Veja PROVIDERS.md para configurar e testar a IA sem WhatsApp.
+
+## Histórico persistido no agente — 09/09/2026
+
+O `context.memory` consulta as mensagens persistidas da conversa tanto no webhook multiempresa quanto
+na rota standalone por instância. O trace do nó informa `history.source`, `messagesCount`,
+`requestedLimit`, disponibilidade do leitor de banco e erro de fallback, permitindo distinguir no JSON
+de debug entre histórico carregado, conversa vazia, lote atual e falha no Supabase. Erros deixaram de
+ser silenciosos. O runtime também limita `notes` comerciais a 200 caracteres, enquanto o V11 orienta
+o extrator a substituir o resumo anterior por um retrato conciso do estado atual.
 
 ## Blocos de próxima ação comercial e agenda — 08/09/2026
 

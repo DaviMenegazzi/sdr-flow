@@ -96,7 +96,11 @@ O catálogo atual possui **44 tipos de nó**, divididos em **10 categorias funda
 
 #### 8. Agrupar Mensagens / Buffer (`input.buffer`)
 - **O que faz:** Aguarda uma janela de segundos (ex: 10 segundos) caso o lead envie múltiplas mensagens picadas ("Oi", "Tudo bem?", "Quero saber o preço").
-- **Lógica por trás:** Junta todas as mensagens consecutivas do lead em uma única entrada coerente, evitando que a IA responda a cada palavra solta e gaste tokens desnecessários.
+- **Lógica por trás:** O gateway salva cada mensagem e usa Redis/BullMQ para reiniciar a janela de
+  silêncio da conversa. Só a geração mais recente executa, recebendo todas as mensagens do lote; uma
+  execução que ficar antiga antes do envio é cancelada sem disparar WhatsApp, webhook ou agenda.
+- **Configuração:** `windowSeconds` aceita de 5 a 120 segundos. Em produção, `REDIS_URL` é obrigatória;
+  sem Redis o motor executa inline e não simula buffer em memória.
 - **Portas de saída:** `next`.
 
 #### 9. Processar Mídia (`input.media`)

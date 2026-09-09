@@ -205,17 +205,30 @@ export const executors: Record<NodeType, NodeExecutor> = {
     const count = config.recentMessages ?? 6;
 
     let messages = ctx.messages;
+    let historySource: 'database' | 'database_empty' | 'turn' | 'fallback' = services.db?.getMessages
+      ? 'database_empty'
+      : 'turn';
+    let historyError: string | null = null;
     if (services.db?.getMessages) {
       try {
         const rows = await services.db.getMessages(ctx.organizationId, ctx.conversationId, count);
         if (rows.length > 0) {
+          historySource = 'database';
           messages = rows.map(r => ({
             id: r.id,
             text: r.content,
             fromMe: r.direction === 'OUTBOUND',
           }));
         }
-      } catch { /* fall back to ctx.messages */ }
+      } catch (error) {
+        historySource = 'fallback';
+        historyError = error instanceof Error ? error.message : String(error);
+        console.warn('[context.memory] Falha ao carregar o histórico persistido; usando o lote atual.', {
+          organizationId: ctx.organizationId,
+          conversationId: ctx.conversationId,
+          error: historyError,
+        });
+      }
     }
 
     const recentMessages = MemoryService.formatRecentMessages(messages, count);
@@ -225,7 +238,18 @@ export const executors: Record<NodeType, NodeExecutor> = {
     }
     return {
       port: 'next',
-      output: { commercialMemory, recentMessages, summary },
+      output: {
+        commercialMemory,
+        recentMessages,
+        summary,
+        history: {
+          source: historySource,
+          messagesCount: messages.length,
+          requestedLimit: count,
+          databaseReaderAvailable: Boolean(services.db?.getMessages),
+          error: historyError,
+        },
+      },
       variables: {
         commercialMemory,
         recentMessages,
