@@ -173,6 +173,18 @@ export class ConversationDebugRegistry {
     return cloneSession(session);
   }
 
+  supersede(executionId: string): ConversationDebugSession | null {
+    const key = this.executionKeys.get(executionId);
+    const session = key ? this.sessions.get(key) : null;
+    if (!session) return null;
+    this.executionKeys.delete(executionId);
+    session.status = 'armed';
+    session.startedAt = undefined;
+    session.executionId = undefined;
+    session.events = [];
+    return cloneSession(session);
+  }
+
   failArmed(organizationId: string, conversationId: string, issue: DebugIssue): ConversationDebugSession | null {
     const session = this.sessions.get(sessionKey(organizationId, conversationId));
     if (!session || session.status !== 'armed') return null;

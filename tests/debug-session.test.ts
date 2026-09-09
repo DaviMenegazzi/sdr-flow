@@ -58,4 +58,16 @@ describe('ConversationDebugRegistry', () => {
     expect(failed?.status).toBe('failed');
     expect(failed?.report?.issues[0]?.code).toBe('bot_paused');
   });
+
+  it('rearms the same session when a response is superseded by a newer message', () => {
+    const armed = registry.arm({ organizationId: 'org-1', conversationId: 'conv-1', connectionId: 'conn-1', flow });
+    registry.claim({ organizationId: 'org-1', conversationId: 'conv-1', executionId: 'exec-old', flow });
+
+    const rearmed = registry.supersede('exec-old');
+
+    expect(rearmed?.id).toBe(armed.id);
+    expect(rearmed?.status).toBe('armed');
+    expect(rearmed?.executionId).toBeUndefined();
+    expect(registry.claim({ organizationId: 'org-1', conversationId: 'conv-1', executionId: 'exec-new', flow })?.status).toBe('running');
+  });
 });

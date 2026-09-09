@@ -13,8 +13,10 @@
     "@sdr/db": "workspace:*",
     "@sdr/flow": "workspace:*",
     "@sdr/shared": "workspace:*",
+    "bullmq": "^5.60.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "ioredis": "^5.8.2",
     "pino": "^9.6.0",
     "ws": "^8.21.3",
     "zod": "^4.5.4"

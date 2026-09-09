@@ -4,7 +4,17 @@ import { createRuntimeProviders } from '@sdr/flow/server';
 import { ConnectionRepository, ConversationRepository, ExecutionRepository, serviceDatabase } from '@sdr/db';
 import { wsServer } from './ws.js';
 import { conversationDebugRegistry, type DebugFlowSnapshot } from './debug-session.js';
+import { bufferWindowSeconds, SUPERSEDED_TURN_ERROR, type ConversationTurnQueue } from './conversation-turn-queue.js';
 import type { ApiConfig } from './app.js';
+
+export interface InboundWebhookOptions {
+  turnQueue?: ConversationTurnQueue;
+  bypassQueue?: boolean;
+  messagesAlreadySaved?: boolean;
+  isCurrent?: () => Promise<boolean>;
+  flowId?: string;
+  flowVersionId?: string;
+}
 
 export interface InboundMessageEvent {
   messageId: string;
@@ -134,11 +144,15 @@ export function parseMetaWebhook(payload: any): InboundMessageEvent | null {
 
 export async function processInboundWebhook(
   connectionId: string,
-  event: InboundMessageEvent,
-  config: ApiConfig
+  eventInput: InboundMessageEvent | InboundMessageEvent[],
+  config: ApiConfig,
+  options: InboundWebhookOptions = {},
 ): Promise<Record<string, unknown>> {
+  const events = Array.isArray(eventInput) ? eventInput : [eventInput];
+  const event = events[events.length - 1];
+  if (!event) return { status: 'ignored', reason: 'empty_turn' };
   // 1. Idempotency check
-  if (event.messageId && !idempotencyGate.acquire(event.messageId)) {
+  if (!options.bypassQueue && event.messageId && !idempotencyGate.acquire(event.messageId)) {
     return { status: 'ignored', reason: 'duplicate_message_id', messageId: event.messageId };
   }
 
@@ -217,17 +231,22 @@ export async function processInboundWebhook(
       }
     }
 
-    // 5. Save incoming message
-    await convRepo.saveMessage({
-      organizationId,
-      connectionId,
-      conversationId: conversation.id,
-      direction: 'INBOUND',
-      sender: 'lead',
-      content: event.textContent,
-      messageType: event.messageType,
-      providerMessageId: event.messageId,
-    });
+    // 5. Save incoming message. Buffered jobs reuse the messages already persisted
+    // by the HTTP request that acknowledged each provider event.
+    if (!options.messagesAlreadySaved) {
+      for (const incoming of events) {
+        await convRepo.saveMessage({
+          organizationId,
+          connectionId,
+          conversationId: conversation.id,
+          direction: 'INBOUND',
+          sender: 'lead',
+          content: incoming.textContent,
+          messageType: incoming.messageType,
+          providerMessageId: incoming.messageId,
+        });
+      }
+    }
 
     if (conversation.bot_paused) {
       conversationDebugRegistry.failArmed(organizationId, conversation.id, {
@@ -240,14 +259,15 @@ export async function processInboundWebhook(
     }
 
     // 6. Find published flow for this organization
-    const { data: flow } = await db
+    let flowQuery = db
       .from('flows')
       .select('id, name, published_version_id')
       .eq('organization_id', organizationId)
-      .not('published_version_id', 'is', null)
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .not('published_version_id', 'is', null);
+    flowQuery = options.flowId
+      ? flowQuery.eq('id', options.flowId)
+      : flowQuery.order('updated_at', { ascending: false }).limit(1);
+    const { data: flow } = await flowQuery.maybeSingle();
 
     if (!flow?.published_version_id) {
       conversationDebugRegistry.failArmed(organizationId, conversation.id, {
@@ -259,10 +279,13 @@ export async function processInboundWebhook(
       return { status: 'no_published_flow', organizationId };
     }
 
+    const selectedFlowVersionId = options.flowVersionId || flow.published_version_id;
     const { data: flowVersion } = await db
       .from('flow_versions')
       .select('*')
-      .eq('id', flow.published_version_id)
+      .eq('organization_id', organizationId)
+      .eq('flow_id', flow.id)
+      .eq('id', selectedFlowVersionId)
       .single();
 
     if (!flowVersion?.graph) {
@@ -272,7 +295,27 @@ export async function processInboundWebhook(
         message: 'A versão publicada do fluxo não pôde ser carregada.',
       });
       idempotencyGate.complete(event.messageId);
-      return { status: 'invalid_flow_version', versionId: flow.published_version_id };
+      return { status: 'invalid_flow_version', versionId: selectedFlowVersionId };
+    }
+
+    const flowGraph = flowVersion.graph as any;
+    const windowSeconds = bufferWindowSeconds(flowGraph);
+    if (options.turnQueue && !options.bypassQueue && windowSeconds > 0 && !event.fromMe) {
+      const queued = await options.turnQueue.enqueue({
+        kind: 'published',
+        target: connectionId,
+        conversationKey: `${organizationId}:${conversation.id}`,
+        windowSeconds,
+        event,
+        metadata: { flowId: flow.id, flowVersionId: flowVersion.id },
+      });
+      idempotencyGate.complete(event.messageId);
+      return {
+        status: 'queued',
+        conversationId: conversation.id,
+        generation: queued.generation,
+        delayMs: queued.delayMs,
+      };
     }
 
     // 7. Initialize FlowContext & Execution
@@ -282,7 +325,6 @@ export async function processInboundWebhook(
       flowVersionId: flowVersion.id,
       status: 'running',
     });
-    const flowGraph = flowVersion.graph as any;
     const debugFlow: DebugFlowSnapshot = {
       id: flow.id,
       name: flow.name || 'Fluxo publicado',
@@ -322,22 +364,40 @@ export async function processInboundWebhook(
         bot_paused: conversation.bot_paused,
         handled_by: conversation.handled_by as any,
       },
-      messages: [
-        {
-          id: event.messageId || execution.id,
-          text: event.textContent,
-          fromMe: false,
-          type: event.messageType,
-          mediaUrl: event.mediaUrl,
-        },
-      ],
+      messages: events.map((incoming, index) => ({
+        id: incoming.messageId || `${execution.id}-${index}`,
+        text: incoming.textContent,
+        fromMe: false,
+        type: incoming.messageType,
+        mediaUrl: incoming.mediaUrl,
+      })),
       variables: {},
       tokens: { input: 0, output: 0 },
     };
 
     // Services for execution
+    const runtimeProviders = createRuntimeProviders(config, id => new ConnectionRepository(db).resolveMessagingConnection(connection.organization_id, id));
+    const assertCurrent = async () => {
+      if (options.isCurrent && !(await options.isCurrent())) throw new Error(SUPERSEDED_TURN_ERROR);
+    };
+    const guardedCalendar = runtimeProviders.calendar
+      ? {
+          async getCalendarName(...args: Parameters<NonNullable<FlowServices['calendar']>['getCalendarName']>) { await assertCurrent(); return runtimeProviders.calendar!.getCalendarName(...args); },
+          async listEvents(...args: Parameters<NonNullable<FlowServices['calendar']>['listEvents']>) { await assertCurrent(); return runtimeProviders.calendar!.listEvents(...args); },
+          async createEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['createEvent']>) { await assertCurrent(); return runtimeProviders.calendar!.createEvent(...args); },
+          async updateEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['updateEvent']>) { await assertCurrent(); return runtimeProviders.calendar!.updateEvent(...args); },
+          async cancelEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['cancelEvent']>) { await assertCurrent(); return runtimeProviders.calendar!.cancelEvent(...args); },
+        }
+      : undefined;
     const services: FlowServices = {
-      ...createRuntimeProviders(config, id => new ConnectionRepository(db).resolveMessagingConnection(connection.organization_id, id)),
+      ...runtimeProviders,
+      messaging: {
+        async sendText(...args) { await assertCurrent(); return runtimeProviders.messaging.sendText(...args); },
+        async sendMedia(...args) { await assertCurrent(); return runtimeProviders.messaging.sendMedia(...args); },
+        async sendTemplate(...args) { await assertCurrent(); return runtimeProviders.messaging.sendTemplate(...args); },
+      },
+      calendar: guardedCalendar,
+      fetch: async (...args) => { await assertCurrent(); return globalThis.fetch(...args); },
       db: {
         updateLead: async (_org, leadId, patch) => {
           await convRepo.updateLead(_org, leadId, patch);
@@ -430,6 +490,11 @@ export async function processInboundWebhook(
       resumeNodeId: result.resumeNodeId,
       finishedAt: result.status !== 'waiting' ? new Date().toISOString() : null,
     });
+
+    if (result.status === 'failed' && result.error === SUPERSEDED_TURN_ERROR) {
+      conversationDebugRegistry.supersede(execution.id);
+      return { status: 'superseded', executionId: execution.id, conversationId: conversation.id };
+    }
 
     const debugIssues = [];
     const sentMessage = result.steps.some(step => step.nodeType.startsWith('output.') && Boolean((step.output as any)?.sent));

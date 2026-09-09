@@ -26,9 +26,15 @@ import { orgRateLimiter, publicRateLimiter } from './rate-limit.js';
 import { AlertMonitor } from './alerts/alert-monitor.js';
 import { createCalendarProvider, OpenAIProvider, type RuntimeConfig } from '@sdr/flow/server';
 import { secretMatches, verifyMetaSignature } from './whatsapp/webhook-auth.js';
-import { standaloneStore } from './storage.js';
+import { standaloneStore, type StoredFlow } from './storage.js';
 import { wsServer } from './ws.js';
 import { conversationDebugRegistry, type DebugFlowSnapshot } from './debug-session.js';
+import {
+  bufferWindowSeconds,
+  ConversationTurnQueue,
+  SUPERSEDED_TURN_ERROR,
+  type BufferedConversationTurn,
+} from './conversation-turn-queue.js';
 
 export interface ApiConfig extends RuntimeConfig {
   supabaseUrl?: string;
@@ -37,9 +43,27 @@ export interface ApiConfig extends RuntimeConfig {
   publicApiUrl?: string;
   evolutionServerUrl?: string;
   evolutionApiKey?: string;
+  redisUrl?: string;
 }
 export function createApp(config: ApiConfig = {}): Express {
   const app = express();
+  let processStandaloneBufferedTurn: ((turn: BufferedConversationTurn) => Promise<{ status: string; [key: string]: unknown }>) | undefined;
+  const turnQueue = config.redisUrl
+    ? new ConversationTurnQueue(config.redisUrl, async turn => {
+        if (turn.kind === 'published') {
+          return processInboundWebhook(turn.target, turn.events, config, {
+            bypassQueue: true,
+            messagesAlreadySaved: true,
+            isCurrent: turn.isCurrent,
+            flowId: typeof turn.metadata?.flowId === 'string' ? turn.metadata.flowId : undefined,
+            flowVersionId: typeof turn.metadata?.flowVersionId === 'string' ? turn.metadata.flowVersionId : undefined,
+          }) as Promise<{ status: string; [key: string]: unknown }>;
+        }
+        if (processStandaloneBufferedTurn) return processStandaloneBufferedTurn(turn);
+        return { status: 'error', error: 'standalone_turn_handler_not_ready' };
+      })
+    : undefined;
+  app.locals.conversationTurnQueue = turnQueue;
   app.disable('x-powered-by');
   app.use(express.json({ limit: '1mb', verify: (req, _res, body) => { (req as typeof req & { rawBody?: Buffer }).rawBody = Buffer.from(body); } }));
   app.use(requestLogger);
@@ -906,21 +930,26 @@ export function createApp(config: ApiConfig = {}): Express {
   });
 
   // --- INSTANCE WEBHOOK WITH STRICT TEST MODE PROTECTION ---
-  app.post('/api/webhooks/evolution/instance/:instanceName', async (req, res) => {
+  const processStandaloneEvents = async (
+    instanceName: string,
+    events: Array<NonNullable<ReturnType<typeof parseEvolutionWebhook>>>,
+    options: {
+      bypassQueue?: boolean;
+      messagesAlreadySaved?: boolean;
+      isCurrent?: () => Promise<boolean>;
+      flowSnapshot?: StoredFlow;
+    } = {},
+  ): Promise<{ status: string; [key: string]: unknown }> => {
     try {
-      const instanceName = req.params.instanceName;
-      const event = parseEvolutionWebhook(req.body);
+      const event = events[events.length - 1];
       if (!event) {
-        res.status(200).json({ status: 'ignored_non_message' });
-        return;
+        return { status: 'ignored_non_message' };
       }
       if (event.fromMe) {
-        res.status(200).json({ status: 'ignored_from_me' });
-        return;
+        return { status: 'ignored_from_me' };
       }
       if (!event.textContent && !event.mediaUrl) {
-        res.status(200).json({ status: 'ignored_empty_message' });
-        return;
+        return { status: 'ignored_empty_message' };
       }
 
       // 1. Persist to Supabase FIRST (before flow check) so inbox always has the message
@@ -1007,17 +1036,22 @@ export function createApp(config: ApiConfig = {}): Express {
             conversationId = conversation.id;
             convRecord = { id: conversation.id, stage: conversation.stage, bot_paused: conversation.bot_paused, handled_by: conversation.handled_by };
 
-            // Save inbound message
-            await convRepo.saveMessage({
-              organizationId,
-              connectionId: dbConnectionId,
-              conversationId: conversation.id,
-              direction: 'INBOUND',
-              sender: 'lead',
-              content: event.textContent,
-              messageType: event.messageType,
-              providerMessageId: event.messageId,
-            });
+            // Save each provider event before acknowledging the webhook. Buffered
+            // execution reuses these rows instead of inserting duplicates.
+            if (!options.messagesAlreadySaved) {
+              for (const incoming of events) {
+                await convRepo.saveMessage({
+                  organizationId,
+                  connectionId: dbConnectionId,
+                  conversationId: conversation.id,
+                  direction: 'INBOUND',
+                  sender: 'lead',
+                  content: incoming.textContent,
+                  messageType: incoming.messageType,
+                  providerMessageId: incoming.messageId,
+                });
+              }
+            }
             logger.info({ instanceName, phone: event.phone, conversationId: conversation.id }, 'Mensagem inbound salva no Supabase');
           }
         } catch (dbErr: any) {
@@ -1029,7 +1063,7 @@ export function createApp(config: ApiConfig = {}): Express {
       }
 
       // 2. Check for active flow
-      const activeFlow = standaloneStore.getActiveFlowForInstance(instanceName);
+      const activeFlow = options.flowSnapshot || standaloneStore.getActiveFlowForInstance(instanceName);
       if (!activeFlow) {
         conversationDebugRegistry.failArmed(organizationId, conversationId, {
           severity: 'error',
@@ -1037,8 +1071,7 @@ export function createApp(config: ApiConfig = {}): Express {
           message: `A mensagem chegou, mas não há fluxo ativo para a instância "${instanceName}".`,
         });
         logger.info({ instanceName }, 'Mensagem salva no inbox mas não há fluxo ativo para esta instância');
-        res.status(200).json({ status: 'no_active_flow', instanceName, messageSaved: !!convRepo });
-        return;
+        return { status: 'no_active_flow', instanceName, messageSaved: !!convRepo };
       }
 
       // 3. STRICT TEST MODE GATE
@@ -1056,16 +1089,33 @@ export function createApp(config: ApiConfig = {}): Express {
             { sender: event.phone, authorized, instanceName },
             '[MODO TESTE BLOQUEIO] Mensagem de número não autorizado descartada com segurança total.'
           );
-          res.status(200).json({
+          return {
             status: 'blocked_by_test_mode',
             reason: `Modo Teste ativado apenas para ${authorized}. Mensagem de ${event.phone} descartada.`,
-          });
-          return;
+          };
         }
         logger.info(
           { sender: event.phone, authorized, instanceName },
           '[MODO TESTE PERMISSÃO] Mensagem de número autorizado aceita para execução.'
         );
+      }
+
+      const windowSeconds = bufferWindowSeconds(activeFlow.graph);
+      if (turnQueue && !options.bypassQueue && windowSeconds > 0) {
+        const queued = await turnQueue.enqueue({
+          kind: 'standalone',
+          target: instanceName,
+          conversationKey: `${organizationId}:${conversationId}`,
+          windowSeconds,
+          event,
+          metadata: { flowSnapshot: activeFlow },
+        });
+        return {
+          status: 'queued',
+          conversationId,
+          generation: queued.generation,
+          delayMs: queued.delayMs,
+        };
       }
 
       // 4. Execute Flow for Authorized Inbound Message
@@ -1094,15 +1144,13 @@ export function createApp(config: ApiConfig = {}): Express {
         conversation: convRecord
           ? { id: convRecord.id, stage: convRecord.stage, bot_paused: convRecord.bot_paused, handled_by: convRecord.handled_by as any }
           : { id: conversationId, stage: 'NOVO', bot_paused: false, handled_by: 'AI' },
-        messages: [
-          {
-            id: event.messageId || executionId,
-            text: event.textContent,
-            fromMe: false,
-            type: event.messageType,
-            mediaUrl: event.mediaUrl,
-          },
-        ],
+        messages: events.map((incoming, index) => ({
+          id: incoming.messageId || `${executionId}-${index}`,
+          text: incoming.textContent,
+          fromMe: false,
+          type: incoming.messageType,
+          mediaUrl: incoming.mediaUrl,
+        })),
         variables: {},
         tokens: { input: 0, output: 0 },
       };
@@ -1114,12 +1162,26 @@ export function createApp(config: ApiConfig = {}): Express {
 
       const capturedConvRepo = convRepo;
       const capturedConnectionId = connectionId;
+      const assertCurrentTurn = async () => {
+        if (options.isCurrent && !(await options.isCurrent())) throw new Error(SUPERSEDED_TURN_ERROR);
+      };
+      const standaloneCalendar = createCalendarProvider(config);
+      const guardedCalendar = standaloneCalendar
+        ? {
+            async getCalendarName(...args: Parameters<NonNullable<FlowServices['calendar']>['getCalendarName']>) { await assertCurrentTurn(); return standaloneCalendar.getCalendarName(...args); },
+            async listEvents(...args: Parameters<NonNullable<FlowServices['calendar']>['listEvents']>) { await assertCurrentTurn(); return standaloneCalendar.listEvents(...args); },
+            async createEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['createEvent']>) { await assertCurrentTurn(); return standaloneCalendar.createEvent(...args); },
+            async updateEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['updateEvent']>) { await assertCurrentTurn(); return standaloneCalendar.updateEvent(...args); },
+            async cancelEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['cancelEvent']>) { await assertCurrentTurn(); return standaloneCalendar.cancelEvent(...args); },
+          }
+        : undefined;
       const services: FlowServices = {
         llm: effectiveApiKey
           ? new OpenAIProvider({ apiKey: effectiveApiKey, model: effectiveModel, timeoutMs: settings.openaiTimeoutMs || 60000 })
           : new MockLLMProvider(),
         messaging: {
           async sendText(_connId, phone, text) {
+            await assertCurrentTurn();
             logger.info({ instanceName, phone, textLength: text.length }, 'Enviando resposta WhatsApp via Evolution API');
             const sendRes = await evoClient.sendTextMessage(instanceName, phone, text);
             const msgId = sendRes.messageId || crypto.randomUUID();
@@ -1139,10 +1201,11 @@ export function createApp(config: ApiConfig = {}): Express {
             }
             return { messageId: msgId };
           },
-          async sendMedia() { return { messageId: crypto.randomUUID() }; },
-          async sendTemplate() { return { messageId: crypto.randomUUID() }; },
+          async sendMedia() { await assertCurrentTurn(); return { messageId: crypto.randomUUID() }; },
+          async sendTemplate() { await assertCurrentTurn(); return { messageId: crypto.randomUUID() }; },
         },
-        calendar: createCalendarProvider(config),
+        calendar: guardedCalendar,
+        fetch: async (...args) => { await assertCurrentTurn(); return globalThis.fetch(...args); },
         db: {
           async updateLead(_org, lid, patch) {
             if (capturedConvRepo) {
@@ -1241,6 +1304,12 @@ export function createApp(config: ApiConfig = {}): Express {
         activeFlow.graph.nodes.find((n: any) => n.id === nodeId)?.label || nodeId;
       const debugIssues: Array<{ severity: 'warning' | 'error'; code: string; message: string; nodeId?: string }> = [];
 
+      if (result.status === 'failed' && result.error === SUPERSEDED_TURN_ERROR) {
+        conversationDebugRegistry.supersede(executionId);
+        logger.info({ instanceName, conversationId, executionId }, 'Execução substituída por mensagens mais recentes antes do envio');
+        return { status: 'superseded', executionId, conversationId };
+      }
+
       if (result.status === 'failed') {
         const failedStep = result.steps[result.steps.length - 1];
         logger.error(
@@ -1337,11 +1406,28 @@ export function createApp(config: ApiConfig = {}): Express {
       });
       conversationDebugRegistry.finish(executionId, result, debugIssues);
 
-      res.status(200).json({ ok: true, executionId, status: result.status });
+      return { ok: true, executionId, status: result.status };
     } catch (err) {
       logger.error({ err }, 'Erro ao processar webhook da instância Evolution');
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha no processamento do webhook' });
+      return { status: 'error', error: err instanceof Error ? err.message : 'Falha no processamento do webhook' };
     }
+  };
+
+  processStandaloneBufferedTurn = turn => processStandaloneEvents(turn.target, turn.events, {
+    bypassQueue: true,
+    messagesAlreadySaved: true,
+    isCurrent: turn.isCurrent,
+    flowSnapshot: turn.metadata?.flowSnapshot as StoredFlow | undefined,
+  });
+
+  app.post('/api/webhooks/evolution/instance/:instanceName', async (req, res) => {
+    const event = parseEvolutionWebhook(req.body);
+    if (!event) {
+      res.status(200).json({ status: 'ignored_non_message' });
+      return;
+    }
+    const result = await processStandaloneEvents(req.params.instanceName, [event]);
+    res.status(result.status === 'error' ? 500 : 200).json(result);
   });
 
   // Webhooks
@@ -1366,7 +1452,7 @@ export function createApp(config: ApiConfig = {}): Express {
     if (!config.supabaseUrl || !config.serviceRoleKey) { res.status(503).json({ error: 'Supabase não configurado para webhooks.' }); return; }
     const credentials = await webhookCredentials(connectionId.data, 'evolution') as EvolutionCredentials | null;
     if (!secretMatches(req.get('x-webhook-token'), credentials?.webhookToken)) { res.sendStatus(401); return; }
-    const result = await processInboundWebhook(connectionId.data, event, config);
+    const result = await processInboundWebhook(connectionId.data, event, config, { turnQueue });
     const failed = result.status === 'error' || result.flowStatus === 'failed';
     res.status(failed ? 500 : 200).json({ ok: !failed, result });
   });
@@ -1379,7 +1465,7 @@ export function createApp(config: ApiConfig = {}): Express {
     if (!verifyMetaSignature((req as typeof req & { rawBody?: Buffer }).rawBody || Buffer.alloc(0), req.get('x-hub-signature-256'), credentials?.appSecret)) { res.sendStatus(401); return; }
     const event = parseMetaWebhook(req.body);
     if (!event) { res.status(200).json({ ok: true, result: { status: 'ignored', reason: 'non_message_event' } }); return; }
-    const result = await processInboundWebhook(connectionId.data, event, config);
+    const result = await processInboundWebhook(connectionId.data, event, config, { turnQueue });
     const failed = result.status === 'error' || result.flowStatus === 'failed';
     res.status(failed ? 500 : 200).json({ ok: !failed, result });
   });

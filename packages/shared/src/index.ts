@@ -69,7 +69,11 @@ export type FlowGraph = z.infer<typeof flowGraphSchema>;
 export const saveFlowSchema = z.strictObject({ name: z.string().trim().min(1).max(120), graph: flowGraphSchema });
 export const memberRoleSchema = z.enum(['owner', 'admin', 'agent', 'viewer']);
 export type MemberRole = z.infer<typeof memberRoleSchema>;
-export const queueNames = { maintenance: 'sdr-maintenance', turns: 'sdr-turns' } as const;
+export const queueNames = {
+  maintenance: 'sdr-maintenance',
+  turns: 'sdr-turns',
+  inboundDebounce: 'sdr-inbound-debounce',
+} as const;
 
 export const commercialMemorySchema = z.strictObject({
   name: z.string().nullable().optional(),
