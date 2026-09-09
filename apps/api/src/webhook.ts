@@ -3,6 +3,7 @@ import { executeFlow, HandoffService, type FlowServices } from '@sdr/flow';
 import { createRuntimeProviders } from '@sdr/flow/server';
 import { ConnectionRepository, ConversationRepository, ExecutionRepository, serviceDatabase } from '@sdr/db';
 import { wsServer } from './ws.js';
+import { conversationDebugRegistry, type DebugFlowSnapshot } from './debug-session.js';
 import type { ApiConfig } from './app.js';
 
 export interface InboundMessageEvent {
@@ -229,6 +230,11 @@ export async function processInboundWebhook(
     });
 
     if (conversation.bot_paused) {
+      conversationDebugRegistry.failArmed(organizationId, conversation.id, {
+        severity: 'error',
+        code: 'bot_paused',
+        message: 'A mensagem chegou, mas a IA está pausada nesta conversa.',
+      });
       idempotencyGate.complete(event.messageId);
       return { status: 'logged_bot_paused', conversationId: conversation.id };
     }
@@ -236,7 +242,7 @@ export async function processInboundWebhook(
     // 6. Find published flow for this organization
     const { data: flow } = await db
       .from('flows')
-      .select('id, published_version_id')
+      .select('id, name, published_version_id')
       .eq('organization_id', organizationId)
       .not('published_version_id', 'is', null)
       .order('updated_at', { ascending: false })
@@ -244,6 +250,11 @@ export async function processInboundWebhook(
       .maybeSingle();
 
     if (!flow?.published_version_id) {
+      conversationDebugRegistry.failArmed(organizationId, conversation.id, {
+        severity: 'error',
+        code: 'no_published_flow',
+        message: 'A mensagem chegou, mas não existe um fluxo publicado para esta organização.',
+      });
       idempotencyGate.complete(event.messageId);
       return { status: 'no_published_flow', organizationId };
     }
@@ -255,6 +266,11 @@ export async function processInboundWebhook(
       .single();
 
     if (!flowVersion?.graph) {
+      conversationDebugRegistry.failArmed(organizationId, conversation.id, {
+        severity: 'error',
+        code: 'invalid_flow_version',
+        message: 'A versão publicada do fluxo não pôde ser carregada.',
+      });
       idempotencyGate.complete(event.messageId);
       return { status: 'invalid_flow_version', versionId: flow.published_version_id };
     }
@@ -266,6 +282,22 @@ export async function processInboundWebhook(
       flowVersionId: flowVersion.id,
       status: 'running',
     });
+    const flowGraph = flowVersion.graph as any;
+    const debugFlow: DebugFlowSnapshot = {
+      id: flow.id,
+      name: flow.name || 'Fluxo publicado',
+      version: `v${flowVersion.version}`,
+      nodes: (flowGraph.nodes || []).map((node: any) => ({ id: node.id, type: node.type, label: node.label || node.type })),
+    };
+    conversationDebugRegistry.claim({
+      organizationId,
+      conversationId: conversation.id,
+      executionId: execution.id,
+      flow: debugFlow,
+    });
+    const emitExecutionEvent = (event: Parameters<typeof wsServer.broadcast>[0]) => {
+      wsServer.broadcast(conversationDebugRegistry.record({ ...event, conversationId: conversation.id }));
+    };
 
     const flowCtx: FlowContext = {
       organizationId,
@@ -334,7 +366,7 @@ export async function processInboundWebhook(
     };
 
     // Execute flow with WebSocket hooks
-    wsServer.broadcast({
+    emitExecutionEvent({
       type: 'execution:started',
       executionId: execution.id,
       organizationId,
@@ -346,7 +378,7 @@ export async function processInboundWebhook(
     const result = await executeFlow(flowVersion.graph as any, flowCtx, services, {
       hooks: {
         onStepStart: async step => {
-          wsServer.broadcast({
+          emitExecutionEvent({
             type: 'step:start',
             executionId: execution.id,
             organizationId,
@@ -367,7 +399,7 @@ export async function processInboundWebhook(
             error: step.error,
           });
 
-          wsServer.broadcast({
+          emitExecutionEvent({
             type: 'step:complete',
             executionId: execution.id,
             organizationId,
@@ -377,7 +409,7 @@ export async function processInboundWebhook(
           });
         },
         onStepError: async step => {
-          wsServer.broadcast({
+          emitExecutionEvent({
             type: 'step:failed',
             executionId: execution.id,
             organizationId,
@@ -398,7 +430,19 @@ export async function processInboundWebhook(
       finishedAt: result.status !== 'waiting' ? new Date().toISOString() : null,
     });
 
-    wsServer.broadcast({
+    const debugIssues = [];
+    const sentMessage = result.steps.some(step => step.nodeType.startsWith('output.') && Boolean((step.output as any)?.sent));
+    if (result.status !== 'failed' && !sentMessage) {
+      const lastStep = result.steps[result.steps.length - 1];
+      debugIssues.push({
+        severity: 'warning' as const,
+        code: 'no_message_sent',
+        message: 'O fluxo terminou sem enviar uma mensagem. Verifique as portas de saída do último bloco.',
+        nodeId: lastStep?.nodeId,
+      });
+    }
+
+    emitExecutionEvent({
       type: 'execution:completed',
       executionId: execution.id,
       organizationId,
@@ -406,6 +450,7 @@ export async function processInboundWebhook(
       timestamp: new Date().toISOString(),
       payload: { status: result.status, steps: result.steps.length },
     });
+    conversationDebugRegistry.finish(execution.id, result, debugIssues);
 
     idempotencyGate.complete(event.messageId);
     return {

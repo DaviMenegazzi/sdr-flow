@@ -168,6 +168,8 @@ export interface FlowExecutionEvent {
   executionId: string;
   organizationId: string;
   flowId?: string;
+  conversationId?: string;
+  debugSessionId?: string;
   timestamp: string;
   payload?: unknown;
 }

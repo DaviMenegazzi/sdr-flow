@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   MessageSquare,
   Search,
@@ -15,6 +15,13 @@ import {
   AlertCircle,
   RefreshCw,
   Radio,
+  Bug,
+  X,
+  CheckCircle2,
+  ChevronDown,
+  LoaderCircle,
+  RotateCcw,
+  Square,
 } from 'lucide-react';
 import { useSession } from '../session';
 
@@ -64,6 +71,41 @@ interface MessageItem {
   created_at: string;
 }
 
+interface DebugEvent {
+  type: 'execution:started' | 'step:start' | 'step:complete' | 'step:failed' | 'execution:completed';
+  executionId: string;
+  timestamp: string;
+  payload?: Record<string, any>;
+}
+
+interface DebugSession {
+  id: string;
+  organizationId: string;
+  conversationId: string;
+  status: 'armed' | 'running' | 'completed' | 'failed' | 'cancelled' | 'expired';
+  armedAt: string;
+  expiresAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  executionId?: string;
+  flow: {
+    id: string;
+    name: string;
+    version: string;
+    nodes: Array<{ id: string; type: string; label: string }>;
+  };
+  events: DebugEvent[];
+  report?: {
+    outcome: 'success' | 'warning' | 'error';
+    title: string;
+    summary: string;
+    steps: number;
+    durationMs: number;
+    tokens: { input: number; output: number };
+    issues: Array<{ severity: 'warning' | 'error'; code: string; message: string; nodeId?: string }>;
+  };
+}
+
 const STAGE_CONFIG: Record<string, { label: string; bg: string; text: string }> = {
   NEW_CONVERSATION: { label: 'Nova Conversa', bg: '#3b82f618', text: '#2563eb' },
   QUALIFYING: { label: 'Qualificando', bg: '#f59e0b18', text: '#d97706' },
@@ -96,10 +138,16 @@ export function InboxPage() {
   const [actionLoading, setActionLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [syncStalled, setSyncStalled] = useState<boolean>(false);
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugSession, setDebugSession] = useState<DebugSession | null>(null);
+  const [debugLoading, setDebugLoading] = useState(false);
+  const [debugError, setDebugError] = useState<string | null>(null);
+  const [expandedDebugStep, setExpandedDebugStep] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const listFailureStreak = useRef(0);
   const detailFailureStreak = useRef(0);
+  const debugSocketRef = useRef<WebSocket | null>(null);
 
   const isStandalone = !activeOrg || !session?.access_token || activeOrg === 'standalone-org';
   const inboxBaseUrl = isStandalone ? '/api/inbox' : `/api/organizations/${activeOrg}/inbox`;
@@ -114,6 +162,158 @@ export function InboxPage() {
     }
     return headers;
   };
+
+  async function loadDebugSession(conversationId: string, silent = false): Promise<DebugSession | null> {
+    try {
+      const res = await fetch(`${inboxBaseUrl}/conversations/${conversationId}/debug`, { headers: getHeaders() });
+      if (!res.ok) throw new Error('Não foi possível consultar o debug.');
+      const data = await res.json();
+      const next = (data.session || null) as DebugSession | null;
+      setDebugSession(next);
+      if (!silent) setDebugError(null);
+      return next;
+    } catch (err) {
+      if (!silent) setDebugError(err instanceof Error ? err.message : 'Falha ao consultar o debug.');
+      return null;
+    }
+  }
+
+  async function armDebugSession() {
+    if (!selectedConv) return;
+    setDebugLoading(true);
+    setDebugError(null);
+    setExpandedDebugStep(null);
+    try {
+      const res = await fetch(`${inboxBaseUrl}/conversations/${selectedConv.id}/debug`, {
+        method: 'POST',
+        headers: getHeaders(true),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Não foi possível iniciar o debug.');
+      setDebugSession(data.session);
+      setDebugOpen(true);
+    } catch (err) {
+      setDebugError(err instanceof Error ? err.message : 'Falha ao iniciar o debug.');
+      setDebugOpen(true);
+    } finally {
+      setDebugLoading(false);
+    }
+  }
+
+  async function openDebug() {
+    if (!selectedConv) return;
+    if (debugOpen) {
+      setDebugOpen(false);
+      return;
+    }
+    setDebugOpen(true);
+    setDebugLoading(true);
+    const existing = await loadDebugSession(selectedConv.id, true);
+    setDebugLoading(false);
+    if (!existing) await armDebugSession();
+  }
+
+  async function stopDebugSession() {
+    if (!selectedConv) return;
+    setDebugLoading(true);
+    try {
+      const res = await fetch(`${inboxBaseUrl}/conversations/${selectedConv.id}/debug`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      if (!res.ok) throw new Error('Não foi possível encerrar a escuta.');
+      const data = await res.json();
+      setDebugSession(data.session || null);
+    } catch (err) {
+      setDebugError(err instanceof Error ? err.message : 'Falha ao encerrar o debug.');
+    } finally {
+      setDebugLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    setDebugSession(null);
+    setDebugError(null);
+    setExpandedDebugStep(null);
+    if (debugOpen && selectedId) void loadDebugSession(selectedId, true);
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!debugOpen || !selectedId || !debugSession?.id) return;
+    const status = debugSession?.status;
+    if (status && !['armed', 'running'].includes(status)) return;
+    const interval = window.setInterval(() => void loadDebugSession(selectedId, true), 1200);
+    return () => window.clearInterval(interval);
+  }, [debugOpen, selectedId, debugSession?.status, inboxBaseUrl]);
+
+  useEffect(() => {
+    if (!debugOpen || !selectedId || !debugSession?.id) return;
+    const debugSessionId = debugSession.id;
+    try {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const token = session?.access_token ? `?token=${encodeURIComponent(session.access_token)}` : '';
+      const socket = new WebSocket(`${proto}//${window.location.host}/ws${token}`);
+      debugSocketRef.current = socket;
+      socket.addEventListener('open', () => {
+        socket.send(JSON.stringify({
+          type: 'subscribe',
+          organizationId: debugSession?.organizationId || activeOrg || undefined,
+          conversationId: selectedId,
+          debugSessionId,
+        }));
+      });
+      socket.addEventListener('message', event => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.conversationId === selectedId && message.debugSessionId) {
+            void loadDebugSession(selectedId, true);
+          }
+        } catch {
+          // Polling keeps the panel current if a malformed frame is received.
+        }
+      });
+      return () => {
+        socket.close();
+        if (debugSocketRef.current === socket) debugSocketRef.current = null;
+      };
+    } catch {
+      // Polling is the fallback when WebSocket is unavailable.
+    }
+  }, [debugOpen, selectedId, debugSession?.id, debugSession?.organizationId, activeOrg, session?.access_token]);
+
+  const debugSteps = useMemo(() => {
+    const steps = new Map<string, {
+      key: string;
+      sequence: number;
+      nodeId: string;
+      nodeType: string;
+      status: 'running' | 'success' | 'error';
+      input?: unknown;
+      output?: unknown;
+      durationMs?: number;
+      error?: string;
+    }>();
+    for (const event of debugSession?.events || []) {
+      if (!event.type.startsWith('step:')) continue;
+      const payload = event.payload || {};
+      const sequence = Number(payload.sequence || 0);
+      const nodeId = String(payload.nodeId || 'unknown');
+      const key = `${sequence}:${nodeId}`;
+      const previous = steps.get(key);
+      steps.set(key, {
+        key,
+        sequence,
+        nodeId,
+        nodeType: String(payload.nodeType || previous?.nodeType || 'unknown'),
+        status: event.type === 'step:start' ? (previous?.status || 'running') : event.type === 'step:failed' || payload.error ? 'error' : 'success',
+        input: payload.input ?? previous?.input,
+        output: payload.output ?? previous?.output,
+        durationMs: payload.durationMs ?? previous?.durationMs,
+        error: payload.error || previous?.error,
+      });
+    }
+    return Array.from(steps.values()).sort((a, b) => a.sequence - b.sequence);
+  }, [debugSession]);
 
   useEffect(() => {
     async function loadConnections() {
@@ -584,6 +784,17 @@ export function InboxPage() {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <button
+                  onClick={() => void openDebug()}
+                  disabled={debugLoading}
+                  className={debugOpen ? 'primary' : undefined}
+                  style={{ fontSize: '12px' }}
+                  title="Ouvir e inspecionar a próxima execução do agente nesta conversa"
+                >
+                  {debugLoading ? <LoaderCircle className="debug-spin" size={14} /> : <Bug size={14} />}
+                  {debugOpen ? 'Fechar debug' : debugSession?.status === 'armed' ? 'Debug aguardando' : 'Debug do agente'}
+                </button>
+
                 {/* Stage Dropdown */}
                 <select
                   value={selectedConv.stage}
@@ -853,8 +1064,125 @@ export function InboxPage() {
         )}
       </div>
 
+      {/* RIGHT COLUMN: one-shot agent execution debugger */}
+      {selectedConv && debugOpen && (
+        <aside className="inbox-debug-panel" aria-label="Debug do agente">
+          <div className="inbox-debug-heading">
+            <div>
+              <span className="eyebrow">DEBUG DO AGENTE</span>
+              <h2>Próxima resposta</h2>
+            </div>
+            <button aria-label="Fechar debug" onClick={() => setDebugOpen(false)}><X size={16} /></button>
+          </div>
+
+          {debugError && (
+            <div className="debug-callout debug-callout-error">
+              <AlertCircle size={15} />
+              <span>{debugError}</span>
+            </div>
+          )}
+
+          {debugLoading && !debugSession ? (
+            <div className="debug-empty"><LoaderCircle className="debug-spin" size={24} /><span>Preparando a escuta…</span></div>
+          ) : !debugSession ? (
+            <div className="debug-empty">
+              <Bug size={30} />
+              <strong>Escute uma execução real</strong>
+              <p>O debug começa agora e captura apenas a próxima mensagem recebida nesta conversa.</p>
+              <button className="primary" onClick={() => void armDebugSession()} disabled={debugLoading}><Radio size={14} />Ouvir próxima mensagem</button>
+            </div>
+          ) : (
+            <>
+              <div className="debug-flow-card">
+                <div><span>Fluxo ativo</span><strong>{debugSession.flow.name}</strong></div>
+                <span className="debug-version">{debugSession.flow.version}</span>
+              </div>
+
+              {debugSession.status === 'armed' && (
+                <div className="debug-listening">
+                  <span className="debug-live-dot" />
+                  <div><strong>Aguardando a próxima mensagem</strong><p>Assim que o lead escrever, os blocos aparecerão abaixo em tempo real.</p></div>
+                </div>
+              )}
+
+              {debugSession.status === 'running' && (
+                <div className="debug-listening running">
+                  <LoaderCircle className="debug-spin" size={16} />
+                  <div><strong>Agente executando agora</strong><p>Acompanhando cada bloco percorrido.</p></div>
+                </div>
+              )}
+
+              {debugSteps.length > 0 && (
+                <div className="debug-timeline">
+                  {debugSteps.map((step, index) => {
+                    const node = debugSession.flow.nodes.find(item => item.id === step.nodeId);
+                    const expanded = expandedDebugStep === step.key;
+                    return (
+                      <div className={`debug-step ${step.status}`} key={step.key}>
+                        <div className="debug-step-line"><span /></div>
+                        <button className="debug-step-card" onClick={() => setExpandedDebugStep(expanded ? null : step.key)}>
+                          <span className="debug-step-icon">
+                            {step.status === 'running' ? <LoaderCircle className="debug-spin" size={14} /> : step.status === 'error' ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />}
+                          </span>
+                          <span className="debug-step-copy">
+                            <small>PASSO {index + 1} · {node?.type || step.nodeType}</small>
+                            <strong>{node?.label || step.nodeId}</strong>
+                            <em>{step.status === 'running' ? 'Executando…' : step.status === 'error' ? step.error || 'Falhou' : `${step.durationMs || 0} ms`}</em>
+                          </span>
+                          <ChevronDown className={expanded ? 'expanded' : ''} size={15} />
+                        </button>
+                        {expanded && (
+                          <div className="debug-step-details">
+                            {step.error && <div className="debug-detail-error"><strong>Erro</strong><p>{step.error}</p></div>}
+                            <details open={Boolean(step.error)}><summary>Entrada do bloco</summary><pre>{JSON.stringify(step.input ?? null, null, 2)}</pre></details>
+                            <details><summary>Saída do bloco</summary><pre>{JSON.stringify(step.output ?? null, null, 2)}</pre></details>
+                            <div className="debug-node-id">ID do nó: {step.nodeId}</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {debugSession.report && (
+                <div className={`debug-report ${debugSession.report.outcome}`}>
+                  <div className="debug-report-title">
+                    {debugSession.report.outcome === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+                    <div><strong>{debugSession.report.title}</strong><p>{debugSession.report.summary}</p></div>
+                  </div>
+                  <div className="debug-report-stats">
+                    <span><strong>{debugSession.report.steps}</strong> blocos</span>
+                    <span><strong>{debugSession.report.durationMs}</strong> ms</span>
+                    <span><strong>{debugSession.report.tokens.input + debugSession.report.tokens.output}</strong> tokens</span>
+                  </div>
+                  {debugSession.report.issues.map((issue, index) => (
+                    <button
+                      className="debug-issue"
+                      key={`${issue.code}:${index}`}
+                      onClick={() => issue.nodeId && setExpandedDebugStep(debugSteps.find(step => step.nodeId === issue.nodeId)?.key || null)}
+                    >
+                      <AlertCircle size={13} /><span>{issue.message}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="debug-actions">
+                {['armed', 'running'].includes(debugSession.status) ? (
+                  <button onClick={() => void stopDebugSession()} disabled={debugLoading}><Square size={13} />Parar escuta</button>
+                ) : (
+                  <button className="primary" onClick={() => void armDebugSession()} disabled={debugLoading}><RotateCcw size={13} />Ouvir novamente</button>
+                )}
+                <small>Esta escuta expira em 15 minutos e não captura mensagens anteriores.</small>
+              </div>
+            </>
+          )}
+        </aside>
+      )}
+
       {/* RIGHT COLUMN: Lead & Commercial Context */}
-      {selectedConv && (
+      {selectedConv && !debugOpen && (
         <div
           style={{
             width: '280px',

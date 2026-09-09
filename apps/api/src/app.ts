@@ -28,6 +28,7 @@ import { createCalendarProvider, OpenAIProvider, type RuntimeConfig } from '@sdr
 import { secretMatches, verifyMetaSignature } from './whatsapp/webhook-auth.js';
 import { standaloneStore } from './storage.js';
 import { wsServer } from './ws.js';
+import { conversationDebugRegistry, type DebugFlowSnapshot } from './debug-session.js';
 
 export interface ApiConfig extends RuntimeConfig {
   supabaseUrl?: string;
@@ -558,6 +559,85 @@ export function createApp(config: ApiConfig = {}): Express {
     return { db, inboxRepo, orgId };
   };
 
+  const resolveConversationDebugFlow = async (
+    db: any,
+    organizationId: string,
+    conversation: { connection_id: string }
+  ): Promise<DebugFlowSnapshot | null> => {
+    const { data: connection } = await db
+      .from('connections')
+      .select('id, name, provider_instance_id')
+      .eq('organization_id', organizationId)
+      .eq('id', conversation.connection_id)
+      .maybeSingle();
+
+    const instanceName = connection?.provider_instance_id || connection?.name;
+    const standaloneFlow = instanceName ? standaloneStore.getActiveFlowForInstance(instanceName) : null;
+    if (standaloneFlow) {
+      return {
+        id: standaloneFlow.id,
+        name: standaloneFlow.name,
+        version: `v${standaloneFlow.publishedVersion || 1}`,
+        nodes: standaloneFlow.graph.nodes.map(node => ({ id: node.id, type: node.type, label: node.label || node.type })),
+      };
+    }
+
+    const { data: flow } = await db
+      .from('flows')
+      .select('id, name, published_version_id')
+      .eq('organization_id', organizationId)
+      .not('published_version_id', 'is', null)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!flow?.published_version_id) return null;
+    const { data: publishedVersion } = await db
+      .from('flow_versions')
+      .select('id, flow_id, version, graph')
+      .eq('organization_id', organizationId)
+      .eq('id', flow.published_version_id)
+      .maybeSingle();
+    const version: any = publishedVersion ? { ...publishedVersion, flowName: flow.name } : null;
+
+    if (!version?.graph) return null;
+    let flowName = version.flowName as string | undefined;
+    if (!flowName) {
+      const { data: flow } = await db
+        .from('flows')
+        .select('name')
+        .eq('organization_id', organizationId)
+        .eq('id', version.flow_id)
+        .maybeSingle();
+      flowName = flow?.name;
+    }
+    const graph = version.graph as FlowGraph;
+    return {
+      id: version.flow_id,
+      name: flowName || 'Fluxo publicado',
+      version: `v${version.version}`,
+      nodes: graph.nodes.map(node => ({ id: node.id, type: node.type, label: node.label || node.type })),
+    };
+  };
+
+  const armConversationDebug = async (db: any, inboxRepo: InboxRepository, organizationId: string, conversationId: string) => {
+    const conversation = await inboxRepo.getConversation(organizationId, conversationId);
+    if (!conversation) return { status: 404, body: { error: 'Conversa não encontrada.' } };
+    if (conversation.bot_paused || conversation.handled_by === 'HUMAN') {
+      return { status: 409, body: { error: 'A IA está pausada nesta conversa. Devolva a conversa para a IA antes de iniciar o debug.' } };
+    }
+    const flow = await resolveConversationDebugFlow(db, organizationId, conversation);
+    if (!flow) {
+      return { status: 409, body: { error: 'Nenhum fluxo publicado está ativo para a instância desta conversa.' } };
+    }
+    const session = conversationDebugRegistry.arm({
+      organizationId,
+      conversationId,
+      connectionId: conversation.connection_id,
+      flow,
+    });
+    return { status: 201, body: { session } };
+  };
+
   inboxRouter.get('/conversations', async (req, res) => {
     try {
       const ctx = await getInboxContext(req.query.organizationId as string);
@@ -623,6 +703,40 @@ export function createApp(config: ApiConfig = {}): Express {
     } catch (err: any) {
       logger.error({ err }, 'Erro ao carregar conversa');
       res.status(500).json({ error: err.message || 'Falha ao carregar conversa.' });
+    }
+  });
+
+  inboxRouter.get('/conversations/:id/debug', async (req, res) => {
+    try {
+      const ctx = await getInboxContext(req.query.organizationId as string);
+      if (!ctx) { res.status(404).json({ error: 'Supabase não conectado.' }); return; }
+      const convId = z.string().uuid().parse(req.params.id);
+      res.json({ session: conversationDebugRegistry.get(ctx.orgId, convId) });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Falha ao consultar debug.' });
+    }
+  });
+
+  inboxRouter.post('/conversations/:id/debug', async (req, res) => {
+    try {
+      const ctx = await getInboxContext(req.query.organizationId as string);
+      if (!ctx) { res.status(404).json({ error: 'Supabase não conectado.' }); return; }
+      const convId = z.string().uuid().parse(req.params.id);
+      const result = await armConversationDebug(ctx.db, ctx.inboxRepo, ctx.orgId, convId);
+      res.status(result.status).json(result.body);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Falha ao iniciar debug.' });
+    }
+  });
+
+  inboxRouter.delete('/conversations/:id/debug', async (req, res) => {
+    try {
+      const ctx = await getInboxContext(req.query.organizationId as string);
+      if (!ctx) { res.status(404).json({ error: 'Supabase não conectado.' }); return; }
+      const convId = z.string().uuid().parse(req.params.id);
+      res.json({ session: conversationDebugRegistry.cancel(ctx.orgId, convId) });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Falha ao encerrar debug.' });
     }
   });
 
@@ -915,6 +1029,11 @@ export function createApp(config: ApiConfig = {}): Express {
       // 2. Check for active flow
       const activeFlow = standaloneStore.getActiveFlowForInstance(instanceName);
       if (!activeFlow) {
+        conversationDebugRegistry.failArmed(organizationId, conversationId, {
+          severity: 'error',
+          code: 'no_active_flow',
+          message: `A mensagem chegou, mas não há fluxo ativo para a instância "${instanceName}".`,
+        });
         logger.info({ instanceName }, 'Mensagem salva no inbox mas não há fluxo ativo para esta instância');
         res.status(200).json({ status: 'no_active_flow', instanceName, messageSaved: !!convRepo });
         return;
@@ -926,6 +1045,11 @@ export function createApp(config: ApiConfig = {}): Express {
         const authorized = testMode.phone || '';
         const match = isPhoneNumberMatch(event.phone, authorized);
         if (!match) {
+          conversationDebugRegistry.failArmed(organizationId, conversationId, {
+            severity: 'error',
+            code: 'blocked_by_test_mode',
+            message: `A mensagem foi bloqueada pelo modo teste, autorizado apenas para ${authorized}.`,
+          });
           logger.warn(
             { sender: event.phone, authorized, instanceName },
             '[MODO TESTE BLOQUEIO] Mensagem de número não autorizado descartada com segurança total.'
@@ -944,6 +1068,16 @@ export function createApp(config: ApiConfig = {}): Express {
 
       // 4. Execute Flow for Authorized Inbound Message
       const executionId = crypto.randomUUID();
+      const debugFlow: DebugFlowSnapshot = {
+        id: activeFlow.id,
+        name: activeFlow.name,
+        version: `v${activeFlow.publishedVersion || 1}`,
+        nodes: activeFlow.graph.nodes.map(node => ({ id: node.id, type: node.type, label: node.label || node.type })),
+      };
+      conversationDebugRegistry.claim({ organizationId, conversationId, executionId, flow: debugFlow });
+      const emitExecutionEvent = (event: Parameters<typeof wsServer.broadcast>[0]) => {
+        wsServer.broadcast(conversationDebugRegistry.record({ ...event, conversationId }));
+      };
       const flowCtx: FlowContext = {
         organizationId,
         connectionId,
@@ -1056,7 +1190,7 @@ export function createApp(config: ApiConfig = {}): Express {
         now: () => new Date(),
       };
 
-      wsServer.broadcast({
+      emitExecutionEvent({
         type: 'execution:started',
         executionId,
         organizationId,
@@ -1068,7 +1202,7 @@ export function createApp(config: ApiConfig = {}): Express {
       const result = await executeFlow(activeFlow.graph, flowCtx, services, {
         hooks: {
           onStepStart: async step => {
-            wsServer.broadcast({
+            emitExecutionEvent({
               type: 'step:start',
               executionId,
               organizationId,
@@ -1078,7 +1212,7 @@ export function createApp(config: ApiConfig = {}): Express {
             });
           },
           onStepComplete: async step => {
-            wsServer.broadcast({
+            emitExecutionEvent({
               type: 'step:complete',
               executionId,
               organizationId,
@@ -1088,7 +1222,7 @@ export function createApp(config: ApiConfig = {}): Express {
             });
           },
           onStepError: async step => {
-            wsServer.broadcast({
+            emitExecutionEvent({
               type: 'step:failed',
               executionId,
               organizationId,
@@ -1102,6 +1236,7 @@ export function createApp(config: ApiConfig = {}): Express {
 
       const nodeLabel = (nodeId: string) =>
         activeFlow.graph.nodes.find((n: any) => n.id === nodeId)?.label || nodeId;
+      const debugIssues: Array<{ severity: 'warning' | 'error'; code: string; message: string; nodeId?: string }> = [];
 
       if (result.status === 'failed') {
         const failedStep = result.steps[result.steps.length - 1];
@@ -1110,7 +1245,7 @@ export function createApp(config: ApiConfig = {}): Express {
           'Falha na execução do fluxo — mensagem não foi enviada de volta ao WhatsApp'
         );
         if (failedStep) {
-          wsServer.broadcast({
+          emitExecutionEvent({
             type: 'step:failed',
             executionId,
             organizationId,
@@ -1140,6 +1275,12 @@ export function createApp(config: ApiConfig = {}): Express {
         );
         if (!sentSomething) {
           const lastStep = result.steps[result.steps.length - 1];
+          debugIssues.push({
+            severity: 'warning',
+            code: 'no_message_sent',
+            message: 'O fluxo terminou sem enviar uma mensagem. Verifique as portas de saída do último bloco.',
+            nodeId: lastStep?.nodeId,
+          });
           logger.warn(
             {
               instanceName,
@@ -1152,7 +1293,7 @@ export function createApp(config: ApiConfig = {}): Express {
             'Fluxo terminou sem enviar mensagem — provável porta sem conexão (ex: guard.response_policy → rewrite/blocked)'
           );
           if (lastStep) {
-            wsServer.broadcast({
+            emitExecutionEvent({
               type: 'step:failed',
               executionId,
               organizationId,
@@ -1182,6 +1323,16 @@ export function createApp(config: ApiConfig = {}): Express {
           }
         }
       }
+
+      emitExecutionEvent({
+        type: 'execution:completed',
+        executionId,
+        organizationId,
+        flowId: activeFlow.id,
+        timestamp: new Date().toISOString(),
+        payload: { status: result.status, steps: result.steps.length, tokens: result.tokens },
+      });
+      conversationDebugRegistry.finish(executionId, result, debugIssues);
 
       res.status(200).json({ ok: true, executionId, status: result.status });
     } catch (err) {
@@ -1947,6 +2098,25 @@ export function createApp(config: ApiConfig = {}): Express {
     }
     const messages = await inboxRepo.getMessages(orgId, convId);
     res.json({ conversation: conv, messages });
+  });
+
+  orgRoutes.get('/inbox/conversations/:id/debug', async (req, res) => {
+    const orgId = res.locals.organizationId as string;
+    const convId = z.string().uuid().parse(req.params.id);
+    res.json({ session: conversationDebugRegistry.get(orgId, convId) });
+  });
+
+  orgRoutes.post('/inbox/conversations/:id/debug', async (req, res) => {
+    const orgId = res.locals.organizationId as string;
+    const convId = z.string().uuid().parse(req.params.id);
+    const result = await armConversationDebug(res.locals.db, res.locals.inbox as InboxRepository, orgId, convId);
+    res.status(result.status).json(result.body);
+  });
+
+  orgRoutes.delete('/inbox/conversations/:id/debug', async (req, res) => {
+    const orgId = res.locals.organizationId as string;
+    const convId = z.string().uuid().parse(req.params.id);
+    res.json({ session: conversationDebugRegistry.cancel(orgId, convId) });
   });
 
   orgRoutes.post('/inbox/conversations/:id/takeover', async (req, res) => {

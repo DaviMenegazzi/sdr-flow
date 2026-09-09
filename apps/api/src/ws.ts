@@ -10,6 +10,8 @@ interface ClientSubscription {
   organizationId?: string;
   flowId?: string;
   executionId?: string;
+  conversationId?: string;
+  debugSessionId?: string;
 }
 
 export class ExecutionWebSocketServer {
@@ -34,6 +36,8 @@ export class ExecutionWebSocketServer {
             if (msg.organizationId) clientSub.organizationId = msg.organizationId;
             if (msg.flowId) clientSub.flowId = msg.flowId;
             if (msg.executionId) clientSub.executionId = msg.executionId;
+            if (msg.conversationId) clientSub.conversationId = msg.conversationId;
+            if (msg.debugSessionId) clientSub.debugSessionId = msg.debugSessionId;
             ws.send(JSON.stringify({ type: 'subscribed', ...msg }));
           }
         } catch {
@@ -63,12 +67,24 @@ export class ExecutionWebSocketServer {
     for (const client of this.clients) {
       if (client.ws.readyState !== WebSocket.OPEN) continue;
 
+      // Never stream execution payloads until the client has selected a scope.
+      if (!client.organizationId && !client.flowId && !client.executionId && !client.conversationId && !client.debugSessionId) {
+        continue;
+      }
+
       // Filter by organization if subscription has it
       if (client.organizationId && client.organizationId !== event.organizationId) {
         continue;
       }
       // Filter by execution if subscription has it
       if (client.executionId && client.executionId !== event.executionId) {
+        continue;
+      }
+      // Filter by inbox conversation when a per-conversation debugger is open
+      if (client.conversationId && client.conversationId !== event.conversationId) {
+        continue;
+      }
+      if (client.debugSessionId && client.debugSessionId !== event.debugSessionId) {
         continue;
       }
       // Filter by flowId if subscription has it

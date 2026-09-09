@@ -65,4 +65,36 @@ describe('WebSocket Execution Streaming', () => {
 
     ws.close();
   });
+
+  it('isolates inbox debug events by conversation', async () => {
+    const first = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const second = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const firstMessages: any[] = [];
+    const secondMessages: any[] = [];
+    first.on('message', data => firstMessages.push(JSON.parse(data.toString())));
+    second.on('message', data => secondMessages.push(JSON.parse(data.toString())));
+    await Promise.all([
+      new Promise<void>(resolve => first.on('open', resolve)),
+      new Promise<void>(resolve => second.on('open', resolve)),
+    ]);
+
+    first.send(JSON.stringify({ type: 'subscribe', conversationId: 'conv-a' }));
+    second.send(JSON.stringify({ type: 'subscribe', conversationId: 'conv-b' }));
+    await new Promise(resolve => setTimeout(resolve, 30));
+
+    wsServer.broadcast({
+      type: 'execution:started',
+      executionId: 'exec-a',
+      organizationId: 'org-1',
+      conversationId: 'conv-a',
+      debugSessionId: 'debug-a',
+      timestamp: new Date().toISOString(),
+    });
+    await new Promise(resolve => setTimeout(resolve, 30));
+
+    expect(firstMessages.some(message => message.debugSessionId === 'debug-a')).toBe(true);
+    expect(secondMessages.some(message => message.debugSessionId === 'debug-a')).toBe(false);
+    first.close();
+    second.close();
+  });
 });
