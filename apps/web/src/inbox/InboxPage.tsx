@@ -642,6 +642,46 @@ export function InboxPage() {
                   const isLead = m.direction === 'INBOUND';
                   const isAi = m.sender === 'ai';
                   const isHuman = m.sender === 'human';
+                  const isSystem = m.sender === 'system';
+
+                  if (isSystem) {
+                    return (
+                      <div
+                        key={m.id}
+                        style={{
+                          alignSelf: 'center',
+                          maxWidth: '90%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '4px',
+                          margin: '6px 0',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            background: '#ef444414',
+                            border: '1px solid #ef444440',
+                            color: '#b91c1c',
+                            fontSize: '12px',
+                            lineHeight: '1.5',
+                            wordBreak: 'break-word',
+                          }}
+                        >
+                          <AlertCircle size={13} style={{ flexShrink: 0 }} />
+                          <span>{m.content}</span>
+                        </div>
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)' }}>
+                          {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    );
+                  }
 
                   return (
                     <div

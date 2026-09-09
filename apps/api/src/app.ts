@@ -1087,14 +1087,53 @@ export function createApp(config: ApiConfig = {}): Express {
               payload: step,
             });
           },
+          onStepError: async step => {
+            wsServer.broadcast({
+              type: 'step:failed',
+              executionId,
+              organizationId,
+              flowId: activeFlow.id,
+              timestamp: new Date().toISOString(),
+              payload: step,
+            });
+          },
         },
       });
 
+      const nodeLabel = (nodeId: string) =>
+        activeFlow.graph.nodes.find((n: any) => n.id === nodeId)?.label || nodeId;
+
       if (result.status === 'failed') {
+        const failedStep = result.steps[result.steps.length - 1];
         logger.error(
           { instanceName, phone: event.phone, executionId, error: result.error, steps: result.steps },
           'Falha na execução do fluxo — mensagem não foi enviada de volta ao WhatsApp'
         );
+        if (failedStep) {
+          wsServer.broadcast({
+            type: 'step:failed',
+            executionId,
+            organizationId,
+            flowId: activeFlow.id,
+            timestamp: new Date().toISOString(),
+            payload: { sequence: failedStep.sequence, nodeId: failedStep.nodeId, error: result.error || 'Erro desconhecido' },
+          });
+        }
+        if (convRepo) {
+          try {
+            await convRepo.saveMessage({
+              organizationId,
+              connectionId,
+              conversationId,
+              direction: 'OUTBOUND',
+              sender: 'system',
+              content: `⚠️ O fluxo falhou no bloco "${failedStep ? nodeLabel(failedStep.nodeId) : '?'}": ${result.error || 'erro desconhecido'}`,
+              messageType: 'text',
+            });
+          } catch (e) {
+            logger.warn({ err: e }, 'Falha ao salvar mensagem de erro do sistema no Supabase');
+          }
+        }
       } else {
         const sentSomething = result.steps.some(
           step => step.nodeType.startsWith('output.') && (step.output as any)?.sent
@@ -1112,6 +1151,35 @@ export function createApp(config: ApiConfig = {}): Express {
             },
             'Fluxo terminou sem enviar mensagem — provável porta sem conexão (ex: guard.response_policy → rewrite/blocked)'
           );
+          if (lastStep) {
+            wsServer.broadcast({
+              type: 'step:failed',
+              executionId,
+              organizationId,
+              flowId: activeFlow.id,
+              timestamp: new Date().toISOString(),
+              payload: {
+                sequence: lastStep.sequence,
+                nodeId: lastStep.nodeId,
+                error: 'Fluxo terminou aqui sem enviar mensagem — verifique se todas as portas de saída deste bloco estão conectadas.',
+              },
+            });
+          }
+          if (convRepo) {
+            try {
+              await convRepo.saveMessage({
+                organizationId,
+                connectionId,
+                conversationId,
+                direction: 'OUTBOUND',
+                sender: 'system',
+                content: `⚠️ O fluxo terminou no bloco "${lastStep ? nodeLabel(lastStep.nodeId) : '?'}" sem enviar mensagem. Verifique se todas as saídas desse bloco estão conectadas.`,
+                messageType: 'text',
+              });
+            } catch (e) {
+              logger.warn({ err: e }, 'Falha ao salvar mensagem de erro do sistema no Supabase');
+            }
+          }
         }
       }
 

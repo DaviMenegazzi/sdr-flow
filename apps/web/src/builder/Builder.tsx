@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ReactFlow, ReactFlowProvider, Background, MiniMap, Controls, useReactFlow, useNodesInitialized, type Connection } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
-import { ArrowLeft, CheckCheck, ChevronRight, Download, FileJson, LayoutGrid, Play, Plus, Redo2, Repeat, Save, Search, Trash2, Undo2, Upload, X, ShieldAlert, CheckCircle2, Radio } from 'lucide-react';
+import { ArrowLeft, CheckCheck, ChevronRight, Download, FileJson, LayoutGrid, Play, Plus, Redo2, Repeat, Save, Search, Trash2, Undo2, Upload, X, ShieldAlert, CheckCircle2, Radio, AlertTriangle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { flowGraphSchema, flowTestModeSchema, nodeTypeSchema, type FlowGraph } from '@sdr/shared';
 import { catalog, categories, categoryColors, createBlankFlow, createSdrTemplate, validateGraph } from '@sdr/flow';
@@ -53,6 +53,7 @@ function Editor() {
   const [instances, setInstances] = useState<InstanceOption[]>([]);
   const [targetInstance, setTargetInstance] = useState<string>('');
   const [activeBindings, setActiveBindings] = useState<Record<string, { flowId: string; flow?: any }>>({});
+  const [liveError, setLiveError] = useState<{ nodeId: string; error: string; timestamp: string } | null>(null);
 
   const upload = useRef<HTMLInputElement>(null);
   const canvas = useRef<HTMLDivElement>(null);
@@ -66,7 +67,11 @@ function Editor() {
     position: node.position,
     measured: measurements[node.id],
     selected: node.id === selectedId,
-    data: { node, invalid: invalidIds.has(node.id) },
+    data: {
+      node,
+      invalid: invalidIds.has(node.id),
+      liveError: liveError?.nodeId === node.id ? liveError.error : undefined,
+    },
   }));
 
   const edges = graph.edges.map(edge => ({
@@ -159,6 +164,46 @@ function Editor() {
     window.addEventListener('keydown', listener);
     return () => window.removeEventListener('keydown', listener);
   }, []);
+
+  // Live debugging: highlight the node that failed during a real execution.
+  useEffect(() => {
+    if (!flowId) { setLiveError(null); return; }
+    let socket: WebSocket | null = null;
+
+    try {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      socket = new WebSocket(`${proto}//${window.location.host}/ws`);
+      socket.addEventListener('open', () => {
+        socket?.send(JSON.stringify({ type: 'subscribe', flowId }));
+      });
+      socket.addEventListener('message', event => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.flowId && msg.flowId !== flowId) return;
+          if (msg.type === 'execution:started') {
+            setLiveError(null);
+          } else if (msg.type === 'step:failed' && msg.payload?.nodeId) {
+            setLiveError({ nodeId: msg.payload.nodeId, error: msg.payload.error || 'Erro desconhecido', timestamp: msg.timestamp });
+          } else if (msg.type === 'step:complete' && msg.payload?.nodeId) {
+            setLiveError(current => (current && current.nodeId === msg.payload.nodeId ? null : current));
+          }
+        } catch {
+          // ignore malformed messages
+        }
+      });
+    } catch {
+      // WebSocket unavailable; live debugging simply stays off
+    }
+
+    return () => {
+      socket?.close();
+    };
+  }, [flowId]);
+
+  const focusNode = (nodeId: string) => {
+    state.select(nodeId);
+    void fitView({ nodes: [{ id: nodeId }], padding: 0.6, duration: 300 });
+  };
 
   const layout = (input = graph) => {
     const dag = new dagre.graphlib.Graph();
@@ -655,6 +700,17 @@ function Editor() {
           </ReactFlow>
           {graph.nodes.length <= 2 && (
             <div className="canvas-hint">Comece pela biblioteca. Conecte as saídas para criar sua conversa.</div>
+          )}
+          {liveError && (
+            <div className="runtime-error-banner">
+              <AlertTriangle size={15} />
+              <div>
+                <strong>Falha em execução real do WhatsApp</strong>
+                <p>Bloco "{graph.nodes.find(n => n.id === liveError.nodeId)?.label || liveError.nodeId}": {liveError.error}</p>
+              </div>
+              <button onClick={() => focusNode(liveError.nodeId)}>Ver no bloco</button>
+              <button aria-label="Fechar aviso" onClick={() => setLiveError(null)}><X size={14} /></button>
+            </div>
           )}
           {showJson && (
             <div className="json-overlay">
