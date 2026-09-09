@@ -64,7 +64,7 @@ function createTestServices(overrides?: Partial<FlowServices>): FlowServices {
   };
 }
 
-describe('Flow Executors — All 31 Nodes', () => {
+describe('Flow Executors — core catalog', () => {
   // --- TRIGGERS ---
   it('trigger.message_received emits port next', async () => {
     const ctx = createTestContext();

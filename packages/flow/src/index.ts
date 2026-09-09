@@ -12,7 +12,8 @@ export * from './services/handoff.js';
 export * from './services/llm.js';
 export * from './services/embedding.js';
 export * from './services/hallucination-guard.js';
+export * from './services/google-calendar.js';
+export * from './services/sales-flow.js';
 export * from './playground.js';
-
 
 

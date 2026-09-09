@@ -2,6 +2,7 @@ import { describe,it,expect } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../apps/api/src/app.js';
 import { createBlankFlow,createSdrTemplate } from '../packages/flow/src/index.js';
+import { nodeTypes } from '../packages/shared/src/index.js';
 
 describe('API without configured external services',() => {
   const app=createApp();
@@ -9,7 +10,7 @@ describe('API without configured external services',() => {
     const result=await request(app).get('/api/health'); expect(result.status).toBe(200); expect(result.body.persistenceConfigured).toBe(false);
   });
   it('serves all form schemas without schema implementation internals',async () => {
-    const result=await request(app).get('/api/catalog'); expect(result.body).toHaveLength(31); expect(result.body[0]).not.toHaveProperty('schema'); expect(result.body[0].jsonSchema.type).toBe('object');
+    const result=await request(app).get('/api/catalog'); expect(result.body).toHaveLength(nodeTypes.length); expect(result.body[0]).not.toHaveProperty('schema'); expect(result.body[0].jsonSchema.type).toBe('object');
   });
   it('validates the SDR template and rejects malformed graphs',async () => {
     expect((await request(app).post('/api/flows/validate').send(createSdrTemplate())).status).toBe(200);

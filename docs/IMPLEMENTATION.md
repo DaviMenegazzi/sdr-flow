@@ -6,8 +6,8 @@ As fases 0 a 7 possuem implementação e testes locais. A homologação de ponta
 
 | Fase | Escopo Entregue | Status de Verificação |
 |---|---|---|
-| **Fase 0 & 1 — Fundação & Modelagem** | 6 pacotes pnpm, TS estrito, 31 schemas Zod, visual builder React Flow, auto-layout Dagre, migrações PostgreSQL com RLS multi-tenant, RPC `publish_flow` atômica. | Testes locais passaram (`tests/flow.test.ts`, `tests/builder.test.ts`, `tests/database.test.ts`) |
-| **Fase 2 — Runtime & Execução** | 31 executores de nós, motor DAG sequencial, suspensão e retomada (`flow.wait_reply`), memória comercial em PostgreSQL JSONB, CRM em `deals`, gravação de traces (`flow_executions`/`flow_execution_steps`), replay sandbox determinístico, webhooks Evolution/Meta com deduplicação no `IdempotencyGate`, streaming via WebSocket (`/ws`), worker BullMQ. | Testes locais passaram (`tests/engine.test.ts`, `tests/executors.test.ts`, `tests/replay.test.ts`, `tests/ws-trace.test.ts`) |
+| **Fase 0 & 1 — Fundação & Modelagem** | 6 pacotes pnpm, TS estrito, 44 schemas Zod, visual builder React Flow, auto-layout Dagre, migrações PostgreSQL com RLS multi-tenant, RPC `publish_flow` atômica. | Testes locais passaram (`tests/flow.test.ts`, `tests/builder.test.ts`, `tests/database.test.ts`) |
+| **Fase 2 — Runtime & Execução** | 44 executores de nós, motor DAG sequencial, suspensão e retomada (`flow.wait_reply`), memória comercial em PostgreSQL JSONB, CRM em `deals`, gravação de traces (`flow_executions`/`flow_execution_steps`), replay sandbox determinístico, webhooks Evolution/Meta com deduplicação no `IdempotencyGate`, streaming via WebSocket (`/ws`), worker BullMQ. | Testes locais passaram (`tests/engine.test.ts`, `tests/executors.test.ts`, `tests/replay.test.ts`, `tests/ws-trace.test.ts`, `tests/sales-action-nodes.test.ts`) |
 | **Fase 3 — Login & Organizações** | Autenticação Supabase (senha, magic link, Google OAuth), convites com hash/expiração, papéis (`owner`, `admin`, `agent`, `viewer`), API keys S2S com SHA-256 e escopos granulares, isolamento RLS multi-inquilino. | Testes locais passaram (`tests/auth-orgs.test.ts`) |
 | **Fase 4 — Conexões de WhatsApp** | Multi-provedor (Evolution API v2.3.7 & Meta Cloud API Graph v21.0), encriptação de credenciais em repouso com AES-256-GCM, polling de QR code ao vivo via WebSocket, wizard de 4 passos na UI. | Testes locais passaram (`tests/connections.test.ts`) |
 | **Fase 5 — Contexto do Agente** | Base de conhecimento vetorial com `pgvector` e fallback determinístico, nó `context.knowledge` com filtro por coleção/similaridade, memória comercial formalizada em Zod, resumo progressivo de conversas, interpolação com aliases em português (`{{lead.nome}}`), guarda de alucinação para preços/agenda, playground interativo no frontend. | Testes locais passaram (`tests/knowledge-context.test.ts`) |
@@ -21,7 +21,7 @@ As fases 0 a 7 possuem implementação e testes locais. A homologação de ponta
 1. **Verificação de Tipos**:
    - `pnpm -r typecheck`: 6 pacotes de 6 do monorepo checados (`@sdr/shared`, `@sdr/flow`, `@sdr/db`, `@sdr/api`, `@sdr/web`, `@sdr/worker`) com **0 erros de tipagem**.
 2. **Suíte de Testes Automatizados**:
-   - `pnpm test`: **249 testes passando em 21 arquivos de teste**, incluindo contratos dos provedores e executores de nós, isolamento RLS, autenticação, conexões de WhatsApp, contexto vetorial, playground, inbox, métricas diárias, backup/restauração e telemetria.
+   - A suíte possui **292 testes em 23 arquivos**. Em 08/09/2026, os 13 testes dos novos blocos passaram; a execução completa ficou em 288/292 por quatro divergências preexistentes entre testes e comportamento atual (`api-auth`, health legado e política de ciclos do validador).
 3. **Compilação de Produção**:
    - `pnpm -r build`: compilação limpa de todos os pacotes com empacotamento Vite do frontend web em aproximadamente 7 segundos.
 4. **Resolução de Banco de Dados**:
@@ -40,3 +40,17 @@ As fases 0 a 7 possuem implementação e testes locais. A homologação de ponta
 Responses API ligada à API e worker; playground com escolha explícita entre OpenAI e mock. Adaptadores Evolution e Meta ligados ao runtime, envio desativado por padrão, webhooks autenticados e acesso às credenciais privadas corrigido com RPCs de serviço. Testes novos cobrem respostas estruturadas, tokens, erros, bloqueio de envio, autenticação e isolamento de organização.
 
 O gateway ainda executa inline e deduplica em memória. Buffer persistente, fila de entrada e retomada automática precisam de integração e homologação. Nenhuma mensagem real foi enviada. Veja PROVIDERS.md para configurar e testar a IA sem WhatsApp.
+
+## Blocos de próxima ação comercial e agenda — 08/09/2026
+
+Foram adicionados `flow.required_fields`, `agent.next_action`, `calendar.availability`,
+`calendar.create_event`, `calendar.reschedule_event`, `calendar.cancel_event`,
+`context.conversation_state`, `output.smart_message` e `guard.response_policy`. Os mesmos schemas Zod
+alimentam o builder e a validação da API. O estado estruturado é salvo na memória persistente do
+lead; a política de resposta detecta perguntas já respondidas, preços sem lastro e regras de marca;
+e a mensagem inteligente envia no máximo três bolhas completas.
+
+As credenciais do Google Calendar permanecem somente no servidor em
+`GOOGLE_CALENDAR_CREDENTIALS_JSON`. As operações usam a API real e seguem pela porta `error` quando
+o provedor não está configurado ou não confirma a ação. Os contratos HTTP foram cobertos com
+respostas simuladas; a homologação OAuth e a execução contra uma agenda real ainda estão pendentes.

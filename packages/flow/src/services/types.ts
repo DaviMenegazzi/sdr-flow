@@ -1,5 +1,6 @@
 import type { FlowContextLead, FlowContextConversation } from '@sdr/shared';
 import type { LLMProvider } from './llm.js';
+import type { GoogleCalendarEvent } from './google-calendar.js';
 
 export interface MessagingService {
   sendText(connectionId: string, phone: string, text: string, options?: { typing?: boolean }): Promise<{ messageId: string }>;
@@ -10,6 +11,14 @@ export interface MessagingService {
 export interface MediaService {
   transcribeAudio(url: string): Promise<string>;
   describeImage(url: string): Promise<string>;
+}
+
+export interface CalendarService {
+  getCalendarName(calendarId: string): Promise<string>;
+  listEvents(calendarId: string, timeMin: string, timeMax: string): Promise<GoogleCalendarEvent[]>;
+  createEvent(calendarId: string, event: GoogleCalendarEvent): Promise<GoogleCalendarEvent>;
+  updateEvent(calendarId: string, eventId: string, patch: GoogleCalendarEvent): Promise<GoogleCalendarEvent>;
+  cancelEvent(calendarId: string, eventId: string): Promise<void>;
 }
 
 export interface DatabaseService {
@@ -32,6 +41,7 @@ export interface FlowServices {
   llm: LLMProvider;
   messaging: MessagingService;
   media?: MediaService;
+  calendar?: CalendarService;
   db?: DatabaseService;
   fetch?: typeof globalThis.fetch;
   now?: () => Date;

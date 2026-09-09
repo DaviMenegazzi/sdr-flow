@@ -1,4 +1,5 @@
 import {
+  nextActionSchema,
   type NodeType,
   type FlowContext,
   type NodeExecutionResult,
@@ -11,6 +12,18 @@ import { HandoffService } from '../services/handoff.js';
 import { StateMachineService } from '../state-machine.js';
 import { HallucinationGuard } from '../services/hallucination-guard.js';
 import type { FlowServices } from '../services/types.js';
+import {
+  availableSlots,
+  calendarWindow,
+  endFromStart,
+  resolveCalendarDate,
+} from '../services/google-calendar.js';
+import {
+  evaluateResponsePolicy,
+  isPresent,
+  resolveSalesField,
+  splitSmartMessage,
+} from '../services/sales-flow.js';
 
 
 export type NodeExecutor = (
@@ -19,6 +32,20 @@ export type NodeExecutor = (
   services: FlowServices,
   resumePort?: string
 ) => Promise<NodeExecutionResult>;
+
+function calendarClient(services: FlowServices) {
+  if (!services.calendar) {
+    throw new Error('Google Calendar não configurado no servidor. Configure GOOGLE_CALENDAR_CREDENTIALS_JSON.');
+  }
+  return services.calendar;
+}
+
+function mergeCalendarVariables(ctx: FlowContext, values: Record<string, unknown>): Record<string, unknown> {
+  const current = ctx.variables.calendar && typeof ctx.variables.calendar === 'object'
+    ? ctx.variables.calendar as Record<string, unknown>
+    : {};
+  return { ...current, ...values };
+}
 
 export const executors: Record<NodeType, NodeExecutor> = {
   // --- TRIGGERS ---
@@ -113,6 +140,21 @@ export const executors: Record<NodeType, NodeExecutor> = {
       return { port: 'blocked', output: { blocked: true, reason: 'Grupos não permitidos' } };
     }
     return { port: 'pass', output: { blocked: false, isGroup } };
+  },
+
+  'guard.response_policy': async (ctx, config, _services) => {
+    const message = interpolate(config.text || '', ctx);
+    const policy = evaluateResponsePolicy(ctx, message, {
+      maxCharacters: config.maxCharacters || 700,
+      knownFields: Array.isArray(config.knownFields) ? config.knownFields : [],
+      blockedTerms: Array.isArray(config.blockedTerms) ? config.blockedTerms : [],
+      requireGroundedPrice: config.requireGroundedPrice !== false,
+    });
+    return {
+      port: policy.status,
+      output: policy,
+      variables: { response_policy: policy },
+    };
   },
 
   // --- INPUT ---
@@ -228,6 +270,38 @@ export const executors: Record<NodeType, NodeExecutor> = {
       };
     }
     return { port: 'next', output: { summarized: false } };
+  },
+
+  'context.conversation_state': async (ctx, config, services) => {
+    const previous = resolveSalesField(ctx, 'conversation_state');
+    const state = {
+      ...(previous && typeof previous === 'object' && !Array.isArray(previous) ? previous : {}),
+      stage: config.stage,
+      last_action: interpolate(config.lastAction || '', ctx) || null,
+      next_expected_input: interpolate(config.nextExpectedInput || '', ctx) || null,
+      updated_at: (services.now ? services.now() : new Date()).toISOString(),
+    };
+    let persisted = false;
+    if (ctx.lead) {
+      const memory = ctx.lead.memory && typeof ctx.lead.memory === 'object' ? ctx.lead.memory : {};
+      const customFields = memory.custom_fields && typeof memory.custom_fields === 'object'
+        ? memory.custom_fields as Record<string, unknown>
+        : {};
+      ctx.lead.memory = {
+        ...memory,
+        conversation_state: state,
+        custom_fields: { ...customFields, conversation_state: state },
+      };
+      if (services.db) {
+        await services.db.updateLead(ctx.organizationId, ctx.leadId, { memory: ctx.lead.memory });
+        persisted = true;
+      }
+    }
+    return {
+      port: 'next',
+      output: { ...state, persisted },
+      variables: { conversation_state: state },
+    };
   },
 
   // --- AGENT ---
@@ -369,6 +443,68 @@ export const executors: Record<NodeType, NodeExecutor> = {
     };
   },
 
+  'agent.next_action': async (ctx, config, services) => {
+    const missing = resolveSalesField(ctx, 'required_fields.missing');
+    const missingFields = Array.isArray(missing) ? missing.filter((value): value is string => typeof value === 'string') : [];
+    if (missingFields.length > 0) {
+      const decision = {
+        action: 'ASK_MISSING_FIELD' as const,
+        field: missingFields[0] || null,
+        reason: 'Existem campos obrigatórios ausentes na memória.',
+      };
+      const currentDecision = ctx.variables.decision && typeof ctx.variables.decision === 'object'
+        ? ctx.variables.decision as Record<string, unknown>
+        : {};
+      return {
+        port: 'next',
+        output: decision,
+        variables: { next_action: decision, decision: { ...currentDecision, action: decision.action, next_action: decision } },
+      };
+    }
+    if (!services.llm.structured) throw new Error('agent.next_action requer um provedor com saída estruturada.');
+
+    const allowedActions: string[] = Array.isArray(config.allowedActions) ? config.allowedActions : [];
+    const latestMsg = ctx.messages[ctx.messages.length - 1]?.text || '';
+    const state = {
+      lead: ctx.lead,
+      commercialMemory: ctx.variables.commercialMemory,
+      conversationState: resolveSalesField(ctx, 'conversation_state'),
+      requiredFields: resolveSalesField(ctx, 'required_fields'),
+    };
+    const actionPrompt = `${interpolate(config.prompt, ctx)}\n\nAções permitidas: ${allowedActions.join(', ')}. `
+      + 'Retorne action, field e reason. field deve ser vazio quando não houver campo a perguntar. '
+      + `Estado estruturado: ${JSON.stringify(state)}`;
+    const res = await services.llm.structured({
+      provider: config.provider,
+      model: config.model,
+      prompt: actionPrompt,
+      system: config.system,
+      commercialMemory: ctx.variables.commercialMemory as Record<string, unknown>,
+      recentMessages: ctx.variables.recentMessages as string,
+      latestUserMessage: latestMsg,
+      knowledgeSnippets: (ctx.variables.knowledgeSnippets as string[]) || [],
+      summary: (ctx.variables.summary as string) || undefined,
+    }, ['action', 'field', 'reason']);
+    const parsedAction = nextActionSchema.safeParse(String(res.data.action || '').trim().toUpperCase());
+    if (!parsedAction.success || !allowedActions.includes(parsedAction.data)) {
+      throw new Error(`agent.next_action retornou ação inválida: ${String(res.data.action || '(vazia)')}`);
+    }
+    const decision = {
+      action: parsedAction.data,
+      field: String(res.data.field || '').trim() || null,
+      reason: String(res.data.reason || '').trim() || 'Ação escolhida pelo agente.',
+    };
+    const currentDecision = ctx.variables.decision && typeof ctx.variables.decision === 'object'
+      ? ctx.variables.decision as Record<string, unknown>
+      : {};
+    return {
+      port: 'next',
+      output: decision,
+      variables: { next_action: decision, decision: { ...currentDecision, action: decision.action, next_action: decision } },
+      tokens: { input: res.inputTokens, output: res.outputTokens },
+    };
+  },
+
   // --- FLOW CONTROL ---
   'flow.condition': async (ctx, config, _services) => {
     const resolved = interpolate(`{{${config.variable}}}`, ctx);
@@ -434,6 +570,24 @@ export const executors: Record<NodeType, NodeExecutor> = {
       port: 'done',
       output: { iteration: current, total: times, completed: true },
       variables: { [counterVar]: 0 },
+    };
+  },
+
+  'flow.required_fields': async (ctx, config, _services) => {
+    const required: string[] = Array.isArray(config.required) ? config.required : [];
+    const optional: string[] = Array.isArray(config.optional) ? config.optional : [];
+    const missing = required.filter(field => !isPresent(resolveSalesField(ctx, field)));
+    const availableOptional = optional.filter(field => isPresent(resolveSalesField(ctx, field)));
+    const result = {
+      complete: missing.length === 0,
+      missing,
+      missing_count: missing.length,
+      optional_available: availableOptional,
+    };
+    return {
+      port: result.complete ? 'complete' : 'missing',
+      output: result,
+      variables: { required_fields: result },
     };
   },
 
@@ -651,6 +805,33 @@ export const executors: Record<NodeType, NodeExecutor> = {
     return { port: 'next', output: { sent: true, messageId, template: config.name } };
   },
 
+  'output.smart_message': async (ctx, config, services) => {
+    const text = interpolate(config.text || '', ctx);
+    const phone = ctx.lead?.phone || '';
+    if (!text.trim()) throw new Error('output.smart_message recebeu uma mensagem vazia.');
+    if (!phone) throw new Error('output.smart_message não encontrou o telefone do lead.');
+    const bubbles = splitSmartMessage(
+      text,
+      Math.min(3, Math.max(1, Number(config.maxBubbles) || 3)),
+      Math.max(80, Number(config.maxCharactersPerBubble) || 320),
+    );
+    const messageIds: string[] = [];
+    for (const bubble of bubbles) {
+      const sent = await services.messaging.sendText(ctx.connectionId, phone, bubble, { typing: config.typing ?? true });
+      messageIds.push(sent.messageId);
+      if (services.db) {
+        await services.db.saveMessage(ctx.organizationId, ctx.connectionId, ctx.conversationId, {
+          sender: 'ai',
+          direction: 'OUTBOUND',
+          content: bubble,
+          providerMessageId: sent.messageId,
+        });
+      }
+    }
+    const smartMessage = { sent: true, bubble_count: bubbles.length, bubbles, message_ids: messageIds };
+    return { port: 'next', output: smartMessage, variables: { smart_message: smartMessage } };
+  },
+
   // --- CONTEXT: STORAGE ---
   'context.storage': async (_ctx, config, _services) => {
     const content = String(config.content || '');
@@ -787,6 +968,133 @@ export const executors: Record<NodeType, NodeExecutor> = {
       return { port: 'error', output: { error: `Ação desconhecida: ${action}` } };
     } catch (e: any) {
       return { port: 'error', output: { error: e?.message || String(e) } };
+    }
+  },
+
+  // --- CALENDAR: SALES ACTIONS ---
+  'calendar.availability': async (ctx, config, services) => {
+    try {
+      const client = calendarClient(services);
+      const calendarId = interpolate(config.calendarId || 'primary', ctx);
+      const timezone = interpolate(config.timezone || 'America/Sao_Paulo', ctx);
+      const dateInput = interpolate(config.date || '', ctx);
+      const period = interpolate(config.period || '', ctx);
+      const durationMinutes = Number(config.durationMinutes) || 30;
+      const now = services.now ? services.now() : new Date();
+      const date = resolveCalendarDate(dateInput, now, timezone, Number(config.daysAhead) || 14);
+      const window = calendarWindow(date, period, timezone);
+      const [events, calendarName] = await Promise.all([
+        client.listEvents(calendarId, window.start.toISOString(), window.end.toISOString()),
+        client.getCalendarName(calendarId).catch(() => calendarId),
+      ]);
+      const slotDetails = availableSlots(events, window, durationMinutes, timezone);
+      const calendar = mergeCalendarVariables(ctx, {
+        slots: slotDetails.map(slot => slot.label),
+        slot_starts: slotDetails.map(slot => slot.start),
+        slot_details: slotDetails,
+        first_available: slotDetails[0]?.start || null,
+        calendar_name: calendarName,
+        date,
+        timezone,
+      });
+      const output = {
+        slots: calendar.slots,
+        slot_starts: calendar.slot_starts,
+        first_available: calendar.first_available,
+        calendar_name: calendarName,
+        date,
+      };
+      return {
+        port: slotDetails.length > 0 ? 'available' : 'unavailable',
+        output,
+        variables: { calendar },
+      };
+    } catch (error: any) {
+      return { port: 'error', output: { error: error?.message || String(error) } };
+    }
+  },
+
+  'calendar.create_event': async (ctx, config, services) => {
+    try {
+      const client = calendarClient(services);
+      const calendarId = interpolate(config.calendarId || 'primary', ctx);
+      const timezone = interpolate(config.timezone || 'America/Sao_Paulo', ctx);
+      const start = interpolate(config.start || '', ctx);
+      const end = endFromStart(start, Number(config.durationMinutes) || 30);
+      const title = interpolate(config.title || '', ctx);
+      if (!title) throw new Error('O título do agendamento é obrigatório.');
+      const description = interpolate(config.description || '', ctx);
+      const leadName = interpolate(config.leadName || '', ctx);
+      const leadPhone = interpolate(config.leadPhone || '', ctx);
+      const contact = [leadName && `Lead: ${leadName}`, leadPhone && `Telefone: ${leadPhone}`].filter(Boolean).join('\n');
+      const event = await client.createEvent(calendarId, {
+        summary: title,
+        description: [description, contact].filter(Boolean).join('\n\n'),
+        start: { dateTime: start, timeZone: timezone },
+        end: { dateTime: end, timeZone: timezone },
+      });
+      const calendar = mergeCalendarVariables(ctx, {
+        event_id: event.id,
+        start: event.start?.dateTime || start,
+        end: event.end?.dateTime || end,
+        event_link: event.htmlLink || null,
+      });
+      return {
+        port: 'created',
+        output: { event_id: calendar.event_id, start: calendar.start, end: calendar.end, link: calendar.event_link },
+        variables: { calendar },
+      };
+    } catch (error: any) {
+      return { port: 'error', output: { error: error?.message || String(error) } };
+    }
+  },
+
+  'calendar.reschedule_event': async (ctx, config, services) => {
+    try {
+      const client = calendarClient(services);
+      const calendarId = interpolate(config.calendarId || 'primary', ctx);
+      const eventId = interpolate(config.eventId || '', ctx);
+      const timezone = interpolate(config.timezone || 'America/Sao_Paulo', ctx);
+      const start = interpolate(config.newStart || '', ctx);
+      if (!eventId) throw new Error('O ID do evento é obrigatório para reagendar.');
+      const end = endFromStart(start, Number(config.durationMinutes) || 30);
+      const event = await client.updateEvent(calendarId, eventId, {
+        start: { dateTime: start, timeZone: timezone },
+        end: { dateTime: end, timeZone: timezone },
+      });
+      const calendar = mergeCalendarVariables(ctx, {
+        event_id: event.id,
+        start: event.start?.dateTime || start,
+        end: event.end?.dateTime || end,
+        event_link: event.htmlLink || null,
+        rescheduled: true,
+      });
+      return {
+        port: 'rescheduled',
+        output: { event_id: calendar.event_id, start: calendar.start, end: calendar.end, link: calendar.event_link },
+        variables: { calendar },
+      };
+    } catch (error: any) {
+      return { port: 'error', output: { error: error?.message || String(error) } };
+    }
+  },
+
+  'calendar.cancel_event': async (ctx, config, services) => {
+    try {
+      const client = calendarClient(services);
+      const calendarId = interpolate(config.calendarId || 'primary', ctx);
+      const eventId = interpolate(config.eventId || '', ctx);
+      const reason = interpolate(config.reason || '', ctx);
+      if (!eventId) throw new Error('O ID do evento é obrigatório para cancelar.');
+      await client.cancelEvent(calendarId, eventId);
+      const calendar = mergeCalendarVariables(ctx, { event_id: eventId, cancelled: true, cancellation_reason: reason || null });
+      return {
+        port: 'cancelled',
+        output: { event_id: eventId, cancelled: true, reason: reason || null },
+        variables: { calendar },
+      };
+    } catch (error: any) {
+      return { port: 'error', output: { error: error?.message || String(error) } };
     }
   },
 

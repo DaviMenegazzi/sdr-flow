@@ -24,7 +24,7 @@ import { requestLogger, logger } from './telemetry/logger.js';
 import { SentryService } from './telemetry/sentry.js';
 import { orgRateLimiter, publicRateLimiter } from './rate-limit.js';
 import { AlertMonitor } from './alerts/alert-monitor.js';
-import { OpenAIProvider, type RuntimeConfig } from '@sdr/flow/server';
+import { createCalendarProvider, OpenAIProvider, type RuntimeConfig } from '@sdr/flow/server';
 import { secretMatches, verifyMetaSignature } from './whatsapp/webhook-auth.js';
 import { standaloneStore } from './storage.js';
 import { wsServer } from './ws.js';
@@ -1005,6 +1005,7 @@ export function createApp(config: ApiConfig = {}): Express {
           async sendMedia() { return { messageId: crypto.randomUUID() }; },
           async sendTemplate() { return { messageId: crypto.randomUUID() }; },
         },
+        calendar: createCalendarProvider(config),
         db: {
           async updateLead(_org, lid, patch) {
             if (capturedConvRepo) {

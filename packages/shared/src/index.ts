@@ -4,17 +4,44 @@ export * from './phone.js';
 
 export const nodeTypes = [
   'trigger.message_received', 'trigger.schedule', 'trigger.manual',
-  'guard.test_mode', 'guard.human_takeover', 'guard.business_hours', 'guard.chat_type',
+  'guard.test_mode', 'guard.human_takeover', 'guard.business_hours', 'guard.chat_type', 'guard.response_policy',
   'input.buffer', 'input.media', 'input.normalize',
-  'context.memory', 'context.knowledge', 'context.crm', 'context.summarize', 'context.storage',
-  'agent.decide', 'agent.classify', 'agent.extract', 'agent.score', 'agent.structured',
-  'flow.condition', 'flow.switch', 'flow.delay', 'flow.wait_reply', 'flow.loop',
+  'context.memory', 'context.knowledge', 'context.crm', 'context.summarize', 'context.storage', 'context.conversation_state',
+  'agent.decide', 'agent.classify', 'agent.extract', 'agent.score', 'agent.structured', 'agent.next_action',
+  'flow.condition', 'flow.switch', 'flow.delay', 'flow.wait_reply', 'flow.loop', 'flow.required_fields',
   'action.update_stage', 'action.update_lead', 'action.crm_sync', 'action.handoff', 'action.webhook',
   'integration.google_calendar',
-  'output.send_text', 'output.send_media', 'output.send_template', 'output.end',
+  'calendar.availability', 'calendar.create_event', 'calendar.reschedule_event', 'calendar.cancel_event',
+  'output.send_text', 'output.send_media', 'output.send_template', 'output.smart_message', 'output.end',
 ] as const;
 export const nodeTypeSchema = z.enum(nodeTypes);
 export type NodeType = z.infer<typeof nodeTypeSchema>;
+
+export const nextActionTypes = [
+  'ASK_MISSING_FIELD',
+  'SHOW_PRICE',
+  'CHECK_CALENDAR',
+  'CREATE_APPOINTMENT',
+  'RESCHEDULE_APPOINTMENT',
+  'CANCEL_APPOINTMENT',
+  'SEND_INFORMATION',
+  'HANDOFF',
+  'END',
+] as const;
+export const nextActionSchema = z.enum(nextActionTypes);
+export type NextAction = z.infer<typeof nextActionSchema>;
+
+export const conversationStateStages = [
+  'DISCOVERY',
+  'QUALIFYING',
+  'PRICING',
+  'SCHEDULING',
+  'CLOSING',
+  'HANDOFF',
+  'SUPPORT',
+] as const;
+export const conversationStateStageSchema = z.enum(conversationStateStages);
+export type ConversationStateStage = z.infer<typeof conversationStateStageSchema>;
 export const flowNodeSchema = z.strictObject({
   id: z.string().min(1).max(100), type: nodeTypeSchema, label: z.string().min(1).max(120),
   position: z.strictObject({ x: z.number().finite(), y: z.number().finite() }),

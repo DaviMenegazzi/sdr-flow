@@ -10,7 +10,7 @@ export const FlowNode = memo(({ data, selected }: NodeProps<CanvasNode>) => {
   const updateInternals = useUpdateNodeInternals();
   const portSignature = ports.join('|');
   useEffect(() => { updateInternals(node.id); },[node.id,portSignature,updateInternals]);
-  const Icon = node.type === 'output.end' ? CircleStop : node.type === 'integration.google_calendar' ? Calendar : node.type === 'context.storage' ? Database : definition.category === 'trigger' ? MessageCircle : definition.category === 'agent' ? Bot : definition.category === 'guard' ? ShieldCheck : definition.category === 'integration' ? Calendar : Workflow;
+  const Icon = node.type === 'output.end' ? CircleStop : definition.category === 'calendar' || node.type === 'integration.google_calendar' ? Calendar : node.type === 'context.storage' ? Database : definition.category === 'trigger' ? MessageCircle : definition.category === 'agent' ? Bot : definition.category === 'guard' ? ShieldCheck : definition.category === 'integration' ? Calendar : Workflow;
   return <div className={`flow-node ${selected ? 'selected' : ''} ${invalid ? 'invalid' : ''}`} style={{ '--node-color': categoryColors[definition.category] } as React.CSSProperties}>
     {!node.type.startsWith('trigger.') && <Handle type="target" position={Position.Left} id="input"/>}
     <div className="node-category"><Icon size={15}/>{categories[definition.category]}</div>

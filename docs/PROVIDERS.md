@@ -8,6 +8,7 @@ Use `.env` na raiz (ignorado pelo Git). API e worker carregam esse arquivo. Nunc
 OPENAI_API_KEY=preencha_localmente
 OPENAI_MODEL=gpt-4.1-mini
 OPENAI_TIMEOUT_MS=60000
+GOOGLE_CALENDAR_CREDENTIALS_JSON={"client_id":"...","client_secret":"...","refresh_token":"..."}
 WHATSAPP_SEND_ENABLED=false
 META_GRAPH_VERSION=v21.0
 PUBLIC_API_URL=https://api.seudominio.com
@@ -17,6 +18,12 @@ ENCRYPTION_KEY=segredo_aleatorio_persistente
 API e worker precisam do mesmo `ENCRYPTION_KEY`, `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY`. Preserve a chave de criptografia entre reinícios. Existe fallback para a chave de serviço por compatibilidade; a chave fixa anterior foi removida. Credenciais antigas gravadas com a chave fixa precisam ser recadastradas. Aplique todas as migrações em ordem, incluindo `202609080006_provider_credentials.sql`, que permite ao servidor acessar a tabela privada por RPCs restritas a `service_role`.
 
 Reinicie API e worker após editar `.env`. O Compose já encaminha essas variáveis aos dois serviços.
+
+Os nós `calendar.*` leem as credenciais do Google Calendar somente no servidor, por
+`GOOGLE_CALENDAR_CREDENTIALS_JSON`; tokens não fazem parte do grafo publicado nem são enviados ao
+frontend. Use um `refresh_token` com `client_id` e `client_secret`, ou um `access_token` temporário
+apenas para homologação. Sem credenciais válidas, os nós seguem pela porta `error` e não simulam
+disponibilidade, criação, reagendamento ou cancelamento.
 
 ## Testar a IA sem WhatsApp
 

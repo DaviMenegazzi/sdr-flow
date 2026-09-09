@@ -93,7 +93,10 @@ export class MockLLMProvider implements LLMProvider {
     const dataKeys = keys.filter(k => k !== '_route');
     const numericPattern = /count|times|repeat|vezes|quantidade|numero|number|limit/i;
     for (const key of keys) {
-      if (key === '_route') {
+      if (key === 'action') data[key] = 'SEND_INFORMATION';
+      else if (key === 'field') data[key] = '';
+      else if (key === 'reason') data[key] = 'Ação segura para o playground.';
+      else if (key === '_route') {
         const loopKey = dataKeys.find(k => numericPattern.test(k));
         data[key] = loopKey || dataKeys[0] || 'default';
       } else if (key === 'done') data[key] = 'true';
