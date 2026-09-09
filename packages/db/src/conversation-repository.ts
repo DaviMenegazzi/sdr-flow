@@ -166,6 +166,22 @@ export class ConversationRepository {
       .single();
 
     if (error) throw error;
+
+    // Keep conversations.last_message_at in sync so the Inbox list sorts
+    // and previews correctly. This was previously never updated after the
+    // conversation's creation, so every conversation appeared frozen at
+    // whatever time it first started regardless of how many messages
+    // followed. Best-effort: the message itself is already saved, so a
+    // failure here shouldn't fail the whole call.
+    const { error: touchError } = await this.db
+      .from('conversations')
+      .update({ last_message_at: data.created_at, updated_at: data.created_at })
+      .eq('id', input.conversationId)
+      .eq('organization_id', input.organizationId);
+    if (touchError) {
+      console.warn('[ConversationRepository] Falha ao atualizar last_message_at:', touchError);
+    }
+
     return data;
   }
 
