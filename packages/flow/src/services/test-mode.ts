@@ -1,11 +1,17 @@
-import { normalizePhoneDigits } from '@sdr/shared';
+import { isPhoneNumberMatch } from '@sdr/shared';
 import type { MessagingService } from './types.js';
 
-/** Exact international number comparison: never match suffixes or omit a DDD. */
+/**
+ * Delegates to the same lenient matcher used by the app.ts pre-check
+ * (handles the Brazilian 8-vs-9-digit mobile variation, DDI/DDD suffixes,
+ * and comma/semicolon-separated multiple numbers). Previously this used a
+ * strict exact-match comparison, which caused messages that passed the
+ * app.ts gate to be silently blocked again here whenever the sender's
+ * number and the configured test phone differed only by the extra "9".
+ */
 export function matchesTestPhone(incoming: string | undefined, allowed: string): boolean {
   if (!incoming || (incoming.includes('@') && !/@s\.whatsapp\.net$/.test(incoming))) return false;
-  const a = normalizePhoneDigits(incoming), b = normalizePhoneDigits(allowed);
-  return /^[1-9]\d{7,14}$/.test(a) && a === b;
+  return isPhoneNumberMatch(incoming, allowed);
 }
 
 export function restrictTestMessaging(messaging: MessagingService, phone: string, connectionId: string): MessagingService {
