@@ -373,14 +373,17 @@ export class InboxRepository {
   async getMessages(
     organizationId: string,
     conversationId: string,
-    limit = 100
+    limit = 200
   ): Promise<Database['public']['Tables']['messages']['Row'][]> {
     if (typeof this.db.query === 'function' && typeof this.db.from !== 'function') {
       const sql = `
-        select * from public.messages
-        where organization_id = $1 and conversation_id = $2
+        select * from (
+          select * from public.messages
+          where organization_id = $1 and conversation_id = $2
+          order by created_at desc
+          limit $3
+        ) recent
         order by created_at asc
-        limit $3
       `;
       const res = await this.db.query(sql, [organizationId, conversationId, limit]);
       return res.rows;
@@ -391,11 +394,13 @@ export class InboxRepository {
       .select('*')
       .eq('organization_id', organizationId)
       .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
       .limit(limit);
 
     if (error) throw error;
-    return data || [];
+    const rows = data || [];
+    rows.reverse();
+    return rows;
   }
 
   async takeover(
