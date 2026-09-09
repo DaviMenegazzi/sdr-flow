@@ -301,21 +301,25 @@ export async function processInboundWebhook(
     const flowGraph = flowVersion.graph as any;
     const windowSeconds = bufferWindowSeconds(flowGraph);
     if (options.turnQueue && !options.bypassQueue && windowSeconds > 0 && !event.fromMe) {
-      const queued = await options.turnQueue.enqueue({
-        kind: 'published',
-        target: connectionId,
-        conversationKey: `${organizationId}:${conversation.id}`,
-        windowSeconds,
-        event,
-        metadata: { flowId: flow.id, flowVersionId: flowVersion.id },
-      });
-      idempotencyGate.complete(event.messageId);
-      return {
-        status: 'queued',
-        conversationId: conversation.id,
-        generation: queued.generation,
-        delayMs: queued.delayMs,
-      };
+      try {
+        const queued = await options.turnQueue.enqueue({
+          kind: 'published',
+          target: connectionId,
+          conversationKey: `${organizationId}:${conversation.id}`,
+          windowSeconds,
+          event,
+          metadata: { flowId: flow.id, flowVersionId: flowVersion.id },
+        });
+        idempotencyGate.complete(event.messageId);
+        return {
+          status: 'queued',
+          conversationId: conversation.id,
+          generation: queued.generation,
+          delayMs: queued.delayMs,
+        };
+      } catch {
+        console.warn('[processInboundWebhook] Redis indisponível — processando sem buffer');
+      }
     }
 
     // 7. Initialize FlowContext & Execution

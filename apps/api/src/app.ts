@@ -1102,20 +1102,24 @@ export function createApp(config: ApiConfig = {}): Express {
 
       const windowSeconds = bufferWindowSeconds(activeFlow.graph);
       if (turnQueue && !options.bypassQueue && windowSeconds > 0) {
-        const queued = await turnQueue.enqueue({
-          kind: 'standalone',
-          target: instanceName,
-          conversationKey: `${organizationId}:${conversationId}`,
-          windowSeconds,
-          event,
-          metadata: { flowSnapshot: activeFlow },
-        });
-        return {
-          status: 'queued',
-          conversationId,
-          generation: queued.generation,
-          delayMs: queued.delayMs,
-        };
+        try {
+          const queued = await turnQueue.enqueue({
+            kind: 'standalone',
+            target: instanceName,
+            conversationKey: `${organizationId}:${conversationId}`,
+            windowSeconds,
+            event,
+            metadata: { flowSnapshot: activeFlow },
+          });
+          return {
+            status: 'queued',
+            conversationId,
+            generation: queued.generation,
+            delayMs: queued.delayMs,
+          };
+        } catch (queueErr) {
+          logger.warn({ err: queueErr instanceof Error ? queueErr.message : String(queueErr), instanceName, conversationId }, 'Redis indisponível — processando mensagem sem buffer');
+        }
       }
 
       // 4. Execute Flow for Authorized Inbound Message
