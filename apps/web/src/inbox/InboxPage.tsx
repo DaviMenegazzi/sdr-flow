@@ -22,8 +22,10 @@ import {
   LoaderCircle,
   RotateCcw,
   Square,
+  Download,
 } from 'lucide-react';
 import { useSession } from '../session';
+import { buildAgentDebugExport, createAgentDebugFilename } from './debug-export';
 
 interface ConversationItem {
   id: string;
@@ -75,6 +77,8 @@ interface DebugEvent {
   type: 'execution:started' | 'step:start' | 'step:complete' | 'step:failed' | 'execution:completed';
   executionId: string;
   timestamp: string;
+  conversationId?: string;
+  debugSessionId?: string;
   payload?: Record<string, any>;
 }
 
@@ -82,6 +86,7 @@ interface DebugSession {
   id: string;
   organizationId: string;
   conversationId: string;
+  connectionId: string;
   status: 'armed' | 'running' | 'completed' | 'failed' | 'cancelled' | 'expired';
   armedAt: string;
   expiresAt: string;
@@ -93,6 +98,13 @@ interface DebugSession {
     name: string;
     version: string;
     nodes: Array<{ id: string; type: string; label: string }>;
+    graph?: {
+      schemaVersion: 1;
+      nodes: Array<{ id: string; type: string; label: string; position: { x: number; y: number }; config: Record<string, unknown> }>;
+      edges: Array<{ id: string; source: string; target: string; sourcePort: string }>;
+      testMode?: { enabled: boolean; phone: string };
+      loopLimit?: number;
+    };
   };
   events: DebugEvent[];
   report?: {
@@ -314,6 +326,33 @@ export function InboxPage() {
     }
     return Array.from(steps.values()).sort((a, b) => a.sequence - b.sequence);
   }, [debugSession]);
+
+  function downloadDebugJson() {
+    if (!debugSession?.report || !selectedConv) return;
+    const exportedAt = new Date().toISOString();
+    const payload = buildAgentDebugExport({
+      session: debugSession,
+      conversation: selectedConv,
+      messages,
+      steps: debugSteps,
+      exportedAt,
+    });
+    const filename = createAgentDebugFilename({
+      conversationLabel: selectedConv.lead.name || selectedConv.lead.phone,
+      sessionId: debugSession.id,
+      executionId: debugSession.executionId,
+      exportedAt,
+    });
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => window.URL.revokeObjectURL(url), 0);
+  }
 
   useEffect(() => {
     async function loadConnections() {
@@ -1166,6 +1205,17 @@ export function InboxPage() {
                     </button>
                   ))}
                 </div>
+              )}
+
+              {debugSession.report && (
+                <button
+                  className="debug-download"
+                  onClick={downloadDebugJson}
+                  title="Inclui o fluxo usado, a linha do tempo bruta, entradas, saídas, erros, mensagens da janela e o relatório final."
+                >
+                  <Download size={15} />
+                  Baixar JSON completo do debug
+                </button>
               )}
 
               <div className="debug-actions">

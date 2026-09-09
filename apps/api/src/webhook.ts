@@ -288,6 +288,7 @@ export async function processInboundWebhook(
       name: flow.name || 'Fluxo publicado',
       version: `v${flowVersion.version}`,
       nodes: (flowGraph.nodes || []).map((node: any) => ({ id: node.id, type: node.type, label: node.label || node.type })),
+      graph: flowGraph,
     };
     conversationDebugRegistry.claim({
       organizationId,

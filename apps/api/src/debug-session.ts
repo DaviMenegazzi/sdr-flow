@@ -1,11 +1,12 @@
 import crypto from 'node:crypto';
-import type { FlowExecutionEvent, FlowExecutionResult } from '@sdr/shared';
+import type { FlowExecutionEvent, FlowExecutionResult, FlowGraph } from '@sdr/shared';
 
 export interface DebugFlowSnapshot {
   id: string;
   name: string;
   version: string;
   nodes: Array<{ id: string; type: string; label: string }>;
+  graph?: FlowGraph;
 }
 
 export interface DebugIssue {

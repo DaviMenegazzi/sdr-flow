@@ -579,6 +579,7 @@ export function createApp(config: ApiConfig = {}): Express {
         name: standaloneFlow.name,
         version: `v${standaloneFlow.publishedVersion || 1}`,
         nodes: standaloneFlow.graph.nodes.map(node => ({ id: node.id, type: node.type, label: node.label || node.type })),
+        graph: standaloneFlow.graph,
       };
     }
 
@@ -616,6 +617,7 @@ export function createApp(config: ApiConfig = {}): Express {
       name: flowName || 'Fluxo publicado',
       version: `v${version.version}`,
       nodes: graph.nodes.map(node => ({ id: node.id, type: node.type, label: node.label || node.type })),
+      graph,
     };
   };
 
@@ -1073,6 +1075,7 @@ export function createApp(config: ApiConfig = {}): Express {
         name: activeFlow.name,
         version: `v${activeFlow.publishedVersion || 1}`,
         nodes: activeFlow.graph.nodes.map(node => ({ id: node.id, type: node.type, label: node.label || node.type })),
+        graph: activeFlow.graph,
       };
       conversationDebugRegistry.claim({ organizationId, conversationId, executionId, flow: debugFlow });
       const emitExecutionEvent = (event: Parameters<typeof wsServer.broadcast>[0]) => {
