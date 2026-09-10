@@ -951,6 +951,35 @@ export function createApp(config: ApiConfig = {}): Express {
         return { status: 'ignored_non_message' };
       }
       if (event.fromMe) {
+        // Cross-instance routing: if sent TO another connected instance,
+        // re-process as inbound on that instance
+        if (config.supabaseUrl && config.serviceRoleKey && event.textContent) {
+          const db = serviceDatabase(config.supabaseUrl, config.serviceRoleKey);
+          const { data: otherConns } = await db
+            .from('connections')
+            .select('provider_instance_id, phone')
+            .eq('provider', 'evolution')
+            .neq('provider_instance_id', instanceName)
+            .not('phone', 'is', null);
+
+          const destPhone = event.phone;
+          const target = otherConns?.find(c => c.phone && c.provider_instance_id && isPhoneNumberMatch(destPhone, c.phone));
+
+          if (target?.provider_instance_id) {
+            const { data: thisConn } = await db
+              .from('connections')
+              .select('phone')
+              .eq('provider_instance_id', instanceName)
+              .eq('provider', 'evolution')
+              .maybeSingle();
+
+            if (thisConn?.phone) {
+              const routedEvent = { ...event, fromMe: false, phone: thisConn.phone.replace(/\D/g, '') };
+              logger.info({ from: instanceName, to: target.provider_instance_id, sender: routedEvent.phone }, 'Cross-instance routing: re-routing fromMe as inbound');
+              return processStandaloneEvents(target.provider_instance_id, [routedEvent]);
+            }
+          }
+        }
         return { status: 'ignored_from_me' };
       }
       if (!event.textContent && !event.mediaUrl) {

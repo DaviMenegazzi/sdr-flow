@@ -73,6 +73,7 @@ export function parseEvolutionWebhook(payload: any): InboundMessageEvent | null 
 
   const messageId = key.id || '';
   const remoteJid = key.remoteJid || '';
+  const remoteJidAlt = key.remoteJidAlt || '';
   const fromMe = Boolean(key.fromMe);
   const senderName = data.pushName || '';
 
@@ -100,7 +101,9 @@ export function parseEvolutionWebhook(payload: any): InboundMessageEvent | null 
     mediaUrl = message.documentMessage.url;
   }
 
-  const cleanPhone = normalizePhoneDigits(remoteJid);
+  // Use remoteJidAlt as fallback when remoteJid is in LID format (@lid)
+  const phoneSource = remoteJid.endsWith('@lid') && remoteJidAlt ? remoteJidAlt : remoteJid;
+  const cleanPhone = normalizePhoneDigits(phoneSource);
 
   return {
     messageId,
