@@ -1467,13 +1467,26 @@ export function createApp(config: ApiConfig = {}): Express {
     flowSnapshot: turn.metadata?.flowSnapshot as StoredFlow | undefined,
   });
 
+  const _instancePhoneCache = new Map<string, string>();
   app.post('/api/webhooks/evolution/instance/:instanceName', async (req, res) => {
+    // Lazy-sync instance phone from webhook sender field (ownerJid)
+    const senderJid: string | undefined = req.body?.sender || req.body?.destination;
+    const instName = req.params.instanceName;
+    if (senderJid && typeof senderJid === 'string' && senderJid.includes('@') && config.supabaseUrl && config.serviceRoleKey) {
+      const senderPhone = senderJid.replace(/@.*$/, '');
+      if (senderPhone && _instancePhoneCache.get(instName) !== senderPhone) {
+        _instancePhoneCache.set(instName, senderPhone);
+        const db = serviceDatabase(config.supabaseUrl, config.serviceRoleKey);
+        await db.from('connections').update({ phone: senderPhone }).eq('provider_instance_id', instName).eq('provider', 'evolution').then(() => {});
+      }
+    }
+
     const event = parseEvolutionWebhook(req.body);
     if (!event) {
       res.status(200).json({ status: 'ignored_non_message' });
       return;
     }
-    const result = await processStandaloneEvents(req.params.instanceName, [event]);
+    const result = await processStandaloneEvents(instName, [event]);
     res.status(result.status === 'error' ? 500 : 200).json(result);
   });
 
@@ -2402,5 +2415,32 @@ export function createApp(config: ApiConfig = {}): Express {
     res.status(500).json({ error: 'Não foi possível concluir a operação.' });
   };
   app.use(errors);
+
+  // Sync Evolution instance phones on startup
+  if (config.supabaseUrl && config.serviceRoleKey) {
+    (async () => {
+      try {
+        const client = getEvoClient();
+        const instances = await client.fetchInstances();
+        const db = serviceDatabase(config.supabaseUrl!, config.serviceRoleKey!);
+        for (const inst of instances) {
+          const name = inst.instance?.instanceName || inst.name || inst.instanceName;
+          const ownerJid: string | undefined = inst.instance?.ownerJid || inst.ownerJid;
+          if (!name || !ownerJid) continue;
+          const phone = ownerJid.replace(/@.*$/, '');
+          if (!phone) continue;
+          await db
+            .from('connections')
+            .update({ phone })
+            .eq('provider_instance_id', name)
+            .eq('provider', 'evolution');
+        }
+        logger.info('Evolution instance phones synced from ownerJid');
+      } catch (err) {
+        logger.warn({ err }, 'Failed to sync Evolution instance phones on startup');
+      }
+    })();
+  }
+
   return app;
 }
