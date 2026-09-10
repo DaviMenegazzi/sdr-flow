@@ -34,10 +34,19 @@ export interface LLMResponse<T = unknown> {
   outputTokens: number;
 }
 
+export type ExtractFieldType = 'string' | 'number' | 'boolean' | 'string_array';
+
+export interface ExtractFieldDefinition {
+  name: string;
+  type: ExtractFieldType;
+  description?: string;
+  values?: string[];
+}
+
 export interface LLMProvider {
   decide(req: LLMRequest): Promise<LLMResponse<AgentDecision>>;
   classify(req: LLMRequest): Promise<LLMResponse<{ intent: string }>>;
-  extract(req: LLMRequest): Promise<LLMResponse<Record<string, unknown>>>;
+  extract(req: LLMRequest, fields?: ExtractFieldDefinition[]): Promise<LLMResponse<Record<string, unknown>>>;
   score(req: LLMRequest): Promise<LLMResponse<{ score: number; reason?: string }>>;
   structured?(req: LLMRequest, keys: string[]): Promise<LLMResponse<Record<string, string>>>;
 }

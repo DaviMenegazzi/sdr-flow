@@ -218,6 +218,7 @@ describe('Flow Executors — core catalog', () => {
         getMessages: vi.fn().mockResolvedValue([
           { id: 'm1', content: 'Quero conhecer o cartão', sender: 'lead', direction: 'INBOUND' },
           { id: 'm2', content: 'O Smart custa R$ 69,90. O que acha?', sender: 'ai', direction: 'OUTBOUND' },
+          { id: 'sys', content: 'Falha interna do fluxo', sender: 'system', direction: 'OUTBOUND' },
           { id: 'm3', content: 'Quero sim, me fala aí', sender: 'lead', direction: 'INBOUND' },
         ]),
       },
@@ -231,10 +232,17 @@ describe('Flow Executors — core catalog', () => {
     expect((res.output as any).history).toEqual({
       source: 'database',
       messagesCount: 3,
+      rawMessagesCount: 4,
+      excludedSystemMessages: 1,
       requestedLimit: 15,
       databaseReaderAvailable: true,
       error: null,
     });
+    expect(res.variables?.latestLeadMessage).toBe('Quero sim, me fala aí');
+    expect(res.variables?.lastAssistantMessage).toBe('O Smart custa R$ 69,90. O que acha?');
+    expect(res.variables?.lastAssistantQuestion).toBe('O que acha?');
+    expect(res.variables?.recentAssistantMessages).toEqual(['O Smart custa R$ 69,90. O que acha?']);
+    expect(res.variables?.recentMessages).not.toContain('Falha interna');
   });
 
   it('context.crm sets crm context', async () => {
@@ -246,16 +254,38 @@ describe('Flow Executors — core catalog', () => {
   });
 
   it('context.knowledge searches snippets', async () => {
-    const ctx = createTestContext();
+    const ctx = createTestContext({ variables: { latestLeadMessage: 'Tem uma opção mais barata?' } });
     const services = createTestServices({
       db: {
         ...createTestServices().db!,
-        searchKnowledge: vi.fn().mockResolvedValue(['Plano Individual custa R$ 50']),
+        searchKnowledge: vi.fn().mockResolvedValue([{
+          text: 'Plano Individual custa R$ 50', collection: 'faq', title: 'Preço', similarity: 0.81,
+        }]),
       },
     });
-    const res = await executors['context.knowledge'](ctx, { collection: 'faq' }, services);
+    const res = await executors['context.knowledge'](ctx, { collection: 'faq', threshold: 0.3, topK: 5 }, services);
     expect(res.port).toBe('next');
     expect((res.variables?.knowledgeSnippets as string[])[0]).toContain('Plano Individual');
+    expect((res.output as any).search).toMatchObject({
+      query: 'Tem uma opção mais barata?', requestedCollection: 'faq', searchedCollection: 'faq', fallbackUsed: false,
+    });
+    expect((res.output as any).search.matches[0]).toMatchObject({ similarity: 0.81, title: 'Preço' });
+  });
+
+  it('context.knowledge retries all collections and explains an empty result in the trace', async () => {
+    const ctx = createTestContext({ variables: { latestLeadMessage: 'Quais são os benefícios?' } });
+    const searchKnowledge = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    const services = createTestServices({
+      db: { ...createTestServices().db!, searchKnowledge },
+    });
+    const res = await executors['context.knowledge'](ctx, {
+      collection: 'pricing', threshold: 0.4, topK: 3, fallbackToAll: true,
+    }, services);
+    expect(searchKnowledge).toHaveBeenNthCalledWith(1, ctx.organizationId, 'pricing', 'Quais são os benefícios?', 3, 0.4);
+    expect(searchKnowledge).toHaveBeenNthCalledWith(2, ctx.organizationId, 'default', 'Quais são os benefícios?', 3, 0.4);
+    expect((res.output as any).search).toMatchObject({ fallbackUsed: true, emptyReason: 'no_matches' });
   });
 
   it('context.summarize summarizes when message limit reached', async () => {
@@ -272,15 +302,17 @@ describe('Flow Executors — core catalog', () => {
   it('agent.decide calls LLM and outputs decision with tokens', async () => {
     const ctx = createTestContext();
     const services = createTestServices();
+    const decide = vi.spyOn(services.llm, 'decide');
     const res = await executors['agent.decide'](
       ctx,
-      { provider: 'openai', model: 'gpt-4o-mini', prompt: 'Decida' },
+      { provider: 'openai', model: 'gpt-4o-mini', prompt: 'Decida', system: 'Regra específica do fluxo' },
       services
     );
     expect(res.port).toBe('next');
     expect((res.output as any).reply).toBeDefined();
     expect(res.tokens?.input).toBe(150);
     expect(res.tokens?.output).toBe(45);
+    expect(decide).toHaveBeenCalledWith(expect.objectContaining({ system: 'Regra específica do fluxo' }));
   });
 
   it('agent.classify classifies intent', async () => {

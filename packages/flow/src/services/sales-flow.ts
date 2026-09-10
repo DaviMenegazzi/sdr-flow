@@ -97,6 +97,33 @@ function priceTokens(text: string): string[] {
   return [...matches].map(match => (match[1] || match[2] || '').replace(/\D/g, '')).filter(Boolean);
 }
 
+const similarityStopWords = new Set([
+  'a', 'ao', 'aos', 'as', 'com', 'da', 'das', 'de', 'do', 'dos', 'e', 'em', 'essa', 'esse',
+  'esta', 'este', 'eu', 'mais', 'na', 'nas', 'no', 'nos', 'o', 'os', 'ou', 'para', 'por', 'pra',
+  'que', 'se', 'seu', 'sua', 'um', 'uma', 'voce', 'você', 'the', 'and', 'for', 'that', 'this', 'you',
+]);
+
+function contentTokens(text: string): Set<string> {
+  const tokens = normalize(text).match(/[\p{L}\p{N}]+/gu) || [];
+  return new Set(tokens.filter(token => token.length > 2 && !similarityStopWords.has(token)));
+}
+
+function semanticSimilarity(left: string, right: string): number {
+  const a = contentTokens(left);
+  const b = contentTokens(right);
+  if (a.size < 4 || b.size < 4) return 0;
+  let common = 0;
+  for (const token of a) if (b.has(token)) common++;
+  return (2 * common) / (a.size + b.size);
+}
+
+function stringifyGroundingSource(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map(stringifyGroundingSource).join(' ');
+  if (value && typeof value === 'object') return JSON.stringify(value);
+  return '';
+}
+
 export interface ResponsePolicyResult {
   status: 'pass' | 'rewrite' | 'blocked';
   violations: string[];
@@ -111,6 +138,9 @@ export function evaluateResponsePolicy(
     knownFields: string[];
     blockedTerms: string[];
     requireGroundedPrice: boolean;
+    groundingSources: string[];
+    preventSemanticRepetition: boolean;
+    similarityThreshold: number;
   },
 ): ResponsePolicyResult {
   const violations: string[] = [];
@@ -142,10 +172,24 @@ export function evaluateResponsePolicy(
   if (options.requireGroundedPrice) {
     const prices = priceTokens(trimmed);
     if (prices.length > 0) {
-      const knowledge = ((ctx.variables.knowledgeSnippets as string[] | undefined) || []).join(' ');
-      const supported = priceTokens(knowledge);
+      const grounding = options.groundingSources
+        .map(source => stringifyGroundingSource(resolveSalesField(ctx, source)))
+        .join(' ');
+      const supported = priceTokens(grounding);
       for (const price of prices) {
         if (!supported.includes(price)) blocking.push(`ungrounded_price:${price}`);
+      }
+    }
+  }
+
+  if (options.preventSemanticRepetition) {
+    const recentAssistantMessages = resolveSalesField(ctx, 'recentAssistantMessages');
+    if (Array.isArray(recentAssistantMessages)) {
+      const highestSimilarity = recentAssistantMessages
+        .filter((value): value is string => typeof value === 'string')
+        .reduce((highest, previous) => Math.max(highest, semanticSimilarity(trimmed, previous)), 0);
+      if (highestSimilarity >= options.similarityThreshold) {
+        violations.push(`semantic_repetition:${highestSimilarity.toFixed(2)}`);
       }
     }
   }

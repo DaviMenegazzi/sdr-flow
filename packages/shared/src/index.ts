@@ -113,6 +113,7 @@ export interface FlowContextMessage {
   id: string;
   text: string;
   fromMe: boolean;
+  sender?: 'lead' | 'ai' | 'human' | 'system';
   type?: string;
   mediaUrl?: string;
 }

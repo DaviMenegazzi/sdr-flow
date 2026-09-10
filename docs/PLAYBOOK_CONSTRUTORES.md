@@ -79,8 +79,8 @@ O catálogo atual possui **44 tipos de nó**, divididos em **10 categorias funda
 #### Política de Resposta (`guard.response_policy`)
 - **O que faz:** Valida a mensagem final antes que ela seja enviada ao lead.
 - **Lógica por trás:** Interpola o texto configurado e aplica regras determinísticas sobre campos já
-  conhecidos, repetição de pergunta, tamanho, termos proibidos, preço sem lastro, aberturas
-  repetitivas e CTA genérico.
+  conhecidos, repetição de pergunta ou conteúdo, tamanho, termos proibidos, preço sem lastro,
+  aberturas repetitivas e CTA genérico. As fontes aceitas para validar preços são configuráveis.
 - **Portas de saída:**
   - `pass`: mensagem aprovada para envio;
   - `rewrite`: mensagem recuperável, que deve voltar a um agente de redação;
@@ -120,6 +120,9 @@ O catálogo atual possui **44 tipos de nó**, divididos em **10 categorias funda
 #### 11. Memória Comercial (`context.memory`)
 - **O que faz:** Carrega os dados persistidos do lead (nome, cidade, plano de interesse, urgência, dependentes) e o histórico das últimas $N$ mensagens da conversa.
 - **Lógica por trás:** Injeta a memória estruturada na variável `{{commercialMemory}}` e as mensagens recentes em `{{recentMessages}}`. Assim, a IA nunca esquece o que o cliente já respondeu minutos ou dias atrás.
+- **Contexto do turno:** também gera `{{latestLeadMessage}}`, `{{lastAssistantMessage}}`,
+  `{{lastAssistantQuestion}}` e `{{recentAssistantMessages}}`. Mensagens internas do sistema são
+  excluídas para não aparecerem como falas da IA.
 - **Portas de saída:** `next`.
 
 #### 12. Base de Conhecimento RAG (`context.knowledge`)
@@ -128,7 +131,9 @@ O catálogo atual possui **44 tipos de nó**, divididos em **10 categorias funda
   1. Pega a mensagem atual do lead;
   2. Gera o vetor de busca e compara por cosseno com a coleção selecionada (`pricing`, `catalog`, `faq`, `objections`, `documents`);
   3. Recupera os trechos mais relevantes dentro do limiar de similaridade (`threshold`);
-  4. Disponibiliza os trechos recuperados na variável `{{context.knowledge}}` ou `{{knowledge}}`.
+  4. se configurado, tenta todas as coleções quando a coleção escolhida não retorna trechos;
+  5. disponibiliza os trechos em `{{context.knowledge}}` ou `{{knowledge}}` e o diagnóstico em
+     `{{knowledgeSearch}}` (consulta, coleção, limiar, fallback, similaridades e motivo de vazio).
 - **Portas de saída:** `next`.
 
 #### 13. Consultar CRM (`context.crm`)
@@ -177,8 +182,11 @@ O catálogo atual possui **44 tipos de nó**, divididos em **10 categorias funda
 - **Portas de saída:** `next`.
 
 #### 17. Extrair Informações (`agent.extract`)
-- **O que faz:** Lê a conversa e extrai entidades como nome, e-mail, CPF, cidade, quantidade de dependentes e especialidade médica desejada.
-- **Lógica por trás:** Salva os dados extraídos em `{{decision.lead_data}}`, prontos para serem persistidos no cadastro do lead pelo nó `action.update_lead`.
+- **O que faz:** Lê a conversa e extrai os campos padrão do lead e os campos personalizados que o
+  construtor declarar no próprio nó.
+- **Lógica por trás:** Cada fluxo define nomes, tipos, descrições e valores permitidos. O motor não
+  conhece produtos, planos ou etapas de um negócio específico. Os campos personalizados são salvos
+  em `{{decision.lead_data.custom_fields}}` e podem ser persistidos por `action.update_lead`.
 - **Portas de saída:** `next`.
 
 #### 18. Pontuar Lead (`agent.score`)
@@ -195,16 +203,20 @@ O catálogo atual possui **44 tipos de nó**, divididos em **10 categorias funda
 - **O que faz:** Escolhe uma ação comercial enumerada antes de gerar a próxima mensagem.
 - **Lógica por trás:**
   1. Lê `required_fields.missing`;
-  2. se houver campo ausente, retorna `ASK_MISSING_FIELD` para o primeiro campo sem chamar o LLM;
-  3. se os campos estiverem completos, solicita `action`, `field` e `reason` por saída estruturada;
-  4. normaliza a ação para maiúsculas e interrompe a execução se ela não estiver em
+  2. lê a intenção e a evidência da mensagem mais recente;
+  3. perguntas, pedidos de detalhes, objeções, correções e pedidos de atendimento têm prioridade
+     sobre a coleta de campos ausentes;
+  4. solicita `action`, `field`, `reason`, `intent` e `evidence` por saída estruturada;
+  5. normaliza a ação para maiúsculas e interrompe a execução se ela não estiver em
      `allowedActions`.
 - **Ações disponíveis:** `ASK_MISSING_FIELD`, `SHOW_PRICE`, `CHECK_CALENDAR`,
   `CREATE_APPOINTMENT`, `RESCHEDULE_APPOINTMENT`, `CANCEL_APPOINTMENT`, `SEND_INFORMATION`,
   `HANDOFF` e `END`.
 - **Portas de saída:** `next`.
 - **Variáveis geradas:** `{{next_action.action}}`, `{{next_action.field}}`,
-  `{{next_action.reason}}`, `{{decision.action}}` e `{{decision.next_action}}`.
+  `{{next_action.reason}}`, `{{next_action.intent}}`, `{{next_action.evidence}}`,
+  `{{next_action.evidence_valid}}`,
+  `{{decision.action}}` e `{{decision.next_action}}`.
 
 ---
 
@@ -389,10 +401,13 @@ No SDR Flow, qualquer campo de texto pode receber dados dinâmicos usando chaves
 | `{{lead.interest}}` | Procedimento ou cartão de interesse do lead | No título da oportunidade no CRM |
 | `{{commercialMemory}}` | Objeto com todas as variáveis salvas do lead | No prompt de sistema dos agentes |
 | `{{recentMessages}}` | Histórico das últimas mensagens trocadas | Para dar continuidade à conversa |
+| `{{latestLeadMessage}}` | Última mensagem real do lead | Consulta do Knowledge e prioridade da próxima ação |
+| `{{lastAssistantQuestion}}` | Última pergunta feita pela IA | Interpretar respostas curtas no contexto correto |
 | `{{context.knowledge}}` | Trechos encontrados na base de conhecimento | Injetado no prompt para contextualizar a IA |
+| `{{knowledgeSearch}}` | Diagnóstico completo da busca semântica | Debug de coleção, limiar, fallback e resultados |
 | `{{structured.<chave>}}` | Valor de qualquer campo retornado pelo nó estruturado | `{{structured.repeat_count}}` |
 | `{{mediaEnrichedText}}` | Texto transcrito do áudio enviado pelo lead | No prompt da IA |
-| `{{required_fields.missing}}` | Lista de campos obrigatórios ainda ausentes | Decisão determinística da próxima pergunta |
+| `{{required_fields.missing}}` | Lista de campos obrigatórios ainda ausentes | Contexto para decidir a próxima pergunta |
 | `{{next_action.action}}` | Ação comercial enumerada escolhida pelo nó | Roteamento em `flow.switch` |
 | `{{next_action.field}}` | Primeiro campo que deve ser solicitado, quando aplicável | Prompt da pergunta objetiva |
 | `{{conversation_state.stage}}` | Etapa real da conversa action-first | Continuidade entre turnos |

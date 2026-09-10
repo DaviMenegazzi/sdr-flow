@@ -16,6 +16,19 @@ const prompt = z.object({
   prompt: text('Conduza a conversa a partir do contexto disponível. Não invente informações.', 'Instruções do agente'),
   system: z.string().optional().describe('Instrução de sistema opcional'),
 }).passthrough();
+const extractField = z.strictObject({
+  name: z.string().min(1).max(64).regex(/^[A-Za-z][A-Za-z0-9_]*$/).describe('Nome técnico do campo'),
+  type: z.enum(['string', 'number', 'boolean', 'string_array']).default('string').describe('Tipo do campo'),
+  description: z.string().max(300).optional().describe('Quando e como extrair este campo'),
+  values: z.array(z.string().min(1).max(100)).max(30).optional().describe('Valores permitidos para campos de texto'),
+});
+const extractPrompt = z.strictObject({
+  provider: z.enum(['openai', 'gemini']).default('openai').describe('Provedor'),
+  model: text('default', 'Modelo (default usa OPENAI_MODEL do servidor)'),
+  prompt: text('Extraia apenas informações declaradas no contexto. Não invente informações.', 'Instruções do agente'),
+  system: z.string().optional().describe('Instrução de sistema opcional'),
+  fields: z.array(extractField).max(30).default([]).describe('Campos personalizados persistidos em custom_fields (JSON)'),
+});
 const schemas = {
   'trigger.message_received': empty,
   'trigger.schedule': z.strictObject({ cron: text('0 9 * * 1-5', 'Expressão cron'), timezone: text('America/Sao_Paulo', 'Fuso horário') }),
@@ -30,12 +43,21 @@ const schemas = {
     knownFields: z.array(z.string().min(1).max(80)).max(30).default(['name', 'city', 'interest', 'specialty']).describe('Campos que não devem ser perguntados novamente (JSON)'),
     blockedTerms: z.array(z.string().min(1).max(120)).max(50).default([]).describe('Termos proibidos pela política da marca (JSON)'),
     requireGroundedPrice: z.boolean().default(true).describe('Bloquear preços ausentes na base de conhecimento'),
+    groundingSources: z.array(z.string().min(1).max(100)).min(1).max(10).default(['knowledgeSnippets']).describe('Variáveis aceitas como fontes para preços (JSON)'),
+    preventSemanticRepetition: z.boolean().default(true).describe('Solicitar reescrita quando a resposta repete uma mensagem recente da IA'),
+    similarityThreshold: z.number().min(0.5).max(1).default(0.72).describe('Similaridade mínima considerada repetição'),
   }),
   'input.buffer': z.strictObject({ windowSeconds: count(5, 120, 'Janela em segundos') }),
   'input.media': z.strictObject({ transcribeAudio: z.boolean().default(true).describe('Transcrever áudio'), describeImages: z.boolean().default(true).describe('Descrever imagens') }),
   'input.normalize': z.strictObject({ country: z.enum(['BR', 'international']).default('BR').describe('Formato do telefone') }),
   'context.memory': z.strictObject({ recentMessages: count(6, 50, 'Mensagens recentes') }),
-  'context.knowledge': z.strictObject({ collection: z.enum(['default', 'pricing', 'catalog', 'faq', 'objections', 'documents']).default('default').describe('Coleção'), topK: count(5, 20, 'Número de trechos'), threshold: z.number().min(0).max(1).default(0.3).describe('Similaridade mínima') }),
+  'context.knowledge': z.strictObject({
+    collection: z.enum(['default', 'pricing', 'catalog', 'faq', 'objections', 'documents']).default('default').describe('Coleção'),
+    topK: count(5, 20, 'Número de trechos'),
+    threshold: z.number().min(0).max(1).default(0.3).describe('Similaridade mínima'),
+    query: z.string().max(2000).default('{{latestLeadMessage}}').describe('Consulta semântica; aceita variáveis do fluxo'),
+    fallbackToAll: z.boolean().default(true).describe('Se a coleção não retornar trechos, pesquisar em todas as coleções'),
+  }),
   'context.crm': empty,
   'context.summarize': z.strictObject({ afterMessages: count(30, 500, 'Resumir após mensagens') }),
   'context.storage': z.strictObject({
@@ -48,7 +70,7 @@ const schemas = {
     lastAction: z.string().max(120).default('{{next_action.action}}').describe('Última ação executada'),
     nextExpectedInput: z.string().max(120).default('').describe('Próxima informação esperada do lead'),
   }),
-  'agent.decide': prompt, 'agent.classify': prompt, 'agent.extract': prompt, 'agent.score': prompt,
+  'agent.decide': prompt, 'agent.classify': prompt, 'agent.extract': extractPrompt, 'agent.score': prompt,
   'agent.structured': z.strictObject({
     provider: z.enum(['openai', 'gemini']).default('openai').describe('Provedor'),
     model: text('default', 'Modelo'),
@@ -61,6 +83,7 @@ const schemas = {
     prompt: text('Escolha a próxima ação comercial que mais aproxima a conversa da conversão. Não invente dados ausentes.', 'Instruções para decidir a próxima ação'),
     system: z.string().optional().describe('Instrução de sistema opcional'),
     allowedActions: z.array(z.enum(nextActionTypes)).min(1).default([...nextActionTypes]).describe('Ações permitidas (JSON)'),
+    currentMessagePriority: z.boolean().default(true).describe('Responder à intenção atual antes de solicitar campos ausentes'),
   }),
   'flow.condition': z.strictObject({ variable: text('decision.handoff', 'Variável'), operator: z.enum(['equals', 'not_equals', 'contains', 'greater_than']).default('equals').describe('Operador'), value: z.string().default('true').describe('Valor de comparação') }),
   'flow.switch': z.strictObject({ variable: text('decision.intent', 'Variável'), cases: z.array(z.string().min(1).max(40).regex(/^[\w-]+$/)).min(1).max(10).default(['interesse', 'suporte']).describe('Saídas (JSON)') }),

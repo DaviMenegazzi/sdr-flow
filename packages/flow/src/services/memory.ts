@@ -21,6 +21,13 @@ export interface LeadExtractedData {
   custom_fields?: Record<string, unknown>;
 }
 
+export interface ConversationTurnContext {
+  latestLeadMessage: string;
+  lastAssistantMessage: string;
+  lastAssistantQuestion: string;
+  recentAssistantMessages: string[];
+}
+
 export class MemoryService {
   public static getCommercialMemory(lead?: FlowContextLead): CommercialMemory {
     if (!lead) {
@@ -111,9 +118,26 @@ export class MemoryService {
     const slice = messages.slice(-count);
     return slice
       .map(m => {
-        const sender = m.fromMe ? 'AI' : 'Lead';
+        const sender = m.sender === 'human' ? 'Human'
+          : m.sender === 'system' ? 'System'
+          : m.fromMe ? 'AI' : 'Lead';
         return `[${sender}]: ${m.text}`;
       })
       .join('\n');
+  }
+
+  public static getConversationTurnContext(messages: FlowContextMessage[]): ConversationTurnContext {
+    const leadMessages = messages.filter(message => !message.fromMe && message.sender !== 'system');
+    const assistantMessages = messages.filter(message => (
+      message.sender === 'ai' || (message.fromMe && message.sender === undefined)
+    ));
+    const latestAssistant = assistantMessages.at(-1)?.text.trim() || '';
+    const questions = latestAssistant.match(/[^.!?\n]*\?/g) || [];
+    return {
+      latestLeadMessage: leadMessages.at(-1)?.text.trim() || '',
+      lastAssistantMessage: latestAssistant,
+      lastAssistantQuestion: questions.at(-1)?.trim() || '',
+      recentAssistantMessages: assistantMessages.slice(-5).map(message => message.text.trim()).filter(Boolean),
+    };
   }
 }

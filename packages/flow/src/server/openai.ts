@@ -1,10 +1,44 @@
 import { z } from 'zod';
-import type { AgentDecision, LLMProvider, LLMRequest, LLMResponse } from '../services/llm.js';
+import type {
+  AgentDecision,
+  ExtractFieldDefinition,
+  LLMProvider,
+  LLMRequest,
+  LLMResponse,
+} from '../services/llm.js';
 
 export interface OpenAIConfig { apiKey?: string; model?: string; timeoutMs?: number; fetch?: typeof fetch }
 const nullableText = z.string().nullable();
-const leadSchema = z.strictObject({ name: nullableText, city: nullableText, interest: nullableText,
-  urgency: nullableText, objections: nullableText, notes: nullableText });
+const standardLeadFields = {
+  name: nullableText,
+  city: nullableText,
+  interest: nullableText,
+  urgency: nullableText,
+  objections: nullableText,
+  notes: nullableText,
+};
+
+function schemaForExtractField(field: ExtractFieldDefinition): z.ZodType {
+  let schema: z.ZodType;
+  if (field.type === 'number') schema = z.number();
+  else if (field.type === 'boolean') schema = z.boolean();
+  else if (field.type === 'string_array') schema = z.array(z.string());
+  else if (field.values && field.values.length > 0) schema = z.enum(field.values as [string, ...string[]]);
+  else schema = z.string();
+  return (field.description ? schema.describe(field.description) : schema).nullable();
+}
+
+function leadSchemaFor(fields: ExtractFieldDefinition[] = []) {
+  if (fields.length === 0) return z.strictObject(standardLeadFields);
+  const customFields: Record<string, z.ZodType> = {};
+  for (const field of fields) customFields[field.name] = schemaForExtractField(field);
+  return z.strictObject({
+    ...standardLeadFields,
+    custom_fields: z.strictObject(customFields).nullable(),
+  });
+}
+
+const leadSchema = leadSchemaFor();
 const decisionSchema = z.strictObject({ reply: z.string(), stage: nullableText, handoff: z.boolean(),
   handoff_reason: nullableText, intent: nullableText, lead_data: leadSchema.nullable(), score: z.number().min(0).max(100).nullable() });
 const scoreSchema = z.strictObject({ score: z.number().min(0).max(100), reason: z.string() });
@@ -55,8 +89,8 @@ export class OpenAIProvider implements LLMProvider {
     return { ...result, data: withoutNulls(result.data) as AgentDecision };
   }
   classify(req: LLMRequest) { return this.generate(req, 'sdr_intent', z.strictObject({ intent: z.string() })); }
-  async extract(req: LLMRequest): Promise<LLMResponse<Record<string, unknown>>> {
-    const result = await this.generate(req, 'sdr_lead', leadSchema);
+  async extract(req: LLMRequest, fields: ExtractFieldDefinition[] = []): Promise<LLMResponse<Record<string, unknown>>> {
+    const result = await this.generate(req, 'sdr_lead', leadSchemaFor(fields));
     return { ...result, data: withoutNulls(result.data) };
   }
   score(req: LLMRequest) { return this.generate(req, 'sdr_score', scoreSchema); }

@@ -98,12 +98,17 @@ Abaixo estão todos os nós aceitos e como deve ser preenchido o seu respectivo 
     "maxCharacters": 700,
     "knownFields": ["name", "city", "interest", "specialty"],
     "blockedTerms": [],
-    "requireGroundedPrice": true
+    "requireGroundedPrice": true,
+    "groundingSources": ["knowledgeSnippets"],
+    "preventSemanticRepetition": true,
+    "similarityThreshold": 0.72
   }
   ```
   O nó envia pela porta `blocked` mensagens vazias, termos proibidos e preços sem lastro na base de
   conhecimento. Mensagens longas, perguntas sobre campos já conhecidos, perguntas repetidas,
-  aberturas repetitivas e CTAs genéricos seguem por `rewrite`; as demais seguem por `pass`.
+  repetição semântica de respostas recentes, aberturas repetitivas e CTAs genéricos seguem por
+  `rewrite`; as demais seguem por `pass`. `groundingSources` permite combinar a base dinâmica com
+  variáveis estáticas do próprio fluxo sem colocar regras de um negócio no motor.
 
 #### C) Entrada (`input.*`)
 - `input.buffer`: `"config": { "windowSeconds": 10 }` (min: 5, max: 120).
@@ -120,10 +125,14 @@ Abaixo estão todos os nós aceitos e como deve ser preenchido o seu respectivo 
   "config": {
     "collection": "catalog",
     "topK": 5,
-    "threshold": 0.7
+    "threshold": 0.3,
+    "query": "{{latestLeadMessage}}",
+    "fallbackToAll": true
   }
   ```
-  *(Coleções válidas: `"default"`, `"pricing"`, `"catalog"`, `"faq"`, `"objections"`, `"documents"`)*.
+  *(Coleções válidas: `"default"`, `"pricing"`, `"catalog"`, `"faq"`, `"objections"`, `"documents"`).
+  `default` pesquisa todas as coleções. O trace registra consulta, coleção, limiar, fallback,
+  similaridade dos resultados e motivo de busca vazia.*
 - `context.crm`: `"config": {}`.
 - `context.summarize`: `"config": { "afterMessages": 30 }` (min: 30, max: 500).
 - `context.storage`:
@@ -147,7 +156,7 @@ Abaixo estão todos os nós aceitos e como deve ser preenchido o seu respectivo 
   `{{conversation_state}}`.*
 
 #### E) Agente / Inteligência (`agent.*`)
-- `agent.decide`, `agent.classify`, `agent.extract`, `agent.score`:
+- `agent.decide`, `agent.classify`, `agent.score`:
   ```json
   "config": {
     "provider": "openai",
@@ -157,6 +166,22 @@ Abaixo estão todos os nós aceitos e como deve ser preenchido o seu respectivo 
   }
   ```
   *(Provedores aceitos: `"openai"`, `"gemini"`)*.
+- `agent.extract` usa o mesmo trio `provider`, `model` e `prompt`, mais campos personalizados
+  definidos pelo próprio fluxo:
+  ```json
+  "config": {
+    "provider": "openai",
+    "model": "default",
+    "prompt": "Extraia apenas fatos declarados.",
+    "fields": [
+      { "name": "selected_product", "type": "string", "values": ["starter", "plus"] },
+      { "name": "quantity", "type": "number" },
+      { "name": "confirmed", "type": "boolean" }
+    ]
+  }
+  ```
+  Os tipos aceitos são `string`, `number`, `boolean` e `string_array`. Os valores são persistidos
+  em `decision.lead_data.custom_fields`; nomes e regras específicos pertencem ao JSON do fluxo.
 - `agent.structured`:
   ```json
   "config": {
@@ -183,12 +208,14 @@ Abaixo estão todos os nós aceitos e como deve ser preenchido o seu respectivo 
       "SEND_INFORMATION",
       "HANDOFF",
       "END"
-    ]
+    ],
+    "currentMessagePriority": true
   }
   ```
-  Se `required_fields.missing` contiver campos, o nó escolhe deterministicamente
-  `ASK_MISSING_FIELD` para o primeiro campo, sem gastar tokens. Caso contrário, exige saída
-  estruturada do LLM e rejeita qualquer ação fora de `allowedActions`.
+  `required_fields.missing` é contexto para a decisão, não uma ordem automática. Com
+  `currentMessagePriority`, perguntas, pedidos de detalhes, objeções, correções e pedidos de
+  atendimento são resolvidos antes de coletar campos. O resultado inclui `action`, `field`,
+  `reason`, `intent`, `evidence` e `evidence_valid`, e rejeita ações fora de `allowedActions`.
 
 #### F) Controle de Fluxo (`flow.*`)
 - `flow.condition`:
@@ -706,8 +733,8 @@ A decisão comercial deve ser estruturada antes de redigir a mensagem. A sequên
 1. `context.memory` e `context.knowledge` carregam fatos já conhecidos.
 2. `flow.required_fields` calcula o que falta.
 3. Tanto `complete` quanto `missing` podem convergir para `agent.next_action`:
-   - em `missing`, ele escolhe `ASK_MISSING_FIELD` sem LLM;
-   - em `complete`, o LLM escolhe uma ação válida da lista configurada.
+   - a intenção explícita da mensagem atual tem prioridade;
+   - campos ausentes são solicitados somente quando não existe pergunta, objeção ou pedido direto pendente.
 4. Um `flow.switch` sobre `next_action.action` encaminha para pergunta, preço, informação,
    calendário, handoff ou encerramento.
 5. `context.conversation_state` registra a ação escolhida e a próxima entrada esperada.

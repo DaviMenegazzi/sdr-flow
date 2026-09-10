@@ -78,22 +78,23 @@ describe('Sales action node contracts', () => {
     });
   });
 
-  it('agent.next_action asks for the known missing field without spending LLM tokens', async () => {
+  it('agent.next_action lets the current request take priority over a missing field', async () => {
     const ctx = context({ variables: { required_fields: { complete: false, missing: ['city'], missing_count: 1 } } });
     const llm = new MockLLMProvider();
     const structured = vi.spyOn(llm, 'structured');
     const result = await executors['agent.next_action'](ctx, {
-      provider: 'openai', model: 'default', prompt: 'Decida', allowedActions: ['ASK_MISSING_FIELD', 'CHECK_CALENDAR'],
+      provider: 'openai', model: 'default', prompt: 'Decida', allowedActions: ['ASK_MISSING_FIELD', 'SEND_INFORMATION'],
     }, services({ llm }));
-    expect(result.output).toMatchObject({ action: 'ASK_MISSING_FIELD', field: 'city' });
-    expect(structured).not.toHaveBeenCalled();
-    expect(result.tokens).toBeUndefined();
+    expect(result.output).toMatchObject({ action: 'SEND_INFORMATION', field: null });
+    expect(structured).toHaveBeenCalledOnce();
+    expect((structured.mock.calls[0]?.[0].prompt as string)).toContain('Campos obrigatórios ausentes são contexto, não uma ordem automática: ["city"]');
+    expect(result.tokens).toEqual({ input: 150, output: 45 });
   });
 
   it('agent.next_action validates and stores the structured commercial action', async () => {
     const llm = new MockLLMProvider();
     vi.spyOn(llm, 'structured').mockResolvedValue({
-      data: { action: 'CHECK_CALENDAR', field: '', reason: 'Dados completos e intenção de agendar.' },
+      data: { action: 'CHECK_CALENDAR', field: '', reason: 'Dados completos e intenção de agendar.', intent: 'agendamento', evidence: 'Quero agendar' },
       inputTokens: 20,
       outputTokens: 8,
     });
@@ -102,9 +103,24 @@ describe('Sales action node contracts', () => {
     }, services({ llm }));
     expect(result.port).toBe('next');
     expect(result.variables?.next_action).toEqual({
-      action: 'CHECK_CALENDAR', field: null, reason: 'Dados completos e intenção de agendar.',
+      action: 'CHECK_CALENDAR', field: null, reason: 'Dados completos e intenção de agendar.', intent: 'agendamento', evidence: 'Quero agendar', evidence_valid: true,
     });
     expect(result.tokens).toEqual({ input: 20, output: 8 });
+  });
+
+  it('agent.next_action discards evidence invented outside the latest lead message', async () => {
+    const llm = new MockLLMProvider();
+    vi.spyOn(llm, 'structured').mockResolvedValue({
+      data: { action: 'SEND_INFORMATION', field: '', reason: 'detalhar: responder pedido atual', intent: 'details', evidence: 'quero contratar agora' },
+      inputTokens: 12,
+      outputTokens: 6,
+    });
+    const result = await executors['agent.next_action'](context({
+      messages: [{ id: 'm1', text: 'Me envie mais detalhes', fromMe: false }],
+    }), {
+      provider: 'openai', model: 'default', prompt: 'Decida', allowedActions: ['SEND_INFORMATION'],
+    }, services({ llm }));
+    expect(result.output).toMatchObject({ evidence: null, evidence_valid: false });
   });
 
   it('context.conversation_state persists structured state in lead memory', async () => {
@@ -134,6 +150,38 @@ describe('Sales action node contracts', () => {
     }, services());
     expect(result.port).toBe('blocked');
     expect((result.output as any).violations).toContain('ungrounded_price:90');
+  });
+
+  it('guard.response_policy requests rewrite when the answer semantically repeats a recent AI message', async () => {
+    const ctx = context({
+      variables: {
+        recentAssistantMessages: ['O cartão oferece descontos em consultas, exames e farmácias para toda a família.'],
+      },
+    });
+    const result = await executors['guard.response_policy'](ctx, {
+      text: 'O cartão tem descontos em consultas, exames e farmácias para toda sua família.',
+      maxCharacters: 700,
+      knownFields: [],
+      blockedTerms: [],
+      requireGroundedPrice: false,
+      preventSemanticRepetition: true,
+      similarityThreshold: 0.68,
+    }, services());
+    expect(result.port).toBe('rewrite');
+    expect((result.output as any).violations).toContain('semantic_repetition:0.88');
+  });
+
+  it('guard.response_policy accepts a price grounded by a configured flow variable', async () => {
+    const ctx = context({ variables: { productRules: { price: 'R$ 59,90 por mês' } } });
+    const result = await executors['guard.response_policy'](ctx, {
+      text: 'A opção custa R$ 59,90 por mês.',
+      maxCharacters: 700,
+      knownFields: [],
+      blockedTerms: [],
+      requireGroundedPrice: true,
+      groundingSources: ['productRules'],
+    }, services());
+    expect(result.port).toBe('pass');
   });
 
   it('output.smart_message sends at most three complete bubbles and persists each one', async () => {

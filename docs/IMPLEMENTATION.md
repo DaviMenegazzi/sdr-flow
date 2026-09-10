@@ -64,6 +64,22 @@ de debug entre histórico carregado, conversa vazia, lote atual e falha no Supab
 ser silenciosos. O runtime também limita `notes` comerciais a 200 caracteres, enquanto o V11 orienta
 o extrator a substituir o resumo anterior por um retrato conciso do estado atual.
 
+## Continuidade, Knowledge e decisão orientada à mensagem atual — 09/09/2026
+
+O motor passou a excluir mensagens de sistema do histórico conversacional e a expor o contexto do
+turno (`latestLeadMessage`, última resposta/pergunta da IA e respostas recentes). O
+`context.knowledge` consulta por padrão a última mensagem real do lead, pode tentar todas as
+coleções quando a selecionada estiver vazia e inclui no trace consulta, limiar, fallback,
+similaridade e causa de resultado vazio. O conteúdo continua isolado por organização.
+
+`agent.extract` aceita campos personalizados tipados definidos no JSON do fluxo; nenhum produto,
+plano ou regra do Vida Card foi incorporado ao motor. `agent.next_action` deixou de transformar
+automaticamente todo campo ausente em `ASK_MISSING_FIELD`: a intenção explícita da mensagem atual
+tem prioridade e a decisão agora registra `intent` e `evidence`. A política final também detecta
+repetição semântica e permite combinar fontes dinâmicas e estáticas para validar preços. O V11 do
+Vida Card usa essas capacidades para separar recomendação de escolha explícita e responder pedidos
+de detalhes antes de convidar para cadastro.
+
 ## Blocos de próxima ação comercial e agenda — 08/09/2026
 
 Foram adicionados `flow.required_fields`, `agent.next_action`, `calendar.availability`,

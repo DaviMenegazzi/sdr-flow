@@ -465,9 +465,14 @@ export function createApp(config: ApiConfig = {}): Express {
               const hits = standaloneStore.searchKnowledge(query, {
                 collection: collection === 'default' ? undefined : collection,
                 limit: limit || 5,
-                threshold: threshold || 0.2,
+                threshold: typeof threshold === 'number' ? threshold : 0.2,
               });
-              return hits.map(h => `[${h.collection.toUpperCase()}] ${h.title}: ${h.content}`);
+              return hits.map(h => ({
+                text: `[${h.collection.toUpperCase()}] ${h.title}: ${h.content}`,
+                collection: h.collection,
+                title: h.title,
+                similarity: h.similarity,
+              }));
             },
             async getConversationSummary() { return null; },
             async saveConversationSummary() {},
@@ -1256,9 +1261,14 @@ export function createApp(config: ApiConfig = {}): Express {
             const hits = standaloneStore.searchKnowledge(query, {
               collection: collection === 'default' ? undefined : collection,
               limit: limit || 5,
-              threshold: threshold || 0.2,
+              threshold: typeof threshold === 'number' ? threshold : 0.2,
             });
-            return hits.map(h => `[${h.collection.toUpperCase()}] ${h.title}: ${h.content}`);
+            return hits.map(h => ({
+              text: `[${h.collection.toUpperCase()}] ${h.title}: ${h.content}`,
+              collection: h.collection,
+              title: h.title,
+              similarity: h.similarity,
+            }));
           },
         },
         now: () => new Date(),
@@ -2139,8 +2149,17 @@ export function createApp(config: ApiConfig = {}): Express {
           async syncDeal() { return { id: crypto.randomUUID() }; },
           async searchKnowledge(_org, collection, query, limit, threshold) {
             const queryEmb = KnowledgeRepository.generateFallbackEmbedding(query);
-            const hits = await knowledgeRepo.search(orgId, queryEmb, { collection, limit, threshold });
-            return hits.map(h => `[${h.collection.toUpperCase()}] ${h.title}: ${h.content}`);
+            const hits = await knowledgeRepo.search(orgId, queryEmb, {
+              collection: collection === 'default' ? undefined : collection,
+              limit,
+              threshold,
+            });
+            return hits.map(h => ({
+              text: `[${h.collection.toUpperCase()}] ${h.title}: ${h.content}`,
+              collection: h.collection,
+              title: h.title,
+              similarity: h.similarity,
+            }));
           },
           async getConversationSummary(_org, convId) {
             return summaryRepo.getSummary(orgId, convId);

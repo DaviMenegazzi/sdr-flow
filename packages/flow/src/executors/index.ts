@@ -47,6 +47,10 @@ function mergeCalendarVariables(ctx: FlowContext, values: Record<string, unknown
   return { ...current, ...values };
 }
 
+function normalizedEvidence(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
 export const executors: Record<NodeType, NodeExecutor> = {
   // --- TRIGGERS ---
   'trigger.message_received': async (_ctx, _config, _services) => {
@@ -149,6 +153,9 @@ export const executors: Record<NodeType, NodeExecutor> = {
       knownFields: Array.isArray(config.knownFields) ? config.knownFields : [],
       blockedTerms: Array.isArray(config.blockedTerms) ? config.blockedTerms : [],
       requireGroundedPrice: config.requireGroundedPrice !== false,
+      groundingSources: Array.isArray(config.groundingSources) ? config.groundingSources : ['knowledgeSnippets'],
+      preventSemanticRepetition: config.preventSemanticRepetition !== false,
+      similarityThreshold: typeof config.similarityThreshold === 'number' ? config.similarityThreshold : 0.72,
     });
     return {
       port: policy.status,
@@ -204,7 +211,9 @@ export const executors: Record<NodeType, NodeExecutor> = {
     const commercialMemory = MemoryService.getCommercialMemory(ctx.lead);
     const count = config.recentMessages ?? 6;
 
-    let messages = ctx.messages;
+    let messages = ctx.messages.filter(message => message.sender !== 'system');
+    let rawMessagesCount = messages.length;
+    let excludedSystemMessages = ctx.messages.length - messages.length;
     let historySource: 'database' | 'database_empty' | 'turn' | 'fallback' = services.db?.getMessages
       ? 'database_empty'
       : 'turn';
@@ -212,12 +221,17 @@ export const executors: Record<NodeType, NodeExecutor> = {
     if (services.db?.getMessages) {
       try {
         const rows = await services.db.getMessages(ctx.organizationId, ctx.conversationId, count);
+        rawMessagesCount = rows.length;
+        excludedSystemMessages = rows.filter(row => row.sender === 'system').length;
         if (rows.length > 0) {
           historySource = 'database';
-          messages = rows.map(r => ({
+          messages = rows.filter(row => row.sender !== 'system').map(r => ({
             id: r.id,
             text: r.content,
             fromMe: r.direction === 'OUTBOUND',
+            sender: ['lead', 'ai', 'human', 'system'].includes(r.sender)
+              ? r.sender as 'lead' | 'ai' | 'human' | 'system'
+              : undefined,
           }));
         }
       } catch (error) {
@@ -232,6 +246,7 @@ export const executors: Record<NodeType, NodeExecutor> = {
     }
 
     const recentMessages = MemoryService.formatRecentMessages(messages, count);
+    const conversationContext = MemoryService.getConversationTurnContext(messages);
     let summary: string | null = null;
     if (services.db?.getConversationSummary) {
       summary = await services.db.getConversationSummary(ctx.organizationId, ctx.conversationId);
@@ -245,6 +260,8 @@ export const executors: Record<NodeType, NodeExecutor> = {
         history: {
           source: historySource,
           messagesCount: messages.length,
+          rawMessagesCount,
+          excludedSystemMessages,
           requestedLimit: count,
           databaseReaderAvailable: Boolean(services.db?.getMessages),
           error: historyError,
@@ -253,6 +270,11 @@ export const executors: Record<NodeType, NodeExecutor> = {
       variables: {
         commercialMemory,
         recentMessages,
+        conversationContext,
+        latestLeadMessage: conversationContext.latestLeadMessage,
+        lastAssistantMessage: conversationContext.lastAssistantMessage,
+        lastAssistantQuestion: conversationContext.lastAssistantQuestion,
+        recentAssistantMessages: conversationContext.recentAssistantMessages,
         summary: summary || ctx.variables.summary,
         'conversation.summary': summary || ctx.variables.summary,
       },
@@ -261,22 +283,49 @@ export const executors: Record<NodeType, NodeExecutor> = {
 
   'context.knowledge': async (ctx, config, services) => {
     let snippets: string[] = [];
-    const query = ctx.messages.map(m => m.text).join(' ') || (ctx.lead?.interest ? `Interesse: ${ctx.lead.interest}` : '');
-    if (services.db?.searchKnowledge) {
-      snippets = await services.db.searchKnowledge(
-        ctx.organizationId,
-        config.collection || 'default',
-        query,
-        config.topK || 5,
-        config.threshold || 0.7
-      );
+    let matches: Array<{ text: string; collection?: string; title?: string; similarity?: number }> = [];
+    const latestLeadMessage = String(ctx.variables.latestLeadMessage || '')
+      || [...ctx.messages].reverse().find(message => !message.fromMe)?.text
+      || '';
+    const configuredQuery = interpolate(String(config.query || '{{latestLeadMessage}}'), ctx).trim();
+    const query = configuredQuery || latestLeadMessage || (ctx.lead?.interest ? `Interesse: ${ctx.lead.interest}` : '');
+    const collection = String(config.collection || 'default');
+    const topK = Number(config.topK) || 5;
+    const threshold = typeof config.threshold === 'number' ? config.threshold : 0.3;
+    let searchedCollection = collection;
+    let fallbackUsed = false;
+    if (services.db?.searchKnowledge && query) {
+      const normalizeHits = (hits: Array<string | { text: string; collection?: string; title?: string; similarity?: number }>) => hits.map(hit => (
+        typeof hit === 'string' ? { text: hit } : hit
+      ));
+      matches = normalizeHits(await services.db.searchKnowledge(ctx.organizationId, collection, query, topK, threshold));
+      if (matches.length === 0 && config.fallbackToAll !== false && collection !== 'default') {
+        searchedCollection = 'default';
+        fallbackUsed = true;
+        matches = normalizeHits(await services.db.searchKnowledge(ctx.organizationId, 'default', query, topK, threshold));
+      }
+      snippets = matches.map(match => match.text);
     }
     const formattedSnippets = snippets.join('\n\n');
+    const search = {
+      query,
+      requestedCollection: collection,
+      searchedCollection,
+      topK,
+      threshold,
+      fallbackUsed,
+      readerAvailable: Boolean(services.db?.searchKnowledge),
+      emptyReason: snippets.length > 0 ? null : !services.db?.searchKnowledge
+        ? 'reader_unavailable'
+        : !query ? 'empty_query' : 'no_matches',
+      matches,
+    };
     return {
       port: 'next',
-      output: { snippetsCount: snippets.length, snippets },
+      output: { snippetsCount: snippets.length, snippets, search },
       variables: {
         knowledgeSnippets: snippets,
+        knowledgeSearch: search,
         'context.knowledge': formattedSnippets,
         knowledge: formattedSnippets,
       },
@@ -354,6 +403,7 @@ export const executors: Record<NodeType, NodeExecutor> = {
       provider: config.provider,
       model: config.model,
       prompt: interpolatedPrompt,
+      system: interpolate(config.system || '', ctx) || undefined,
       commercialMemory: ctx.variables.commercialMemory as Record<string, unknown>,
       recentMessages: ctx.variables.recentMessages as string,
       latestUserMessage: latestMsg,
@@ -406,14 +456,19 @@ export const executors: Record<NodeType, NodeExecutor> = {
   },
 
   'agent.extract': async (ctx, config, services) => {
-    const latestMsg = ctx.messages[ctx.messages.length - 1]?.text || '';
+    const latestMsg = String(ctx.variables.latestLeadMessage || '') || ctx.messages[ctx.messages.length - 1]?.text || '';
     const interpolatedPrompt = interpolate(config.prompt, ctx);
     const res = await services.llm.extract({
       provider: config.provider,
       model: config.model,
       prompt: interpolatedPrompt,
+      system: interpolate(config.system || '', ctx) || undefined,
+      commercialMemory: ctx.variables.commercialMemory as Record<string, unknown>,
+      recentMessages: ctx.variables.recentMessages as string,
       latestUserMessage: latestMsg,
-    });
+      knowledgeSnippets: (ctx.variables.knowledgeSnippets as string[]) || [],
+      summary: (ctx.variables.summary as string) || undefined,
+    }, Array.isArray(config.fields) ? config.fields : []);
 
     const currentDecision = (ctx.variables.decision as Record<string, unknown>) || {};
     const updatedDecision = { ...currentDecision, lead_data: res.data };
@@ -486,53 +541,52 @@ export const executors: Record<NodeType, NodeExecutor> = {
   'agent.next_action': async (ctx, config, services) => {
     const missing = resolveSalesField(ctx, 'required_fields.missing');
     const missingFields = Array.isArray(missing) ? missing.filter((value): value is string => typeof value === 'string') : [];
-    if (missingFields.length > 0) {
-      const decision = {
-        action: 'ASK_MISSING_FIELD' as const,
-        field: missingFields[0] || null,
-        reason: 'Existem campos obrigatórios ausentes na memória.',
-      };
-      const currentDecision = ctx.variables.decision && typeof ctx.variables.decision === 'object'
-        ? ctx.variables.decision as Record<string, unknown>
-        : {};
-      return {
-        port: 'next',
-        output: decision,
-        variables: { next_action: decision, decision: { ...currentDecision, action: decision.action, next_action: decision } },
-      };
-    }
     if (!services.llm.structured) throw new Error('agent.next_action requer um provedor com saída estruturada.');
 
     const allowedActions: string[] = Array.isArray(config.allowedActions) ? config.allowedActions : [];
-    const latestMsg = ctx.messages[ctx.messages.length - 1]?.text || '';
+    const latestMsg = String(ctx.variables.latestLeadMessage || '') || ctx.messages[ctx.messages.length - 1]?.text || '';
     const state = {
       lead: ctx.lead,
       commercialMemory: ctx.variables.commercialMemory,
       conversationState: resolveSalesField(ctx, 'conversation_state'),
       requiredFields: resolveSalesField(ctx, 'required_fields'),
     };
+    const priorityInstruction = config.currentMessagePriority === false ? ''
+      : '\nPrioridade obrigatória: resolva primeiro a intenção explícita da mensagem atual (pergunta, pedido de detalhes, objeção, correção ou pedido de atendimento). Só escolha uma ação de coleta de campo ausente quando a mensagem atual não exigir uma resposta direta.';
+    const flowInstructions = interpolate(config.system || '', ctx);
     const actionPrompt = `${interpolate(config.prompt, ctx)}\n\nAções permitidas: ${allowedActions.join(', ')}. `
-      + 'Retorne action, field e reason. field deve ser vazio quando não houver campo a perguntar. '
-      + `Estado estruturado: ${JSON.stringify(state)}`;
+      + 'Retorne action, field, reason, intent e evidence. field deve ser vazio quando não houver campo a perguntar. '
+      + 'intent resume a intenção da mensagem atual. evidence deve copiar um trecho curto da mensagem atual que sustenta a decisão, ou ficar vazio se não houver evidência textual. '
+      + `Campos obrigatórios ausentes são contexto, não uma ordem automática: ${JSON.stringify(missingFields)}.`
+      + priorityInstruction
+      + `Estado estruturado: ${JSON.stringify(state)}`
+      + (flowInstructions ? `\n\nRegras adicionais obrigatórias deste fluxo: ${flowInstructions}` : '');
     const res = await services.llm.structured({
       provider: config.provider,
       model: config.model,
       prompt: actionPrompt,
-      system: config.system,
+      system: flowInstructions || undefined,
       commercialMemory: ctx.variables.commercialMemory as Record<string, unknown>,
       recentMessages: ctx.variables.recentMessages as string,
       latestUserMessage: latestMsg,
       knowledgeSnippets: (ctx.variables.knowledgeSnippets as string[]) || [],
       summary: (ctx.variables.summary as string) || undefined,
-    }, ['action', 'field', 'reason']);
+    }, ['action', 'field', 'reason', 'intent', 'evidence']);
     const parsedAction = nextActionSchema.safeParse(String(res.data.action || '').trim().toUpperCase());
     if (!parsedAction.success || !allowedActions.includes(parsedAction.data)) {
       throw new Error(`agent.next_action retornou ação inválida: ${String(res.data.action || '(vazia)')}`);
     }
+    const rawEvidence = String(res.data.evidence || '').trim();
+    const evidenceValid = rawEvidence
+      ? normalizedEvidence(latestMsg).includes(normalizedEvidence(rawEvidence))
+      : null;
     const decision = {
       action: parsedAction.data,
       field: String(res.data.field || '').trim() || null,
       reason: String(res.data.reason || '').trim() || 'Ação escolhida pelo agente.',
+      intent: String(res.data.intent || '').trim() || null,
+      evidence: evidenceValid ? rawEvidence : null,
+      evidence_valid: evidenceValid,
     };
     const currentDecision = ctx.variables.decision && typeof ctx.variables.decision === 'object'
       ? ctx.variables.decision as Record<string, unknown>

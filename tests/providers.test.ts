@@ -31,6 +31,25 @@ describe('OpenAI structured runtime', () => {
     expect((await llm.extract(req)).data).toEqual({ name: 'Ana', interest: 'consulta' });
     expect((await llm.score(req)).data.score).toBe(80);
   });
+  it('builds custom extraction fields from the flow instead of hardcoding one business domain', async () => {
+    const extracted = {
+      ...lead,
+      custom_fields: { selected_product: 'starter', quantity: 3, confirmed: false },
+    };
+    const http = vi.fn<typeof fetch>().mockResolvedValue(output(extracted));
+    const llm = new OpenAIProvider({ apiKey: 'test', fetch: http });
+    const result = await llm.extract(req, [
+      { name: 'selected_product', type: 'string', values: ['starter', 'plus'] },
+      { name: 'quantity', type: 'number' },
+      { name: 'confirmed', type: 'boolean' },
+    ]);
+    const body = JSON.parse(http.mock.calls[0]![1]!.body as string);
+    const customSchema = body.text.format.schema.properties.custom_fields.anyOf
+      .find((entry: any) => entry.type === 'object');
+    expect(Object.keys(customSchema.properties)).toEqual(['selected_product', 'quantity', 'confirmed']);
+    expect(customSchema.properties.selected_product.anyOf[0].enum).toEqual(['starter', 'plus']);
+    expect(result.data.custom_fields).toEqual({ selected_product: 'starter', quantity: 3, confirmed: false });
+  });
   it('rejects missing keys and unsupported providers without network calls', async () => {
     const http = vi.fn<typeof fetch>();
     await expect(new OpenAIProvider({ fetch: http }).decide(req)).rejects.toThrow('OPENAI_API_KEY');
