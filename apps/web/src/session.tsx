@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode, type FormEvent } from 'react';
 import { createClient, type Session } from '@supabase/supabase-js';
-import { Calendar } from 'lucide-react';
+import { Calendar, Cpu, Users, Copy, Check } from 'lucide-react';
 import type { MemberRole } from '@sdr/shared';
 
 const url = import.meta.env.VITE_SUPABASE_URL;
@@ -145,6 +145,7 @@ export function PlatformSettingsSection() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [saveMessage, setSaveMessage] = useState('');
+  const [copiedUri, setCopiedUri] = useState(false);
 
   const loadSettings = async () => {
     try {
@@ -333,11 +334,29 @@ export function PlatformSettingsSection() {
           />
         </label>
 
-        <div style={{ background: 'var(--color-bg-secondary)', padding: '10px 14px', borderRadius: 6, fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 16 }}>
-          💡 <strong>URI de redirecionamento autorizada para cadastrar no Google Cloud:</strong>
-          <code style={{ display: 'block', marginTop: 6, padding: '6px 8px', background: 'var(--color-bg-primary)', borderRadius: 4, wordBreak: 'break-all', fontSize: 11 }}>
-            {window.location.origin}/api/integrations/google/callback
-          </code>
+        <div style={{ background: 'var(--color-bg-secondary)', padding: '12px 14px', borderRadius: 8, fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 18 }}>
+          <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 6 }}>
+            💡 URI de redirecionamento autorizada para o Google Cloud Console:
+          </div>
+          <p style={{ margin: '0 0 8px', fontSize: 11, lineHeight: 1.5 }}>
+            Copie este endereço e cole em <em>URIs de redirecionamento autorizados</em> no seu cliente OAuth 2.0 no Google Cloud:
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <code style={{ flex: 1, padding: '7px 10px', background: 'var(--color-bg-primary)', border: '1px solid var(--color-border-secondary)', borderRadius: 6, wordBreak: 'break-all', fontSize: 11, fontFamily: 'monospace' }}>
+              {window.location.origin}/api/integrations/google/callback
+            </code>
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard.writeText(`${window.location.origin}/api/integrations/google/callback`);
+                setCopiedUri(true);
+                setTimeout(() => setCopiedUri(false), 2000);
+              }}
+              style={{ fontSize: 11, padding: '6px 12px', minHeight: 32, display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}
+            >
+              {copiedUri ? <><Check size={13} color="#16a34a" /> Copiado!</> : <><Copy size={13} /> Copiar</>}
+            </button>
+          </div>
         </div>
 
         <button className="primary" disabled={busy} style={{ marginTop: 12 }}>
@@ -651,16 +670,44 @@ export function Settings() {
 
   return (
     <div className="page-content">
-      <span className="eyebrow">ESPAÇO DE TRABALHO</span>
-      <h1>Configurações & Organizações</h1>
-      <p className="muted">Gerencie autenticação, membros do time, convites e chaves de API com isolamento seguro.</p>
+      <span className="eyebrow">ADMINISTRAÇÃO & AJUSTES</span>
+      <h1>Configurações da Plataforma</h1>
+      <p className="muted">Gerencie as chaves de inteligência artificial, WhatsApp, Google Calendar e acessos de equipe.</p>
 
-      {!supabase ? (
-        <div className="info-card">
-          <h2>Conecte o Supabase</h2>
-          <p>Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no arquivo .env para ativar autenticação e organizações.</p>
-        </div>
-      ) : !session ? (
+      {/* Tabs Principais de Navegação em Configurações */}
+      <div style={{ display: 'flex', gap: 10, margin: '22px 0 26px', borderBottom: '1px solid var(--color-border-secondary)', paddingBottom: 14 }}>
+        <button
+          type="button"
+          className={viewTab === 'ai-keys' ? 'primary' : ''}
+          onClick={() => setViewTab('ai-keys')}
+          style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600 }}
+        >
+          <Cpu size={16} /> IA & Provedores (Plataforma)
+        </button>
+        <button
+          type="button"
+          className={viewTab === 'account' ? 'primary' : ''}
+          onClick={() => setViewTab('account')}
+          style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600 }}
+        >
+          <Users size={16} /> Organizações & Equipe (Supabase)
+        </button>
+      </div>
+
+      {viewTab === 'ai-keys' && (
+        <PlatformSettingsSection />
+      )}
+
+      {viewTab === 'account' && (
+        <>
+          {!supabase ? (
+            <div className="info-card" style={{ maxWidth: 640 }}>
+              <h2 style={{ fontSize: 16, marginBottom: 8 }}>Conecte o Supabase</h2>
+              <p style={{ fontSize: 13, lineHeight: 1.6 }}>
+                Configure <code>VITE_SUPABASE_URL</code> e <code>VITE_SUPABASE_ANON_KEY</code> no arquivo <code>.env</code> para ativar autenticação de usuários, times e permissões por organização.
+              </p>
+            </div>
+          ) : !session ? (
         <div style={{ maxWidth: 460, marginTop: 24 }}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
             <button
@@ -1113,6 +1160,8 @@ export function Settings() {
           )}
         </>
       )}
+    </>
+  )}
 
       {message && (
         <p role="status" style={{ marginTop: 20, color: 'var(--color-bg-accent)', fontWeight: 500 }}>
