@@ -212,8 +212,9 @@ export function createApp(config: ApiConfig = {}): Express {
   app.get('/api/connections/instances/:instanceName/targets', async (req, res) => {
     try {
       const { instanceName } = req.params;
+      const forceRefresh = req.query.refresh === 'true' || req.query.refresh === '1';
       const cached = targetsCache.get(instanceName);
-      if (cached && Date.now() - cached.timestamp < 30_000) {
+      if (!forceRefresh && cached && Date.now() - cached.timestamp < 30_000) {
         res.json(cached.data);
         return;
       }
@@ -221,20 +222,50 @@ export function createApp(config: ApiConfig = {}): Express {
       const client = getEvoClient(req.query.serverUrl as string, req.query.apiKey as string);
 
       const [groups, chats] = await Promise.all([
-        client.fetchGroups(instanceName).catch(() => []),
-        client.fetchChats(instanceName).catch(() => []),
+        client.fetchGroups(instanceName).catch((err) => {
+          logger.warn({ err, instanceName }, 'Falha em fetchGroups da Evolution');
+          return [];
+        }),
+        client.fetchChats(instanceName).catch((err) => {
+          logger.warn({ err, instanceName }, 'Falha em fetchChats da Evolution');
+          return [];
+        }),
       ]);
 
-      const formattedGroups = groups.map(g => ({
-        id: g.id,
-        jid: g.id,
-        name: g.subject || g.id,
-        type: 'group' as const,
-        size: g.size,
-      }));
+      const groupMap = new Map<string, { id: string; jid: string; name: string; type: 'group'; size?: number }>();
+
+      // Adiciona grupos vindos de fetchGroups
+      for (const g of groups) {
+        if (g.id) {
+          groupMap.set(g.id, {
+            id: g.id,
+            jid: g.id,
+            name: g.subject || g.id,
+            type: 'group' as const,
+            size: g.size,
+          });
+        }
+      }
+
+      // Adiciona chats que são grupos (@g.us) como fallback essencial
+      for (const c of chats) {
+        const jid = c.id || '';
+        if (jid.endsWith('@g.us') || jid.includes('@g.us')) {
+          if (!groupMap.has(jid)) {
+            groupMap.set(jid, {
+              id: jid,
+              jid: jid,
+              name: c.name || c.pushName || jid,
+              type: 'group' as const,
+            });
+          }
+        }
+      }
+
+      const formattedGroups = Array.from(groupMap.values());
 
       const formattedContacts = chats
-        .filter(c => !c.id.endsWith('@g.us'))
+        .filter(c => !c.id.endsWith('@g.us') && !c.id.includes('@g.us'))
         .map(c => {
           const cleanPhone = c.id.replace(/@.*$/, '');
           return {

@@ -1,0 +1,355 @@
+{
+  "schemaVersion": 1,
+  "nodes": [
+    {
+      "id": "trigger_message",
+      "type": "trigger.message_received",
+      "label": "Mensagem Recebida (WhatsApp)",
+      "position": {
+        "x": 0,
+        "y": 220
+      },
+      "config": {}
+    },
+    {
+      "id": "guard_gate",
+      "type": "guard.test_mode",
+      "label": "Filtro de Conexão / Gate",
+      "position": {
+        "x": 280,
+        "y": 220
+      },
+      "config": {
+        "enabled": false,
+        "allowedPhones": [],
+        "allowedGroups": []
+      }
+    },
+    {
+      "id": "end_blocked",
+      "type": "output.end",
+      "label": "Filtro: Bloqueado (Fim)",
+      "position": {
+        "x": 280,
+        "y": 60
+      },
+      "config": {}
+    },
+    {
+      "id": "guard_human",
+      "type": "guard.human_takeover",
+      "label": "Atendimento Humano Ativo?",
+      "position": {
+        "x": 560,
+        "y": 220
+      },
+      "config": {}
+    },
+    {
+      "id": "end_human",
+      "type": "output.end",
+      "label": "Humano no Controle (Silêncio)",
+      "position": {
+        "x": 560,
+        "y": 60
+      },
+      "config": {}
+    },
+    {
+      "id": "input_normalize",
+      "type": "input.normalize",
+      "label": "Normalizar Telefone (BR)",
+      "position": {
+        "x": 840,
+        "y": 220
+      },
+      "config": {
+        "country": "BR"
+      }
+    },
+    {
+      "id": "context_memory",
+      "type": "context.memory",
+      "label": "Memória Comercial & Histórico",
+      "position": {
+        "x": 1120,
+        "y": 220
+      },
+      "config": {
+        "recentMessages": 10
+      }
+    },
+    {
+      "id": "context_knowledge",
+      "type": "context.knowledge",
+      "label": "Base de Conhecimento RAG",
+      "position": {
+        "x": 1400,
+        "y": 220
+      },
+      "config": {
+        "collection": "catalog",
+        "topK": 5,
+        "threshold": 0.3,
+        "query": "{{latestLeadMessage}}",
+        "fallbackToAll": true
+      }
+    },
+    {
+      "id": "agent_extract",
+      "type": "agent.extract",
+      "label": "Extrair Fatos & Intenção",
+      "position": {
+        "x": 1680,
+        "y": 220
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Extraia com rigor apenas os dados declarados pelo lead na conversa atual.",
+        "fields": [
+          {
+            "name": "nome",
+            "type": "string",
+            "description": "Nome do cliente se informado"
+          },
+          {
+            "name": "cidade",
+            "type": "string",
+            "description": "Cidade ou região onde reside ou deseja atendimento"
+          },
+          {
+            "name": "interesse",
+            "type": "string",
+            "description": "Serviço, produto ou plano específico de interesse"
+          },
+          {
+            "name": "solicitou_humano",
+            "type": "boolean",
+            "description": "Verdadeiro se pediu expressamente para falar com pessoa/atendente"
+          }
+        ]
+      }
+    },
+    {
+      "id": "action_update_lead",
+      "type": "action.update_lead",
+      "label": "Atualizar Ficha do Lead",
+      "position": {
+        "x": 1960,
+        "y": 220
+      },
+      "config": {
+        "source": "decision.lead_data"
+      }
+    },
+    {
+      "id": "agent_sdr",
+      "type": "agent.decide",
+      "label": "SDR Sofia (Pré-Vendas 24/7)",
+      "position": {
+        "x": 2240,
+        "y": 220
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Você é a Sofia, SDR de pré-vendas virtual da empresa, atendendo leads no WhatsApp 24 horas por dia, 7 dias por semana.\n\nSEU PAPEL:\nAcolher o cliente de forma rápida e cordial, tirar dúvidas iniciais usando a base de conhecimento oficial e qualificar o contato coletando 3 informações-chave: nome, cidade e o serviço/plano de interesse.\n\nDIRETRIZES DE COMUNICAÇÃO:\n1. Linguagem amigável, acolhedora e direta (estilo WhatsApp).\n2. Mensagens curtas: no máximo 2 a 3 frases por resposta.\n3. Faça apenas UMA pergunta por turno para não sobrecarregar o cliente.\n4. NUNCA invente preços, descontos ou prazos que não estejam na base de conhecimento.\n\nREGRA CRÍTICA DE PRÉ-VENDA E HANDOFF:\n- Você NÃO fecha a venda, NÃO gera contratos e NÃO recebe pagamentos.\n- Critérios de Handoff imediato:\n  a) O lead já informou nome, cidade e interesse (qualificação completa);\n  b) OU o lead pediu expressamente para falar com atendente humano;\n  c) OU o lead fez perguntas contratuais/financeiras complexas;\n  d) OU o lead manifestou intenção imediata de compra/fechamento.\n- Quando qualquer critério de Handoff ocorrer:\n  * Defina decision.handoff = true\n  * Defina decision.handoff_reason = \"Lead qualificado: [nome, cidade, interesse] pronto para consultor\"\n  * Em decision.reply, responda de forma muito empática e avise que você já registrou as preferências dele e está passando o atendimento agora mesmo para o consultor especialista da equipe aqui no chat para dar continuidade.\n- Se o lead ainda não estiver qualificado: responda a dúvida atual e faça a próxima pergunta de triagem pendente.",
+        "system": "Assistente SDR de triagem e pré-vendas 24/7 no WhatsApp. Comunicação humana, empática e orientada à qualificação."
+      }
+    },
+    {
+      "id": "check_handoff",
+      "type": "flow.condition",
+      "label": "Critério de Handoff Atingido?",
+      "position": {
+        "x": 2520,
+        "y": 220
+      },
+      "config": {
+        "variable": "decision.handoff",
+        "operator": "equals",
+        "value": "true"
+      }
+    },
+    {
+      "id": "stage_handoff",
+      "type": "action.update_stage",
+      "label": "Atualizar Estágio (Handoff)",
+      "position": {
+        "x": 2820,
+        "y": 90
+      },
+      "config": {
+        "stage": "HUMAN_HANDOFF"
+      }
+    },
+    {
+      "id": "action_handoff",
+      "type": "action.handoff",
+      "label": "Transbordo Humano no Inbox",
+      "position": {
+        "x": 3100,
+        "y": 90
+      },
+      "config": {
+        "reason": "{{decision.handoff_reason}}"
+      }
+    },
+    {
+      "id": "send_handoff",
+      "type": "output.send_text",
+      "label": "Enviar Mensagem de Transição",
+      "position": {
+        "x": 3380,
+        "y": 90
+      },
+      "config": {
+        "text": "{{decision.reply}}",
+        "typing": true,
+        "targetMode": "active_lead",
+        "targets": []
+      }
+    },
+    {
+      "id": "end_handoff",
+      "type": "output.end",
+      "label": "Transbordo Concluído (Fim IA)",
+      "position": {
+        "x": 3660,
+        "y": 90
+      },
+      "config": {}
+    },
+    {
+      "id": "send_reply",
+      "type: "output.smart_message",
+      "label": "Enviar Resposta Pré-Venda",
+      "position": {
+        "x": 2820,
+        "y": 350
+      },
+      "config": {
+        "text": "{{decision.reply}}",
+        "typing": true,
+        "maxBubbles": 3,
+        "maxCharactersPerBubble": 300
+      }
+    },
+    {
+      "id": "end_normal",
+      "type": "output.end",
+      "label": "Aguardar Próxima Mensagem (Fim)",
+      "position": {
+        "x": 3100,
+        "y": 350
+      },
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_start_to_gate",
+      "source": "trigger_message",
+      "target": "guard_gate",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e_gate_blocked",
+      "source": "guard_gate",
+      "target": "end_blocked",
+      "sourcePort": "blocked"
+    },
+    {
+      "id": "e_gate_pass",
+      "source": "guard_gate",
+      "target": "guard_human",
+      "sourcePort": "pass"
+    },
+    {
+      "id": "e_human_blocked",
+      "source": "guard_human",
+      "target": "end_human",
+      "sourcePort": "blocked"
+    },
+    {
+      "id": "e_human_pass",
+      "source": "guard_human",
+      "target": "input_normalize",
+      "sourcePort": "pass"
+    },
+    {
+      "id": "e_normalize_to_memory",
+      "source": "input_normalize",
+      "target": "context_memory",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e_memory_to_knowledge",
+      "source": "context_memory",
+      "target": "context_knowledge",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e_knowledge_to_extract",
+      "source": "context_knowledge",
+      "target": "agent_extract",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e_extract_to_update",
+      "source": "agent_extract",
+      "target": "action_update_lead",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e_update_to_sdr",
+      "source": "action_update_lead",
+      "target": "agent_sdr",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e_sdr_to_check",
+      "source": "agent_sdr",
+      "target": "check_handoff",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e_check_handoff_true",
+      "source": "check_handoff",
+      "target": "stage_handoff",
+      "sourcePort": "true"
+    },
+    {
+      "id": "e_check_handoff_false",
+      "source": "check_handoff",
+      "target": "send_reply",
+      "sourcePort": "false"
+    },
+    {
+      "id": "e_stage_to_handoff",
+      "source": "stage_handoff",
+      "target": "action_handoff",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e_action_to_send_handoff",
+      "source": "action_handoff",
+      "target": "send_handoff",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e_send_handoff_to_end",
+      "source": "send_handoff",
+      "target": "end_handoff",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e_send_reply_to_end",
+      "source": "send_reply",
+      "target": "end_normal",
+      "sourcePort": "next"
+    }
+  ],
+  "loopLimit": 5
+}

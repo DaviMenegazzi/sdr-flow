@@ -192,15 +192,29 @@ export class EvolutionClient {
 
   async fetchGroups(instanceName: string): Promise<Array<{ id: string; subject: string; size?: number }>> {
     try {
-      const data = await this.request<any[]>(`/group/fetchAllGroups/${encodeURIComponent(instanceName)}?getParticipants=false`, {
+      let data: any = await this.request<any>(`/group/fetchAllGroups/${encodeURIComponent(instanceName)}?getParticipants=false`, {
         method: 'GET',
-      }, 10000);
-      if (!Array.isArray(data)) return [];
-      return data.map(g => ({
+      }, 10000).catch(async () => {
+        return this.request<any>(`/group/fetchAllGroups/${encodeURIComponent(instanceName)}`, {
+          method: 'GET',
+        }, 10000);
+      });
+
+      let list: any[] = [];
+      if (Array.isArray(data)) {
+        list = data;
+      } else if (data && typeof data === 'object') {
+        if (Array.isArray(data.response)) list = data.response;
+        else if (Array.isArray(data.data)) list = data.data;
+        else if (Array.isArray(data.groups)) list = data.groups;
+        else if (Array.isArray(data.chats)) list = data.chats;
+      }
+
+      return list.map((g: any) => ({
         id: g.id || g.jid || '',
-        subject: g.subject || g.name || g.id || 'Grupo sem nome',
-        size: g.size || g.participants?.length,
-      })).filter(g => Boolean(g.id));
+        subject: g.subject || g.name || g.formattedTitle || g.id || 'Grupo sem nome',
+        size: g.size || (Array.isArray(g.participants) ? g.participants.length : undefined),
+      })).filter((g: any) => Boolean(g.id));
     } catch {
       return [];
     }
@@ -208,20 +222,29 @@ export class EvolutionClient {
 
   async fetchChats(instanceName: string): Promise<Array<{ id: string; name?: string; pushName?: string }>> {
     try {
-      let data = await this.request<any[]>(`/chat/findChats/${encodeURIComponent(instanceName)}`, {
+      let data: any = await this.request<any>(`/chat/findChats/${encodeURIComponent(instanceName)}`, {
         method: 'POST',
         body: JSON.stringify({}),
       }, 10000).catch(async () => {
-        return this.request<any[]>(`/chat/findChats/${encodeURIComponent(instanceName)}`, {
+        return this.request<any>(`/chat/findChats/${encodeURIComponent(instanceName)}`, {
           method: 'GET',
         }, 10000);
       });
-      if (!Array.isArray(data)) return [];
-      return data.map(c => ({
-        id: c.id || c.remoteJid || '',
-        name: c.name || c.pushName || c.formattedTitle || c.id || '',
+
+      let list: any[] = [];
+      if (Array.isArray(data)) {
+        list = data;
+      } else if (data && typeof data === 'object') {
+        if (Array.isArray(data.response)) list = data.response;
+        else if (Array.isArray(data.data)) list = data.data;
+        else if (Array.isArray(data.chats)) list = data.chats;
+      }
+
+      return list.map((c: any) => ({
+        id: c.id || c.remoteJid || c.jid || '',
+        name: c.name || c.subject || c.pushName || c.formattedTitle || c.id || '',
         pushName: c.pushName,
-      })).filter(c => Boolean(c.id));
+      })).filter((c: any) => Boolean(c.id));
     } catch {
       return [];
     }

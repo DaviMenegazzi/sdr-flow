@@ -15,7 +15,8 @@ import {
   Radio,
   Send,
   MessageSquare,
-  AlertCircle
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
 
 interface Property {
@@ -50,6 +51,7 @@ function ChipListInput({
   icon,
   badgeBg = '#464feb12',
   badgeColor = '#464feb',
+  inputName = 'chip-filter-input',
 }: {
   values: string[];
   onChange: (newValues: string[]) => void;
@@ -57,6 +59,7 @@ function ChipListInput({
   icon?: React.ReactNode;
   badgeBg?: string;
   badgeColor?: string;
+  inputName?: string;
 }) {
   const [inputValue, setInputValue] = useState('');
 
@@ -120,6 +123,13 @@ function ChipListInput({
       <div style={{ display: 'flex', gap: 6 }}>
         <input
           type="text"
+          name={inputName}
+          id={inputName}
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          data-form-type="other"
+          data-lpignore="true"
           value={inputValue}
           placeholder={placeholder}
           onChange={e => setInputValue(e.target.value)}
@@ -175,10 +185,11 @@ function InstanceTargetPicker({
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
+  const loadTargets = (refresh = false) => {
     if (!selectedInstance) return;
     setLoading(true);
-    fetch(`/api/connections/instances/${encodeURIComponent(selectedInstance)}/targets`)
+    const url = `/api/connections/instances/${encodeURIComponent(selectedInstance)}/targets${refresh ? '?refresh=true' : ''}`;
+    fetch(url)
       .then(res => res.json())
       .then(data => {
         setTargets({
@@ -188,18 +199,30 @@ function InstanceTargetPicker({
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadTargets(false);
   }, [selectedInstance]);
 
   const filteredGroups = useMemo(() => {
     if (typeFilter === 'contacts') return [];
-    const term = search.toLowerCase();
-    return targets.groups.filter(g => g.name.toLowerCase().includes(term) || g.id.toLowerCase().includes(term));
+    const term = (search || '').toLowerCase().trim();
+    return targets.groups.filter(g => {
+      const name = (g.name || g.id || '').toLowerCase();
+      const id = (g.id || '').toLowerCase();
+      return name.includes(term) || id.includes(term);
+    });
   }, [targets.groups, search, typeFilter]);
 
   const filteredContacts = useMemo(() => {
     if (typeFilter === 'groups') return [];
-    const term = search.toLowerCase();
-    return targets.contacts.filter(c => c.name.toLowerCase().includes(term) || c.id.toLowerCase().includes(term));
+    const term = (search || '').toLowerCase().trim();
+    return targets.contacts.filter(c => {
+      const name = (c.name || c.id || '').toLowerCase();
+      const id = (c.id || '').toLowerCase();
+      return name.includes(term) || id.includes(term);
+    });
   }, [targets.contacts, search, typeFilter]);
 
   return (
@@ -259,15 +282,43 @@ function InstanceTargetPicker({
             </select>
           )}
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--color-border)', borderRadius: 6, padding: '4px 8px' }}>
-            <Search size={13} color="var(--color-text-secondary)" />
-            <input
-              type="text"
-              placeholder="Filtrar por nome ou número..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              style={{ border: 'none', padding: 0, fontSize: 11, width: '100%' }}
-            />
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <div style={{ display: 'flex', flex: 1, alignItems: 'center', gap: 6, border: '1px solid var(--color-border)', borderRadius: 6, padding: '4px 8px' }}>
+              <Search size={13} color="var(--color-text-secondary)" />
+              <input
+                type="text"
+                name="search-instance-targets"
+                id="search-instance-targets"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                data-form-type="other"
+                data-lpignore="true"
+                placeholder="Buscar contato ou grupo..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                style={{ border: 'none', padding: 0, fontSize: 11, width: '100%', outline: 'none' }}
+              />
+            </div>
+            <button
+              type="button"
+              title="Atualizar lista de grupos e contatos"
+              onClick={() => loadTargets(true)}
+              disabled={loading}
+              style={{
+                padding: '5px 8px',
+                fontSize: 11,
+                minHeight: 'auto',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                background: 'var(--color-bg-secondary)',
+                border: '1px solid var(--color-border)',
+                cursor: 'pointer',
+              }}
+            >
+              <RefreshCw size={12} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+            </button>
           </div>
 
           <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -447,7 +498,8 @@ export function SchemaForm({ node }: { node: FlowNode }) {
               <ChipListInput
                 values={allowedPhones}
                 onChange={newVals => field('allowedPhones', newVals)}
-                placeholder="+55 11 99999-9999"
+                placeholder="Ex: 5511999998888 ou DDD + celular"
+                inputName="allowed-phones-filter"
                 icon={<Phone size={11} />}
                 badgeBg="#16a34a15"
                 badgeColor="#16a34a"
@@ -469,7 +521,8 @@ export function SchemaForm({ node }: { node: FlowNode }) {
               <ChipListInput
                 values={allowedGroups}
                 onChange={newVals => field('allowedGroups', newVals)}
-                placeholder="120363...@g.us ou ID do grupo"
+                placeholder="Ex: 120363...@g.us ou ID do grupo"
+                inputName="allowed-groups-filter"
                 icon={<Users size={11} />}
                 badgeBg="#d9770615"
                 badgeColor="#d97706"
@@ -582,7 +635,8 @@ export function SchemaForm({ node }: { node: FlowNode }) {
             <ChipListInput
               values={targets}
               onChange={newTargets => field('targets', newTargets)}
-              placeholder="Número ou JID do grupo..."
+              placeholder="Ex: 5511999998888 ou 120363...@g.us"
+              inputName="send-targets-filter"
               icon={<Send size={11} />}
               badgeBg="#464feb15"
               badgeColor="#464feb"
