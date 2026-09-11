@@ -176,11 +176,19 @@ export class EvolutionClient {
       const res = await this.request(`/message/sendText/${encodeURIComponent(instanceName)}`, {
         method: 'POST',
         body: JSON.stringify(payload),
-      });
+      }, 20000);
+
+      const messageId = res?.key?.id || res?.messageId;
+      if (!messageId) {
+        return {
+          success: false,
+          error: res?.response?.message || res?.message || 'Evolution API não retornou confirmação de ID da mensagem',
+        };
+      }
 
       return {
         success: true,
-        messageId: res?.key?.id || res?.messageId,
+        messageId,
       };
     } catch (err) {
       return {

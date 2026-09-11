@@ -1706,7 +1706,12 @@ export function createApp(config: ApiConfig = {}): Express {
             await assertCurrentTurn();
             logger.info({ instanceName, phone, textLength: text.length }, 'Enviando resposta WhatsApp via Evolution API');
             const sendRes = await evoClient.sendTextMessage(instanceName, phone, text);
-            const msgId = sendRes.messageId || crypto.randomUUID();
+            if (!sendRes.success || !sendRes.messageId) {
+              const errMsg = sendRes.error || 'Falha desconhecida na Evolution API';
+              logger.error({ instanceName, phone, error: errMsg }, 'Falha no envio da resposta WhatsApp via Evolution API');
+              throw new Error(`Falha no envio WhatsApp via Evolution API (${instanceName}): ${errMsg}`);
+            }
+            const msgId = sendRes.messageId;
             if (capturedConvRepo) {
               try {
                 await capturedConvRepo.saveMessage({

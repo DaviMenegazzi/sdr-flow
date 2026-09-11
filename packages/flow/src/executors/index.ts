@@ -882,6 +882,7 @@ export const executors: Record<NodeType, NodeExecutor> = {
     }
 
     const sentMessageIds: string[] = [];
+    const sendErrors: Array<{ destination: string; error: string }> = [];
 
     if (text && services.messaging && destinations.size > 0) {
       for (const dest of destinations) {
@@ -889,12 +890,12 @@ export const executors: Record<NodeType, NodeExecutor> = {
           const res = await services.messaging.sendText(ctx.connectionId, dest, text, {
             typing: config.typing ?? true,
           });
-          if (res.messageId) {
+          if (res?.messageId) {
             sentMessageIds.push(res.messageId);
           }
 
           // Grava no banco se o destino for a conversa ativa
-          if (services.db && dest === activePhone) {
+          if (services.db && dest === activePhone && res?.messageId) {
             await services.db.saveMessage(ctx.organizationId, ctx.connectionId, ctx.conversationId, {
               sender: 'ai',
               direction: 'OUTBOUND',
@@ -902,10 +903,15 @@ export const executors: Record<NodeType, NodeExecutor> = {
               providerMessageId: res.messageId,
             });
           }
-        } catch {
-          // Continua para os demais destinatários se houver falha em um
+        } catch (err: any) {
+          sendErrors.push({ destination: dest, error: err instanceof Error ? err.message : String(err) });
         }
       }
+    }
+
+    const allFailed = destinations.size > 0 && sentMessageIds.length === 0;
+    if (allFailed && sendErrors.length > 0) {
+      throw new Error(`output.send_text falhou ao entregar para os destinatários: ${sendErrors.map(e => `${e.destination}: ${e.error}`).join('; ')}`);
     }
 
     return {
@@ -915,6 +921,7 @@ export const executors: Record<NodeType, NodeExecutor> = {
         messageIds: sentMessageIds,
         destinations: Array.from(destinations),
         text,
+        ...(sendErrors.length > 0 ? { errors: sendErrors } : {}),
       },
     };
   },
