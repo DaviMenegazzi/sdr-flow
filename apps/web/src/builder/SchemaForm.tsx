@@ -713,7 +713,7 @@ export function SchemaForm({ node }: { node: FlowNode }) {
             <JsonField value={node.config[key]} onChange={value => field(key, value)} />
           ) : (
             <textarea
-              rows={key === 'prompt' || key === 'text' ? 5 : 2}
+              rows={key === 'prompt' || key === 'text' || key === 'content' ? 5 : 2}
               value={String(node.config[key] ?? '')}
               onChange={event => field(key, event.target.value)}
             />

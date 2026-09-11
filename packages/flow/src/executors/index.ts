@@ -6,7 +6,7 @@ import {
   isPhoneNumberMatch,
   normalizePhoneDigits,
 } from '@sdr/shared';
-import { interpolate } from '../interpolate.js';
+import { interpolate, resolveValue } from '../interpolate.js';
 import { MemoryService, type LeadExtractedData } from '../services/memory.js';
 import { HandoffService } from '../services/handoff.js';
 import { StateMachineService } from '../state-machine.js';
@@ -1004,16 +1004,62 @@ export const executors: Record<NodeType, NodeExecutor> = {
   },
 
   // --- CONTEXT: STORAGE ---
-  'context.storage': async (_ctx, config, _services) => {
-    const content = String(config.content || '');
+  'context.storage': async (ctx, config, _services) => {
+    const rawContent = String(config.content ?? '');
     const variableName = String(config.variableName || 'storage');
     const ports: string[] = Array.isArray(config.outputPorts) ? config.outputPorts : ['next'];
     const port = ports[0] || 'next';
 
+    let storedValue: unknown = rawContent;
+    const isDynamic = rawContent.includes('{{');
+
+    if (isDynamic) {
+      const singleVarMatch = rawContent.trim().match(/^\{\{\s*([\w.-]+)\s*\}\}$/);
+      const varPath = singleVarMatch?.[1];
+      if (varPath) {
+        // Referência direta a uma variável única (ex: {{lead}}, {{decision.lead_data}}, {{cartoes}})
+        const directVal = resolveValue(varPath, ctx);
+        if (directVal !== undefined) {
+          storedValue = directVal;
+        } else {
+          storedValue = interpolate(rawContent, ctx);
+        }
+      } else {
+        // Template com múltiplas variáveis ou texto interpolado
+        const interpolated = interpolate(rawContent, ctx);
+        // Se for um JSON resultante válido, converte para objeto
+        try {
+          const trimmed = interpolated.trim();
+          if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+            storedValue = JSON.parse(trimmed);
+          } else {
+            storedValue = interpolated;
+          }
+        } catch {
+          storedValue = interpolated;
+        }
+      }
+    } else {
+      // Conteúdo estático: se for JSON válido, também permite parsear para acesso por chaves
+      try {
+        const trimmed = rawContent.trim();
+        if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+          storedValue = JSON.parse(trimmed);
+        }
+      } catch {
+        // Mantém string se não for JSON
+      }
+    }
+
     return {
       port,
-      output: { stored: true, contentLength: content.length, variableName },
-      variables: { [variableName]: content },
+      output: {
+        stored: true,
+        variableName,
+        isDynamic,
+        contentLength: typeof storedValue === 'string' ? storedValue.length : JSON.stringify(storedValue).length,
+      },
+      variables: { [variableName]: storedValue },
     };
   },
 

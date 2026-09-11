@@ -599,4 +599,100 @@ describe('Flow Executors — core catalog', () => {
     expect(res.port).toBe('');
     expect((res.output as any).finished).toBe(true);
   });
+
+  // --- CONTEXT: STORAGE ---
+  describe('context.storage executor', () => {
+    it('stores static text into configured variableName', async () => {
+      const ctx = createTestContext();
+      const services = createTestServices();
+      const res = await executors['context.storage'](
+        ctx,
+        { content: 'Regra estática de negócio', variableName: 'regras' },
+        services
+      );
+      expect(res.port).toBe('next');
+      expect(res.variables?.regras).toBe('Regra estática de negócio');
+      expect(res.output.isDynamic).toBe(false);
+    });
+
+    it('stores dynamic content by interpolating template variables', async () => {
+      const ctx = createTestContext({
+        lead: {
+          id: 'l1',
+          name: 'Maria Fernandes',
+          city: 'Passo Fundo',
+          phone: '5554999990000',
+        },
+      });
+      const services = createTestServices();
+      const res = await executors['context.storage'](
+        ctx,
+        {
+          content: 'Lead {{lead.name}} da cidade {{lead.city}}',
+          variableName: 'info_lead',
+        },
+        services
+      );
+      expect(res.port).toBe('next');
+      expect(res.variables?.info_lead).toBe('Lead Maria Fernandes da cidade Passo Fundo');
+      expect(res.output.isDynamic).toBe(true);
+    });
+
+    it('stores direct dynamic object reference preserving data structure', async () => {
+      const ctx = createTestContext({
+        variables: {
+          pacote: { tipo: 'Smart', valor: 69.90, dependentes: 5 },
+        },
+      });
+      const services = createTestServices();
+      const res = await executors['context.storage'](
+        ctx,
+        {
+          content: '{{pacote}}',
+          variableName: 'dados_pacote',
+        },
+        services
+      );
+      expect(res.port).toBe('next');
+      expect(res.variables?.dados_pacote).toEqual({ tipo: 'Smart', valor: 69.90, dependentes: 5 });
+      expect(res.output.isDynamic).toBe(true);
+    });
+
+    it('parses dynamic JSON templates into object', async () => {
+      const ctx = createTestContext({
+        lead: {
+          id: 'l2',
+          name: 'Carlos Santos',
+          phone: '5555988887777',
+        },
+      });
+      const services = createTestServices();
+      const res = await executors['context.storage'](
+        ctx,
+        {
+          content: '{"cliente": "{{lead.name}}", "status": "ativo"}',
+          variableName: 'payload_cliente',
+        },
+        services
+      );
+      expect(res.port).toBe('next');
+      expect(res.variables?.payload_cliente).toEqual({ cliente: 'Carlos Santos', status: 'ativo' });
+      expect(res.output.isDynamic).toBe(true);
+    });
+
+    it('respects custom outputPorts', async () => {
+      const ctx = createTestContext();
+      const services = createTestServices();
+      const res = await executors['context.storage'](
+        ctx,
+        {
+          content: 'ok',
+          variableName: 'flag',
+          outputPorts: ['sucesso', 'falha'],
+        },
+        services
+      );
+      expect(res.port).toBe('sucesso');
+    });
+  });
 });

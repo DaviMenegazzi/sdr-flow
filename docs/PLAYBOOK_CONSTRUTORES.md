@@ -154,9 +154,9 @@ O catálogo atual possui **44 tipos de nó**, divididos em **10 categorias funda
 - **Portas de saída:** `next`.
 
 #### Armazenamento Interno (`context.storage`)
-- **O que faz:** Injeta um conteúdo estático do grafo em uma variável nomeada e permite declarar
-  portas de saída customizadas.
-- **Portas de saída:** valores definidos em `outputPorts`.
+- **O que faz:** Injeta conteúdo estático ou dinâmico (resolvendo variáveis como `{{lead.name}}`, `{{decision.reply}}` ou objetos JSON) em uma variável nomeada e permite declarar portas de saída customizadas.
+- **Suporte dinâmico:** Se `content` contiver tags de template como `{{...}}`, o nó interpola os valores reais do contexto da conversa e, quando for um JSON válido ou objeto referenciado, mantém a estrutura de dados acessível por propriedades (ex: `{{minha_var.campo}}`).
+- **Portas de saída:** valores definidos em `outputPorts` (padrão: `["next"]`).
 
 #### Estado da Conversa (`context.conversation_state`)
 - **O que faz:** Formaliza em qual etapa real a conversa está, qual ação acabou de ocorrer e qual

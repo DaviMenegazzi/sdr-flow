@@ -149,7 +149,7 @@ Abaixo estão todos os nós aceitos e como deve ser preenchido o seu respectivo 
 - `context.storage`:
   ```json
   "config": {
-    "content": "Texto ou JSON interno",
+    "content": "Texto estático, JSON ou variáveis dinâmicas (ex: {{lead.name}}, {{decision.lead_data}})",
     "variableName": "storage",
     "outputPorts": ["next"]
   }

@@ -65,7 +65,7 @@ const schemas = {
   'context.crm': empty,
   'context.summarize': z.strictObject({ afterMessages: count(30, 500, 'Resumir após mensagens') }),
   'context.storage': z.strictObject({
-    content: z.string().max(5000).default('').describe('Conteúdo armazenado (até 5000 caracteres)'),
+    content: z.string().max(50000).default('').describe('Conteúdo armazenado; aceita texto estático, JSON ou variáveis dinâmicas (ex: {{lead.name}}, {{decision.reply}})'),
     variableName: text('storage', 'Nome da variável de acesso (ex: storage)'),
     outputPorts: z.array(z.string().min(1).max(40)).min(1).max(10).default(['next']).describe('Portas de saída (JSON)'),
   }),

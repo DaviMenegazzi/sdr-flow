@@ -46,30 +46,36 @@ function resolvePath(obj: unknown, path: string): unknown {
   return current;
 }
 
+export function resolveValue(path: string, ctx: FlowContext | Record<string, unknown>): unknown {
+  let resolved: unknown = undefined;
+
+  // 1. Try variables first
+  if ('variables' in ctx && ctx.variables && typeof ctx.variables === 'object') {
+    resolved = resolvePath(ctx.variables, path);
+  }
+
+  // 2. Try root context
+  if (resolved === undefined) {
+    resolved = resolvePath(ctx, path);
+  }
+
+  // 3. Fallback for common context aliases
+  if (resolved === undefined) {
+    if (path === 'context.knowledge' || path === 'knowledge') {
+      resolved = resolvePath(ctx, 'variables.knowledgeSnippets') || resolvePath(ctx, 'variables.knowledge');
+    } else if (path === 'conversation.summary' || path === 'resumo') {
+      resolved = resolvePath(ctx, 'variables.summary');
+    }
+  }
+
+  return resolved;
+}
+
 export function interpolate(template: string, ctx: FlowContext | Record<string, unknown>): string {
   if (!template || typeof template !== 'string') return '';
 
   return template.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (_match, path) => {
-    let resolved: unknown = undefined;
-
-    // 1. Try variables first
-    if ('variables' in ctx && ctx.variables && typeof ctx.variables === 'object') {
-      resolved = resolvePath(ctx.variables, path);
-    }
-
-    // 2. Try root context
-    if (resolved === undefined) {
-      resolved = resolvePath(ctx, path);
-    }
-
-    // 3. Fallback for common context aliases
-    if (resolved === undefined) {
-      if (path === 'context.knowledge' || path === 'knowledge') {
-        resolved = resolvePath(ctx, 'variables.knowledgeSnippets') || resolvePath(ctx, 'variables.knowledge');
-      } else if (path === 'conversation.summary' || path === 'resumo') {
-        resolved = resolvePath(ctx, 'variables.summary');
-      }
-    }
+    const resolved = resolveValue(path, ctx);
 
     if (resolved === undefined || resolved === null) {
       return '';
