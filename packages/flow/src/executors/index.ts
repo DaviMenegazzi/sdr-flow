@@ -1004,16 +1004,34 @@ export const executors: Record<NodeType, NodeExecutor> = {
   },
 
   // --- CONTEXT: STORAGE ---
-  'context.storage': async (ctx, config, _services) => {
+  'context.storage': async (ctx, config, services) => {
     const rawContent = String(config.content ?? '');
     const variableName = String(config.variableName || 'storage');
     const ports: string[] = Array.isArray(config.outputPorts) ? config.outputPorts : ['next'];
     const port = ports[0] || 'next';
 
     let storedValue: unknown = rawContent;
+    let isRetrieved = false;
     const isDynamic = rawContent.includes('{{');
 
-    if (isDynamic) {
+    // Se content estiver vazio, funciona como resgate de memória prévia
+    if (!rawContent.trim()) {
+      const memory = ctx.lead?.memory && typeof ctx.lead.memory === 'object' ? ctx.lead.memory as Record<string, unknown> : {};
+      const customFields = memory.custom_fields && typeof memory.custom_fields === 'object'
+        ? memory.custom_fields as Record<string, unknown>
+        : {};
+
+      if (ctx.variables?.[variableName] !== undefined) {
+        storedValue = ctx.variables[variableName];
+        isRetrieved = true;
+      } else if (customFields[variableName] !== undefined) {
+        storedValue = customFields[variableName];
+        isRetrieved = true;
+      } else if (memory[variableName] !== undefined) {
+        storedValue = memory[variableName];
+        isRetrieved = true;
+      }
+    } else if (isDynamic) {
       const singleVarMatch = rawContent.trim().match(/^\{\{\s*([\w.-]+)\s*\}\}$/);
       const varPath = singleVarMatch?.[1];
       if (varPath) {
@@ -1051,13 +1069,42 @@ export const executors: Record<NodeType, NodeExecutor> = {
       }
     }
 
+    // Persistência na memória comercial do Lead (disponível para outros nós e turnos futuros)
+    if (ctx.lead && !isRetrieved) {
+      const currentMemory = ctx.lead.memory && typeof ctx.lead.memory === 'object'
+        ? (ctx.lead.memory as Record<string, unknown>)
+        : {};
+      const currentCustom = currentMemory.custom_fields && typeof currentMemory.custom_fields === 'object'
+        ? (currentMemory.custom_fields as Record<string, unknown>)
+        : {};
+
+      ctx.lead.memory = {
+        ...currentMemory,
+        [variableName]: storedValue,
+        custom_fields: {
+          ...currentCustom,
+          [variableName]: storedValue,
+        },
+      };
+
+      if (services?.db?.updateLead) {
+        try {
+          await services.db.updateLead(ctx.organizationId, ctx.lead.id, { memory: ctx.lead.memory });
+        } catch {
+          // silencia falha de banco caso seja mock
+        }
+      }
+    }
+
     return {
       port,
       output: {
-        stored: true,
+        stored: !isRetrieved,
+        retrieved: isRetrieved,
         variableName,
+        value: storedValue,
         isDynamic,
-        contentLength: typeof storedValue === 'string' ? storedValue.length : JSON.stringify(storedValue).length,
+        contentLength: typeof storedValue === 'string' ? storedValue.length : JSON.stringify(storedValue ?? '').length,
       },
       variables: { [variableName]: storedValue },
     };

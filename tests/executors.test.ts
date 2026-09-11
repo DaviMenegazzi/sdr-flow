@@ -694,5 +694,60 @@ describe('Flow Executors — core catalog', () => {
       );
       expect(res.port).toBe('sucesso');
     });
+
+    it('persists storedValue into lead.memory and calls db.updateLead', async () => {
+      const ctx = createTestContext({
+        lead: {
+          id: 'lead-persisted-1',
+          name: 'Ana Paula',
+          phone: '5551999998888',
+          memory: {},
+        },
+      });
+      const services = createTestServices();
+      const res = await executors['context.storage'](
+        ctx,
+        {
+          content: 'Plano Premium VIP',
+          variableName: 'plano_escolhido',
+        },
+        services
+      );
+      expect(res.output.stored).toBe(true);
+      expect(res.output.value).toBe('Plano Premium VIP');
+      expect((ctx.lead?.memory as any)?.plano_escolhido).toBe('Plano Premium VIP');
+      expect((ctx.lead?.memory as any)?.custom_fields?.plano_escolhido).toBe('Plano Premium VIP');
+      expect(services.db?.updateLead).toHaveBeenCalledWith(
+        ctx.organizationId,
+        'lead-persisted-1',
+        { memory: ctx.lead?.memory }
+      );
+    });
+
+    it('retrieves previously stored value from lead.memory when content is empty', async () => {
+      const ctx = createTestContext({
+        lead: {
+          id: 'lead-persisted-2',
+          phone: '5551999997777',
+          memory: {
+            custom_fields: {
+              cidade_preferida: 'Santa Maria',
+            },
+          },
+        },
+      });
+      const services = createTestServices();
+      const res = await executors['context.storage'](
+        ctx,
+        {
+          content: '',
+          variableName: 'cidade_preferida',
+        },
+        services
+      );
+      expect(res.output.retrieved).toBe(true);
+      expect(res.output.value).toBe('Santa Maria');
+      expect(res.variables?.cidade_preferida).toBe('Santa Maria');
+    });
   });
 });
