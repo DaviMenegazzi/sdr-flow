@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode, type FormEvent } from 'react';
 import { createClient, type Session } from '@supabase/supabase-js';
+import { Calendar } from 'lucide-react';
 import type { MemberRole } from '@sdr/shared';
 
 const url = import.meta.env.VITE_SUPABASE_URL;
@@ -134,8 +135,12 @@ export function PlatformSettingsSection() {
   const [openaiModel, setOpenaiModel] = useState('gpt-4.1-mini');
   const [evolutionUrl, setEvolutionUrl] = useState('http://127.0.0.1:8080');
   const [evolutionApiKey, setEvolutionApiKey] = useState('');
+  const [googleClientId, setGoogleClientId] = useState('');
+  const [googleClientSecret, setGoogleClientSecret] = useState('');
   const [maskedOpenAI, setMaskedOpenAI] = useState('');
   const [maskedEvolution, setMaskedEvolution] = useState('');
+  const [maskedGoogleClientId, setMaskedGoogleClientId] = useState('');
+  const [maskedGoogleClientSecret, setMaskedGoogleClientSecret] = useState('');
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -150,6 +155,8 @@ export function PlatformSettingsSection() {
         if (data.openaiModel) setOpenaiModel(data.openaiModel);
         if (data.evolutionServerUrl) setEvolutionUrl(data.evolutionServerUrl);
         if (data.evolutionApiKeyMasked) setMaskedEvolution(data.evolutionApiKeyMasked);
+        if (data.googleClientIdMasked) setMaskedGoogleClientId(data.googleClientIdMasked);
+        if (data.googleClientSecretMasked) setMaskedGoogleClientSecret(data.googleClientSecretMasked);
       }
     } catch {
       // ignore
@@ -173,12 +180,16 @@ export function PlatformSettingsSection() {
           openaiModel: openaiModel || undefined,
           evolutionServerUrl: evolutionUrl || undefined,
           evolutionApiKey: evolutionApiKey || undefined,
+          googleClientId: googleClientId || undefined,
+          googleClientSecret: googleClientSecret || undefined,
         }),
       });
       if (!res.ok) throw new Error('Falha ao salvar configurações.');
       setSaveMessage('Configurações salvas no servidor com sucesso!');
       setOpenaiApiKey('');
       setEvolutionApiKey('');
+      setGoogleClientId('');
+      setGoogleClientSecret('');
       await loadSettings();
     } catch (err) {
       setSaveMessage(err instanceof Error ? err.message : 'Erro ao salvar.');
@@ -284,6 +295,50 @@ export function PlatformSettingsSection() {
             placeholder={maskedEvolution ? "Digite nova chave para alterar..." : "Sua Evolution Api Key"}
           />
         </label>
+
+        <h2 style={{ marginTop: 28, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Calendar size={18} color="#2563eb" /> Google Cloud OAuth (Plataforma Global)
+        </h2>
+        <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: '-4px 0 14px', lineHeight: 1.5 }}>
+          Credenciais do seu projeto no Google Cloud Console. Uma vez configuradas aqui pelo administrador, qualquer cliente conecta sua conta do Google com 1 clique direto na aba Integrações (sem precisar digitar chaves).
+        </p>
+
+        <label>
+          Google Client ID
+          {maskedGoogleClientId && (
+            <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+              ● Client ID ativo no servidor: {maskedGoogleClientId}
+            </span>
+          )}
+          <input
+            type="text"
+            value={googleClientId}
+            onChange={e => setGoogleClientId(e.target.value)}
+            placeholder={maskedGoogleClientId ? "Digite novo Client ID para alterar..." : "ex: 123456789-abc.apps.googleusercontent.com"}
+          />
+        </label>
+
+        <label>
+          Google Client Secret
+          {maskedGoogleClientSecret && (
+            <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+              ● Client Secret ativo no servidor: {maskedGoogleClientSecret}
+            </span>
+          )}
+          <input
+            type="password"
+            value={googleClientSecret}
+            onChange={e => setGoogleClientSecret(e.target.value)}
+            placeholder={maskedGoogleClientSecret ? "Digite novo Client Secret para alterar..." : "ex: GOCSPX-xxxxxxxx"}
+          />
+        </label>
+
+        <div style={{ background: 'var(--color-bg-secondary)', padding: '10px 14px', borderRadius: 6, fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 16 }}>
+          💡 <strong>URI de redirecionamento autorizada para cadastrar no Google Cloud:</strong>
+          <code style={{ display: 'block', marginTop: 6, padding: '6px 8px', background: 'var(--color-bg-primary)', borderRadius: 4, wordBreak: 'break-all', fontSize: 11 }}>
+            {window.location.origin}/api/integrations/google/callback
+          </code>
+        </div>
 
         <button className="primary" disabled={busy} style={{ marginTop: 12 }}>
           {busy ? 'Salvando...' : 'Salvar Configurações'}

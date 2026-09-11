@@ -223,7 +223,7 @@
     },
     {
       "id": "send_reply",
-      "type: "output.smart_message",
+      "type": "output.smart_message",
       "label": "Enviar Resposta Pré-Venda",
       "position": {
         "x": 2820,

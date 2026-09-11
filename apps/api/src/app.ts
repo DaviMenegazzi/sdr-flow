@@ -579,16 +579,18 @@ export function createApp(config: ApiConfig = {}): Express {
 
   knowledgeRouter.get('/', (req, res) => {
     const collection = typeof req.query.collection === 'string' ? req.query.collection : undefined;
-    res.json(standaloneStore.listKnowledge(collection));
+    const instanceId = typeof req.query.instanceId === 'string' ? req.query.instanceId.trim() : undefined;
+    res.json(standaloneStore.listKnowledge(collection, instanceId));
   });
 
-  knowledgeRouter.get('/collections', (_req, res) => {
-    res.json(standaloneStore.listCollections());
+  knowledgeRouter.get('/collections', (req, res) => {
+    const instanceId = typeof req.query.instanceId === 'string' ? req.query.instanceId.trim() : undefined;
+    res.json(standaloneStore.listCollections(instanceId));
   });
 
   knowledgeRouter.post('/', (req, res) => {
     try {
-      const { collection, title, content, metadata } = req.body || {};
+      const { collection, title, content, metadata, instanceId } = req.body || {};
       if (!title || typeof title !== 'string' || !title.trim()) {
         res.status(400).json({ error: 'Título do documento é obrigatório.' });
         return;
@@ -601,6 +603,7 @@ export function createApp(config: ApiConfig = {}): Express {
         collection,
         title,
         content,
+        instanceId: (instanceId || req.query.instanceId as string || '').trim() || undefined,
         metadata,
       });
       res.status(201).json(doc);
@@ -638,7 +641,7 @@ export function createApp(config: ApiConfig = {}): Express {
 
   knowledgeRouter.post('/search', (req, res) => {
     try {
-      const { query, collection, threshold, limit } = req.body || {};
+      const { query, collection, threshold, limit, instanceId } = req.body || {};
       if (!query || typeof query !== 'string' || !query.trim()) {
         res.status(400).json({ error: 'Termo de busca é obrigatório.' });
         return;
@@ -647,6 +650,7 @@ export function createApp(config: ApiConfig = {}): Express {
         collection: collection === 'all' ? undefined : collection,
         threshold: typeof threshold === 'number' ? threshold : 0.2,
         limit: typeof limit === 'number' ? limit : 5,
+        instanceId: (instanceId || req.query.instanceId as string || '').trim() || undefined,
       });
       res.json(results);
     } catch (err) {
@@ -978,18 +982,24 @@ export function createApp(config: ApiConfig = {}): Express {
       evolutionServerUrl: settings.evolutionServerUrl,
       evolutionApiKeyMasked: mask(settings.evolutionApiKey),
       publicApiUrl: settings.publicApiUrl,
+      googleClientIdConfigured: Boolean(settings.googleClientId || process.env.GOOGLE_CLIENT_ID),
+      googleClientIdMasked: mask(settings.googleClientId || process.env.GOOGLE_CLIENT_ID),
+      googleClientSecretConfigured: Boolean(settings.googleClientSecret || process.env.GOOGLE_CLIENT_SECRET),
+      googleClientSecretMasked: mask(settings.googleClientSecret || process.env.GOOGLE_CLIENT_SECRET),
     });
   });
 
   app.post('/api/settings', (req, res) => {
     try {
-      const { openaiApiKey, openaiModel, evolutionServerUrl, evolutionApiKey, publicApiUrl } = req.body;
+      const { openaiApiKey, openaiModel, evolutionServerUrl, evolutionApiKey, publicApiUrl, googleClientId, googleClientSecret } = req.body;
       const patch: any = {};
       if (typeof openaiApiKey === 'string' && openaiApiKey.trim()) patch.openaiApiKey = openaiApiKey.trim();
       if (typeof openaiModel === 'string' && openaiModel.trim()) patch.openaiModel = openaiModel.trim();
       if (typeof evolutionServerUrl === 'string' && evolutionServerUrl.trim()) patch.evolutionServerUrl = evolutionServerUrl.trim();
       if (typeof evolutionApiKey === 'string' && evolutionApiKey.trim()) patch.evolutionApiKey = evolutionApiKey.trim();
       if (typeof publicApiUrl === 'string' && publicApiUrl.trim()) patch.publicApiUrl = publicApiUrl.trim();
+      if (typeof googleClientId === 'string' && googleClientId.trim()) patch.googleClientId = googleClientId.trim();
+      if (typeof googleClientSecret === 'string' && googleClientSecret.trim()) patch.googleClientSecret = googleClientSecret.trim();
 
       const updated = standaloneStore.updateSettings(patch);
       res.json({ ok: true, settings: updated });
@@ -1023,9 +1033,10 @@ export function createApp(config: ApiConfig = {}): Express {
   // CONEXÕES EXTERNAS & INTEGRAÇÕES MODULARES (Google Calendar, CRMs, etc.)
   // =========================================================================
 
-  app.get('/api/integrations', (_req, res) => {
+  app.get('/api/integrations', (req, res) => {
     try {
-      const integrations = standaloneStore.listIntegrations();
+      const instanceId = typeof req.query.instanceId === 'string' ? req.query.instanceId.trim() : undefined;
+      const integrations = standaloneStore.listIntegrations(instanceId);
       // Sanitiza credenciais sensíveis antes de enviar ao frontend
       const sanitized = integrations.map(item => ({
         id: item.id,
@@ -1033,6 +1044,7 @@ export function createApp(config: ApiConfig = {}): Express {
         name: item.name,
         status: item.status,
         accountEmail: item.accountEmail,
+        instanceId: item.instanceId,
         connectedAt: item.connectedAt,
         updatedAt: item.updatedAt,
         hasRefreshToken: Boolean(item.credentials?.refresh_token),
@@ -1047,11 +1059,13 @@ export function createApp(config: ApiConfig = {}): Express {
 
   app.get('/api/integrations/google/auth-url', (req, res) => {
     try {
-      const clientId = (req.query.clientId as string || process.env.GOOGLE_CLIENT_ID || '').trim();
+      const settings = standaloneStore.getSettings();
+      const clientId = (req.query.clientId as string || settings.googleClientId || process.env.GOOGLE_CLIENT_ID || '').trim();
+      const instanceId = (req.query.instanceId as string || '').trim();
       const redirectUri = (req.query.redirectUri as string || `${req.protocol}://${req.get('host')}/api/integrations/google/callback`).trim();
 
       if (!clientId) {
-        res.status(400).json({ error: 'Client ID do Google não configurado. Informe o Client ID nas configurações de Integrações.' });
+        res.status(400).json({ error: 'Google Client ID não configurado. Adicione o Client ID da aplicação no painel Configurações.' });
         return;
       }
 
@@ -1063,6 +1077,9 @@ export function createApp(config: ApiConfig = {}): Express {
         'https://www.googleapis.com/auth/calendar.events',
       ].join(' ');
 
+      const stateData = { instanceId, redirectUri };
+      const state = Buffer.from(JSON.stringify(stateData)).toString('base64');
+
       const params = new URLSearchParams({
         client_id: clientId,
         redirect_uri: redirectUri,
@@ -1070,20 +1087,179 @@ export function createApp(config: ApiConfig = {}): Express {
         scope: scopes,
         access_type: 'offline',
         prompt: 'consent',
+        state,
       });
 
       const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-      res.json({ url, redirectUri });
+      res.json({ url, redirectUri, instanceId });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao gerar URL de autorização Google.' });
     }
   });
 
+  // Handler GET para retorno oficial do redirecionamento do Google OAuth
+  app.get('/api/integrations/google/callback', async (req, res) => {
+    try {
+      const code = (req.query.code as string || '').trim();
+      const stateRaw = req.query.state as string || '';
+      let instanceId = '';
+      if (stateRaw) {
+        try {
+          const parsed = JSON.parse(Buffer.from(stateRaw, 'base64').toString('utf-8'));
+          instanceId = parsed.instanceId || '';
+        } catch {
+          instanceId = stateRaw;
+        }
+      }
+
+      const settings = standaloneStore.getSettings();
+      const cId = (settings.googleClientId || process.env.GOOGLE_CLIENT_ID || '').trim();
+      const cSecret = (settings.googleClientSecret || process.env.GOOGLE_CLIENT_SECRET || '').trim();
+      const rUri = `${req.protocol}://${req.get('host')}/api/integrations/google/callback`;
+
+      if (!code) {
+        const errorParam = req.query.error || 'Código de autorização ausente';
+        res.status(400).send(`
+          <!DOCTYPE html>
+          <html>
+            <body style="font-family:sans-serif;padding:40px;text-align:center;">
+              <h2 style="color:#ef4444;">Erro na Autorização Google</h2>
+              <p>${errorParam}</p>
+              <button onclick="window.close()" style="padding:8px 16px;cursor:pointer;">Fechar Janela</button>
+            </body>
+          </html>
+        `);
+        return;
+      }
+
+      if (!cId || !cSecret) {
+        res.status(400).send(`
+          <!DOCTYPE html>
+          <html>
+            <body style="font-family:sans-serif;padding:40px;text-align:center;">
+              <h2 style="color:#ef4444;">Credenciais Globais Não Configuradas</h2>
+              <p>O Google Client ID e Client Secret não foram configurados na área de Configurações da plataforma.</p>
+              <button onclick="window.close()" style="padding:8px 16px;cursor:pointer;">Fechar Janela</button>
+            </body>
+          </html>
+        `);
+        return;
+      }
+
+      // Troca code por tokens
+      const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code,
+          client_id: cId,
+          client_secret: cSecret,
+          redirect_uri: rUri,
+          grant_type: 'authorization_code',
+        }).toString(),
+      });
+
+      const tokens = await tokenResp.json();
+      if (!tokenResp.ok || tokens.error) {
+        throw new Error(tokens.error_description || tokens.error || 'Falha ao trocar código por token no Google.');
+      }
+
+      let accountEmail = '';
+      try {
+        const userinfoResp = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: { Authorization: `Bearer ${tokens.access_token}` },
+        });
+        if (userinfoResp.ok) {
+          const userinfo = await userinfoResp.json();
+          accountEmail = userinfo.email || '';
+        }
+      } catch {
+        // Fallback
+      }
+
+      const integrationId = instanceId ? `google_calendar_${instanceId}` : 'google_calendar_primary';
+      const name = accountEmail
+        ? `Google Calendar (${accountEmail})${instanceId ? ` - [${instanceId}]` : ''}`
+        : `Google Calendar${instanceId ? ` - [${instanceId}]` : ''}`;
+
+      standaloneStore.saveIntegration({
+        id: integrationId,
+        provider: 'google_calendar',
+        name,
+        status: 'connected',
+        accountEmail,
+        instanceId: instanceId || undefined,
+        connectedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        credentials: {
+          client_id: cId,
+          client_secret: cSecret,
+          refresh_token: tokens.refresh_token,
+          access_token: tokens.access_token,
+          expires_at: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined,
+        },
+      });
+
+      // Retorna HTML amigável com fechamento automático e postMessage
+      res.send(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <title>Google Calendar Conectado</title>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: grid; place-items: center; min-height: 80vh; background: #f8fafc; color: #0f172a; margin: 0; }
+              .card { background: white; border-radius: 14px; padding: 32px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); text-align: center; max-width: 420px; }
+              .icon { font-size: 48px; margin-bottom: 12px; }
+              h2 { margin: 0 0 10px; font-size: 20px; font-weight: 700; color: #16a34a; }
+              p { margin: 0 0 14px; font-size: 13px; color: #64748b; line-height: 1.5; }
+              .badge { display: inline-block; padding: 4px 10px; background: #f1f5f9; border-radius: 6px; font-size: 12px; font-weight: 600; color: #334155; margin-bottom: 16px; }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <div class="icon">✅</div>
+              <h2>Google Calendar Conectado!</h2>
+              <p>A conta foi autorizada e sincronizada com sucesso para a instância.</p>
+              <div class="badge">${accountEmail || 'Conta Google'}${instanceId ? ` • ${instanceId}` : ''}</div>
+              <p style="font-size: 11px; color: #94a3b8;">Fechando janela automaticamente em instantes...</p>
+            </div>
+            <script>
+              try {
+                if (window.opener) {
+                  window.opener.postMessage({ type: 'GOOGLE_OAUTH_SUCCESS', instanceId: '${instanceId}', email: '${accountEmail}' }, '*');
+                  setTimeout(() => window.close(), 1200);
+                } else {
+                  setTimeout(() => { window.location.href = '/integrations'; }, 1500);
+                }
+              } catch (e) {
+                setTimeout(() => window.close(), 1200);
+              }
+            </script>
+          </body>
+        </html>
+      `);
+    } catch (err) {
+      logger.error({ err }, 'Erro no callback GET do Google Calendar');
+      res.status(500).send(`
+        <!DOCTYPE html>
+        <html>
+          <body style="font-family:sans-serif;padding:40px;text-align:center;">
+            <h2 style="color:#ef4444;">Erro na Conexão com o Google</h2>
+            <p>${err instanceof Error ? err.message : 'Falha na autenticação.'}</p>
+            <button onclick="window.close()" style="padding:8px 16px;cursor:pointer;">Fechar Janela</button>
+          </body>
+        </html>
+      `);
+    }
+  });
+
   app.post('/api/integrations/google/callback', async (req, res) => {
     try {
-      const { code, clientId, clientSecret, redirectUri } = req.body;
-      const cId = (clientId || process.env.GOOGLE_CLIENT_ID || '').trim();
-      const cSecret = (clientSecret || process.env.GOOGLE_CLIENT_SECRET || '').trim();
+      const { code, clientId, clientSecret, redirectUri, instanceId } = req.body;
+      const settings = standaloneStore.getSettings();
+      const cId = (clientId || settings.googleClientId || process.env.GOOGLE_CLIENT_ID || '').trim();
+      const cSecret = (clientSecret || settings.googleClientSecret || process.env.GOOGLE_CLIENT_SECRET || '').trim();
       const rUri = (redirectUri || `${req.protocol}://${req.get('host')}/api/integrations/google/callback`).trim();
 
       if (!code) {
@@ -1091,7 +1267,7 @@ export function createApp(config: ApiConfig = {}): Express {
         return;
       }
       if (!cId || !cSecret) {
-        res.status(400).json({ error: 'Google Client ID e Client Secret são necessários para concluir a autenticação.' });
+        res.status(400).json({ error: 'Google Client ID e Client Secret não configurados.' });
         return;
       }
 
@@ -1128,13 +1304,18 @@ export function createApp(config: ApiConfig = {}): Express {
         // Fallback silencioso
       }
 
-      const integrationId = 'google_calendar_primary';
+      const integrationId = instanceId ? `google_calendar_${instanceId}` : 'google_calendar_primary';
+      const name = accountEmail
+        ? `Google Calendar (${accountEmail})${instanceId ? ` - [${instanceId}]` : ''}`
+        : `Google Calendar${instanceId ? ` - [${instanceId}]` : ''}`;
+
       const saved = standaloneStore.saveIntegration({
         id: integrationId,
         provider: 'google_calendar',
-        name: accountEmail ? `Google Calendar (${accountEmail})` : 'Google Calendar',
+        name,
         status: 'connected',
         accountEmail,
+        instanceId: instanceId || undefined,
         connectedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         credentials: {
@@ -1153,6 +1334,7 @@ export function createApp(config: ApiConfig = {}): Express {
           id: saved.id,
           name: saved.name,
           accountEmail: saved.accountEmail,
+          instanceId: saved.instanceId,
           status: saved.status,
         },
       });
@@ -1165,24 +1347,33 @@ export function createApp(config: ApiConfig = {}): Express {
   // Conexão direta / manual (com credentials JSON ou tokens)
   app.post('/api/integrations/google/connect', async (req, res) => {
     try {
-      const { clientId, clientSecret, refreshToken, accessToken, accountEmail } = req.body;
+      const { clientId, clientSecret, refreshToken, accessToken, accountEmail, instanceId } = req.body;
       if (!refreshToken && !accessToken) {
         res.status(400).json({ error: 'Informe ao menos um Refresh Token ou Access Token válido.' });
         return;
       }
 
-      const integrationId = 'google_calendar_primary';
+      const settings = standaloneStore.getSettings();
+      const cId = clientId || settings.googleClientId || process.env.GOOGLE_CLIENT_ID || '';
+      const cSecret = clientSecret || settings.googleClientSecret || process.env.GOOGLE_CLIENT_SECRET || '';
+
+      const integrationId = instanceId ? `google_calendar_${instanceId}` : 'google_calendar_primary';
+      const name = accountEmail
+        ? `Google Calendar (${accountEmail})${instanceId ? ` - [${instanceId}]` : ''}`
+        : `Google Calendar${instanceId ? ` - [${instanceId}]` : ''}`;
+
       const saved = standaloneStore.saveIntegration({
         id: integrationId,
         provider: 'google_calendar',
-        name: accountEmail ? `Google Calendar (${accountEmail})` : 'Google Calendar',
+        name,
         status: 'connected',
         accountEmail: accountEmail || 'Conta Google Conectada',
+        instanceId: instanceId || undefined,
         connectedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         credentials: {
-          client_id: clientId,
-          client_secret: clientSecret,
+          client_id: cId,
+          client_secret: cSecret,
           refresh_token: refreshToken,
           access_token: accessToken,
         },
@@ -1203,11 +1394,12 @@ export function createApp(config: ApiConfig = {}): Express {
     }
   });
 
-  app.get('/api/integrations/google/calendars', async (_req, res) => {
+  app.get('/api/integrations/google/calendars', async (req, res) => {
     try {
-      const integration = standaloneStore.getIntegrationByProvider('google_calendar');
+      const instanceId = typeof req.query.instanceId === 'string' ? req.query.instanceId.trim() : undefined;
+      const integration = standaloneStore.getIntegrationByProvider('google_calendar', instanceId);
       if (!integration || integration.status !== 'connected' || !integration.credentials) {
-        res.status(404).json({ error: 'Nenhuma conexão ativa com o Google Calendar encontrada.' });
+        res.status(404).json({ error: 'Nenhuma conexão ativa com o Google Calendar encontrada para esta instância.' });
         return;
       }
 
@@ -1489,14 +1681,20 @@ export function createApp(config: ApiConfig = {}): Express {
       const assertCurrentTurn = async () => {
         if (options.isCurrent && !(await options.isCurrent())) throw new Error(SUPERSEDED_TURN_ERROR);
       };
-      const standaloneCalendar = createCalendarProvider(config);
+      let standaloneCalendar = createCalendarProvider(config);
+      if (!standaloneCalendar) {
+        const instanceIntegration = standaloneStore.getIntegrationByProvider('google_calendar', instanceName);
+        if (instanceIntegration?.credentials) {
+          standaloneCalendar = new GoogleCalendarClient(globalThis.fetch, instanceIntegration.credentials);
+        }
+      }
       const guardedCalendar = standaloneCalendar
         ? {
-            async getCalendarName(...args: Parameters<NonNullable<FlowServices['calendar']>['getCalendarName']>) { await assertCurrentTurn(); return standaloneCalendar.getCalendarName(...args); },
-            async listEvents(...args: Parameters<NonNullable<FlowServices['calendar']>['listEvents']>) { await assertCurrentTurn(); return standaloneCalendar.listEvents(...args); },
-            async createEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['createEvent']>) { await assertCurrentTurn(); return standaloneCalendar.createEvent(...args); },
-            async updateEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['updateEvent']>) { await assertCurrentTurn(); return standaloneCalendar.updateEvent(...args); },
-            async cancelEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['cancelEvent']>) { await assertCurrentTurn(); return standaloneCalendar.cancelEvent(...args); },
+            async getCalendarName(...args: Parameters<NonNullable<FlowServices['calendar']>['getCalendarName']>) { await assertCurrentTurn(); return standaloneCalendar!.getCalendarName(...args); },
+            async listEvents(...args: Parameters<NonNullable<FlowServices['calendar']>['listEvents']>) { await assertCurrentTurn(); return standaloneCalendar!.listEvents(...args); },
+            async createEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['createEvent']>) { await assertCurrentTurn(); return standaloneCalendar!.createEvent(...args); },
+            async updateEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['updateEvent']>) { await assertCurrentTurn(); return standaloneCalendar!.updateEvent(...args); },
+            async cancelEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['cancelEvent']>) { await assertCurrentTurn(); return standaloneCalendar!.cancelEvent(...args); },
           }
         : undefined;
       const services: FlowServices = {

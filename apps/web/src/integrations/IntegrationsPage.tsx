@@ -1,24 +1,23 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Calendar,
   CheckCircle2,
   AlertCircle,
   RefreshCw,
   ExternalLink,
-  Trash2,
-  Plus,
-  ShieldCheck,
-  Check,
-  Radio,
   Layers,
-  Sparkles,
   Link2,
   Unlink,
   ChevronRight,
   Database,
   ArrowRight,
-  Info
+  Info,
+  Radio,
+  Settings2,
+  Lock
 } from 'lucide-react';
+import { useInstance } from '../context/InstanceContext';
 
 interface Integration {
   id: string;
@@ -26,6 +25,7 @@ interface Integration {
   name: string;
   status: 'connected' | 'disconnected' | 'error';
   accountEmail?: string;
+  instanceId?: string;
   connectedAt?: string;
   updatedAt?: string;
   hasRefreshToken?: boolean;
@@ -41,25 +41,40 @@ interface CalendarItem {
 }
 
 export function IntegrationsPage() {
+  const { activeInstance, setActiveInstance, instances, loading: loadingInstances } = useInstance();
+
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  // Google Calendar modal & config state
-  const [showGoogleModal, setShowGoogleModal] = useState(false);
-  const [googleClientId, setGoogleClientId] = useState('');
-  const [googleClientSecret, setGoogleClientSecret] = useState('');
-  const [googleAuthCode, setGoogleAuthCode] = useState('');
-  const [authStep, setAuthStep] = useState<'creds' | 'code'>('creds');
-  const [submitting, setSubmitting] = useState(false);
+  // Platform Google configuration state (from /api/settings)
+  const [googlePlatformConfigured, setGooglePlatformConfigured] = useState(false);
+  const [showAdminNoticeModal, setShowAdminNoticeModal] = useState(false);
+  const [connectingGoogle, setConnectingGoogle] = useState(false);
 
-  // Synchronized calendars list
+  // Synchronized calendars list for active instance
   const [calendars, setCalendars] = useState<CalendarItem[]>([]);
   const [loadingCalendars, setLoadingCalendars] = useState(false);
 
-  const fetchIntegrations = async () => {
+  const fetchPlatformSettings = async () => {
     try {
-      const res = await fetch('/api/integrations');
+      const res = await fetch('/api/settings');
+      if (res.ok) {
+        const data = await res.json();
+        setGooglePlatformConfigured(Boolean(data.googleClientIdConfigured));
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const fetchIntegrations = async () => {
+    setLoading(true);
+    try {
+      const url = activeInstance
+        ? `/api/integrations?instanceId=${encodeURIComponent(activeInstance)}`
+        : '/api/integrations';
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setIntegrations(Array.isArray(data) ? data : []);
@@ -72,9 +87,10 @@ export function IntegrationsPage() {
   };
 
   const fetchCalendars = async () => {
+    if (!activeInstance) return;
     setLoadingCalendars(true);
     try {
-      const res = await fetch('/api/integrations/google/calendars');
+      const res = await fetch(`/api/integrations/google/calendars?instanceId=${encodeURIComponent(activeInstance)}`);
       if (res.ok) {
         const data = await res.json();
         setCalendars(Array.isArray(data) ? data : []);
@@ -89,118 +105,208 @@ export function IntegrationsPage() {
   };
 
   useEffect(() => {
-    void fetchIntegrations();
+    void fetchPlatformSettings();
   }, []);
 
-  const googleIntegration = integrations.find(i => i.provider === 'google_calendar' && i.status === 'connected');
+  useEffect(() => {
+    void fetchIntegrations();
+  }, [activeInstance]);
+
+  const googleIntegration = integrations.find(
+    i => i.provider === 'google_calendar' && i.status === 'connected' && (!i.instanceId || i.instanceId === activeInstance)
+  );
 
   useEffect(() => {
-    if (googleIntegration) {
+    if (googleIntegration && activeInstance) {
       void fetchCalendars();
     } else {
       setCalendars([]);
     }
-  }, [googleIntegration]);
+  }, [googleIntegration?.id, activeInstance]);
+
+  // Listener para capturar quando o popup do Google fechar com sucesso
+  useEffect(() => {
+    const handleOAuthMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'GOOGLE_OAUTH_SUCCESS') {
+        setConnectingGoogle(false);
+        setMessage({
+          type: 'success',
+          text: `Google Calendar conectado com sucesso para a instância "${event.data.instanceId || activeInstance}" (${event.data.email || 'Conta Google'})!`,
+        });
+        void fetchIntegrations();
+      }
+    };
+    window.addEventListener('message', handleOAuthMessage);
+    return () => window.removeEventListener('message', handleOAuthMessage);
+  }, [activeInstance]);
 
   const handleStartGoogleOAuth = async () => {
-    if (!googleClientId.trim()) {
-      setMessage({ type: 'error', text: 'Por favor, informe o Client ID do Google Cloud Console.' });
+    if (!activeInstance) {
+      setMessage({ type: 'error', text: 'Selecione ou conecte uma instância do WhatsApp primeiro.' });
       return;
     }
 
+    if (!googlePlatformConfigured) {
+      setShowAdminNoticeModal(true);
+      return;
+    }
+
+    setConnectingGoogle(true);
     try {
-      const res = await fetch(`/api/integrations/google/auth-url?clientId=${encodeURIComponent(googleClientId.trim())}`);
+      const res = await fetch(`/api/integrations/google/auth-url?instanceId=${encodeURIComponent(activeInstance)}`);
       const data = await res.json();
       if (res.ok && data.url) {
-        window.open(data.url, '_blank', 'width=600,height=700');
-        setAuthStep('code');
+        const popup = window.open(data.url, 'google_oauth_popup', 'width=560,height=700,status=no,toolbar=no,menubar=no');
         setMessage({
           type: 'info',
-          text: 'Janela do Google aberta. Faça login, autorize o acesso à Agenda e cole o código de autorização gerado abaixo.',
+          text: `Janela do Google aberta para a instância "${activeInstance}". Autorize o acesso para concluir automaticamente.`,
         });
+        const timer = setInterval(() => {
+          if (popup && popup.closed) {
+            clearInterval(timer);
+            setConnectingGoogle(false);
+          }
+        }, 1200);
       } else {
         setMessage({ type: 'error', text: data.error || 'Falha ao iniciar autenticação Google.' });
+        setConnectingGoogle(false);
       }
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message || 'Erro ao comunicar com o servidor.' });
-    }
-  };
-
-  const handleFinishGoogleOAuth = async () => {
-    if (!googleAuthCode.trim()) {
-      setMessage({ type: 'error', text: 'Cole o código de autorização fornecido pelo Google.' });
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const res = await fetch('/api/integrations/google/callback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: googleAuthCode.trim(),
-          clientId: googleClientId.trim(),
-          clientSecret: googleClientSecret.trim(),
-        }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setMessage({ type: 'success', text: 'Google Calendar conectado com sucesso!' });
-        setShowGoogleModal(false);
-        setGoogleAuthCode('');
-        setAuthStep('creds');
-        void fetchIntegrations();
-      } else {
-        setMessage({ type: 'error', text: data.error || 'Falha ao autorizar Google Calendar.' });
-      }
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'Erro ao conectar.' });
-    } finally {
-      setSubmitting(false);
+      setConnectingGoogle(false);
     }
   };
 
   const handleDisconnect = async (id: string) => {
-    if (!confirm('Deseja realmente desconectar esta integração? Os blocos de agenda no fluxo não poderão mais sincronizar eventos.')) return;
+    if (!confirm(`Deseja realmente desconectar o Google Calendar da instância "${activeInstance}"?`)) return;
     try {
       const res = await fetch(`/api/integrations/${encodeURIComponent(id)}`, { method: 'DELETE' });
       if (res.ok) {
-        setMessage({ type: 'success', text: 'Integração desconectada com sucesso.' });
+        setMessage({ type: 'success', text: `Google Calendar desconectado da instância "${activeInstance}".` });
         void fetchIntegrations();
+        setCalendars([]);
       }
     } catch {
       setMessage({ type: 'error', text: 'Falha ao desconectar integração.' });
     }
   };
 
+  const currentInstanceObj = instances.find(i => i.name === activeInstance || i.id === activeInstance);
+
   return (
     <div className="page-content" style={{ maxWidth: 1100, margin: '0 auto', padding: '32px 24px' }}>
-      {/* Header */}
+      {/* Header com Seletor de Instância */}
       <div style={{ marginBottom: 32 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--color-text-secondary)', fontSize: 12, marginBottom: 8 }}>
           <span>Painel</span>
           <ChevronRight size={13} />
           <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>Conexões Externas & Integrações</span>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
           <div>
             <h1 style={{ fontSize: 24, fontWeight: 700, margin: '0 0 6px', color: 'var(--color-text-primary)' }}>
-              Integrações & Ferramentas Externas
+              Integrações por Instância
             </h1>
             <p style={{ margin: 0, color: 'var(--color-text-secondary)', fontSize: 13, maxWidth: 650 }}>
-              Conecte suas contas do Google Calendar, CRM e ferramentas de terceiros com um clique. Os nós do fluxo consomem automaticamente as conexões salvas aqui.
+              Cada instância do WhatsApp conecta sua própria agenda Google e ferramentas externas. Selecione a instância abaixo para gerenciar suas conexões.
             </p>
           </div>
-          <button
-            onClick={() => { setLoading(true); void fetchIntegrations(); }}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '7px 12px' }}
-          >
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            Atualizar
-          </button>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {/* Seletor de Instância Ativa */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                background: 'var(--color-bg-primary)',
+                border: '1px solid var(--color-border)',
+                padding: '6px 12px',
+                borderRadius: 8,
+                boxShadow: 'var(--shadow-sm)',
+              }}
+            >
+              <Radio size={15} color={currentInstanceObj?.status === 'connected' ? '#16a34a' : '#94a3b8'} />
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)' }}>Instância:</span>
+              <select
+                value={activeInstance}
+                onChange={e => setActiveInstance(e.target.value)}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  fontWeight: 700,
+                  fontSize: 13,
+                  color: 'var(--color-text-primary)',
+                  cursor: 'pointer',
+                  outline: 'none',
+                }}
+              >
+                {instances.length === 0 ? (
+                  <option value="">Nenhuma instância encontrada</option>
+                ) : (
+                  instances.map(inst => (
+                    <option key={inst.id} value={inst.name || inst.id}>
+                      {inst.name || inst.id} {inst.phone ? `(${inst.phone})` : ''} {inst.status === 'connected' ? '🟢' : '⚪'}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+
+            <button
+              onClick={() => { setLoading(true); void fetchIntegrations(); }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '7px 12px' }}
+              title="Recarregar integrações"
+            >
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Alertas */}
+      {/* Alerta de Status da Plataforma (se o admin não tiver configurado ainda) */}
+      {!googlePlatformConfigured && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            padding: '12px 16px',
+            borderRadius: 8,
+            marginBottom: 24,
+            fontSize: 13,
+            background: '#fffbeb',
+            color: '#b45309',
+            border: '1px solid #fde68a',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <AlertCircle size={18} color="#d97706" />
+            <span>
+              <strong>Credenciais globais do Google não configuradas:</strong> O administrador precisa cadastrar o Google Client ID e Secret nas configurações da plataforma para habilitar o login em 1 clique.
+            </span>
+          </div>
+          <Link
+            to="/settings"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              fontSize: 12,
+              fontWeight: 600,
+              color: '#d97706',
+              textDecoration: 'underline',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <Settings2 size={13} /> Configurar Agora
+          </Link>
+        </div>
+      )}
+
+      {/* Alertas dinâmicos */}
       {message && (
         <div
           style={{
@@ -232,7 +338,7 @@ export function IntegrationsPage() {
       {/* Grid de Integrações */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
         
-        {/* Card Google Calendar */}
+        {/* Card Google Calendar (1-Clique por Instância) */}
         <div
           style={{
             background: 'var(--color-bg-primary)',
@@ -263,7 +369,9 @@ export function IntegrationsPage() {
               </div>
               <div>
                 <h3 style={{ margin: '0 0 2px', fontSize: 16, fontWeight: 700 }}>Google Calendar</h3>
-                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>Agendamento e consulta de agenda</span>
+                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>
+                  Instância: <strong>{activeInstance || 'Nenhuma'}</strong>
+                </span>
               </div>
             </div>
 
@@ -303,13 +411,13 @@ export function IntegrationsPage() {
           </div>
 
           <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5, marginBottom: 16 }}>
-            Permite que o bot SDR consulte horários livres, marque reuniões e envie convites oficiais aos leads diretamente na agenda do consultor.
+            Vincula a agenda Google específica desta instância para que o bot SDR consulte horários livres, faça agendamentos e envie convites oficiais aos leads.
           </p>
 
           {googleIntegration ? (
             <div style={{ background: 'var(--color-bg-secondary)', borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span style={{ color: 'var(--color-text-secondary)' }}>Conta Vinculada:</span>
+                <span style={{ color: 'var(--color-text-secondary)' }}>Conta Google:</span>
                 <strong style={{ color: 'var(--color-text-primary)' }}>{googleIntegration.accountEmail || 'Conectada via OAuth'}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -319,7 +427,7 @@ export function IntegrationsPage() {
             </div>
           ) : (
             <div style={{ background: 'var(--color-bg-secondary)', borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 12, color: 'var(--color-text-secondary)' }}>
-              Nenhuma conta do Google vinculada. Conecte via OAuth para habilitar os nós de agenda no fluxo.
+              Nenhuma conta Google conectada para a instância <strong>{activeInstance}</strong>. Conecte com 1 clique abaixo.
             </div>
           )}
 
@@ -347,16 +455,35 @@ export function IntegrationsPage() {
               <button
                 type="button"
                 className="primary"
-                onClick={() => setShowGoogleModal(true)}
-                style={{ width: '100%', fontSize: 13, padding: '9px 16px', background: '#2563eb', borderColor: '#2563eb' }}
+                disabled={connectingGoogle}
+                onClick={() => void handleStartGoogleOAuth()}
+                style={{
+                  width: '100%',
+                  fontSize: 13,
+                  padding: '9px 16px',
+                  background: '#2563eb',
+                  borderColor: '#2563eb',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                }}
               >
-                <Link2 size={14} /> Conectar com Google
+                {connectingGoogle ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" /> Aguardando Login Google...
+                  </>
+                ) : (
+                  <>
+                    <Link2 size={14} /> Conectar com Google
+                  </>
+                )}
               </button>
             )}
           </div>
         </div>
 
-        {/* Card HubSpot (Futuro / Modular) */}
+        {/* Card HubSpot (Modular) */}
         <div
           style={{
             background: 'var(--color-bg-primary)',
@@ -376,7 +503,7 @@ export function IntegrationsPage() {
               </div>
               <div>
                 <h3 style={{ margin: '0 0 2px', fontSize: 16, fontWeight: 700 }}>HubSpot CRM</h3>
-                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>Sincronização de contatos e deals</span>
+                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>Sincronização de deals da instância</span>
               </div>
             </div>
             <span style={{ fontSize: 10, fontWeight: 700, color: '#f59e0b', background: '#fef3c7', padding: '3px 7px', borderRadius: 4 }}>
@@ -384,14 +511,14 @@ export function IntegrationsPage() {
             </span>
           </div>
           <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5, marginBottom: 16 }}>
-            Criação de novos leads e atualização de estágios no pipeline comercial do HubSpot assim que qualificados pela IA.
+            Criação de novos contatos e atualização de estágios no pipeline comercial do HubSpot para os leads da instância {activeInstance}.
           </p>
           <div style={{ marginTop: 'auto' }}>
             <button disabled style={{ width: '100%', fontSize: 12, opacity: 0.6 }}>Em desenvolvimento</button>
           </div>
         </div>
 
-        {/* Card RD Station (Futuro / Modular) */}
+        {/* Card RD Station (Modular) */}
         <div
           style={{
             background: 'var(--color-bg-primary)',
@@ -419,7 +546,7 @@ export function IntegrationsPage() {
             </span>
           </div>
           <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5, marginBottom: 16 }}>
-            Envio automático de leads qualificados para o funil do RD Station CRM com anotações e transcrições do atendimento.
+            Envio automático de oportunidades para o funil do RD Station CRM com anotações e transcrições da instância {activeInstance}.
           </p>
           <div style={{ marginTop: 'auto' }}>
             <button disabled style={{ width: '100%', fontSize: 12, opacity: 0.6 }}>Em desenvolvimento</button>
@@ -428,14 +555,14 @@ export function IntegrationsPage() {
 
       </div>
 
-      {/* Lista de Calendários Ativos (quando conectado) */}
+      {/* Lista de Calendários Ativos para a Instância */}
       {googleIntegration && calendars.length > 0 && (
         <div style={{ marginTop: 32, background: 'var(--color-bg-primary)', border: '1px solid var(--color-border-secondary)', borderRadius: 12, padding: 24 }}>
           <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Calendar size={18} color="#2563eb" /> Calendários Disponíveis na Conta
+            <Calendar size={18} color="#2563eb" /> Calendários Conectados na Instância "{activeInstance}"
           </h3>
           <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: '0 0 16px' }}>
-            Estes calendários já podem ser selecionados nos nós de agendamento do Construtor de Fluxos:
+            Estes calendários estão sincronizados com a conta <strong>{googleIntegration.accountEmail}</strong> e disponíveis para os nós do Construtor de Fluxos:
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
             {calendars.map(cal => (
@@ -467,8 +594,8 @@ export function IntegrationsPage() {
         </div>
       )}
 
-      {/* Modal Conexão Google Calendar OAuth */}
-      {showGoogleModal && (
+      {/* Modal de Aviso Administrativo (quando o admin ainda não colocou Client ID/Secret) */}
+      {showAdminNoticeModal && (
         <div
           style={{
             position: 'fixed',
@@ -484,100 +611,43 @@ export function IntegrationsPage() {
             style={{
               background: 'var(--color-bg-primary)',
               borderRadius: 14,
-              maxWidth: 520,
+              maxWidth: 480,
               width: '100%',
               padding: 28,
               boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
               border: '1px solid var(--color-border-secondary)',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Calendar size={22} color="#2563eb" />
-                <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Conectar Google Calendar</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: '#f59e0b18', display: 'grid', placeItems: 'center', color: '#d97706' }}>
+                <Lock size={20} />
               </div>
-              <button
-                onClick={() => { setShowGoogleModal(false); setAuthStep('creds'); }}
-                style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 16, padding: 4 }}
-              >
-                ✕
-              </button>
+              <h2 style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>Configuração da Plataforma Necessária</h2>
             </div>
-
-            {authStep === 'creds' ? (
-              <div>
-                <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.5, marginBottom: 16 }}>
-                  Para autenticar via Google OAuth, informe as credenciais do seu projeto no <strong>Google Cloud Console</strong>:
-                </p>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 20 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600 }}>
-                    Google Client ID
-                    <input
-                      type="text"
-                      placeholder="ex: 123456789-abc.apps.googleusercontent.com"
-                      value={googleClientId}
-                      onChange={e => setGoogleClientId(e.target.value)}
-                      style={{ marginTop: 6 }}
-                    />
-                  </label>
-
-                  <label style={{ fontSize: 12, fontWeight: 600 }}>
-                    Google Client Secret
-                    <input
-                      type="password"
-                      placeholder="ex: GOCSPX-xxxxxxxx"
-                      value={googleClientSecret}
-                      onChange={e => setGoogleClientSecret(e.target.value)}
-                      style={{ marginTop: 6 }}
-                    />
-                  </label>
-
-                  <div style={{ background: 'var(--color-bg-secondary)', padding: '10px 12px', borderRadius: 6, fontSize: 11, color: 'var(--color-text-secondary)' }}>
-                    💡 <strong>URI de redirecionamento autorizada:</strong>
-                    <code style={{ display: 'block', marginTop: 4, padding: 4, background: 'var(--color-bg-primary)', borderRadius: 4, wordBreak: 'break-all' }}>
-                      {window.location.origin}/api/integrations/google/callback
-                    </code>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button onClick={() => setShowGoogleModal(false)}>Cancelar</button>
-                  <button className="primary" onClick={() => void handleStartGoogleOAuth()} style={{ background: '#2563eb', borderColor: '#2563eb' }}>
-                    Avançar para Login Google <ArrowRight size={14} />
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div>
-                <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.5, marginBottom: 16 }}>
-                  Após conceder acesso na janela do Google, copie o <strong>código de autorização (code)</strong> da URL ou da tela e cole abaixo:
-                </p>
-
-                <label style={{ fontSize: 12, fontWeight: 600, display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20 }}>
-                  Código de Autorização (Code)
-                  <textarea
-                    rows={3}
-                    placeholder="Cole aqui o código gerado pelo Google..."
-                    value={googleAuthCode}
-                    onChange={e => setGoogleAuthCode(e.target.value)}
-                    style={{ fontSize: 12 }}
-                  />
-                </label>
-
-                <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between' }}>
-                  <button onClick={() => setAuthStep('creds')}>Voltar</button>
-                  <button
-                    className="primary"
-                    disabled={submitting}
-                    onClick={() => void handleFinishGoogleOAuth()}
-                    style={{ background: '#16a34a', borderColor: '#16a34a' }}
-                  >
-                    {submitting ? 'Verificando...' : 'Finalizar Conexão'} <Check size={14} />
-                  </button>
-                </div>
-              </div>
-            )}
+            <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.6, marginBottom: 20 }}>
+              Para que qualquer cliente conecte seu Google Calendar com <strong>1 clique</strong>, o administrador da plataforma precisa cadastrar o <strong>Google Client ID</strong> e <strong>Google Client Secret</strong> no painel de configurações internas.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowAdminNoticeModal(false)}>Voltar</button>
+              <Link
+                to="/settings"
+                style={{
+                  background: '#2563eb',
+                  borderColor: '#2563eb',
+                  color: '#fff',
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  padding: '8px 14px',
+                  borderRadius: 6,
+                }}
+              >
+                Ir para Configurações <ArrowRight size={14} />
+              </Link>
+            </div>
           </div>
         </div>
       )}

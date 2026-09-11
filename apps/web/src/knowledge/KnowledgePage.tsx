@@ -17,6 +17,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { useSession } from '../session';
+import { useInstance } from '../context/InstanceContext';
 
 interface KnowledgeDoc {
   id: string;
@@ -124,7 +125,8 @@ const COLLECTIONS: CollectionMeta[] = [
 ];
 
 export function KnowledgePage() {
-  const { session, activeOrg } = useSession();
+  const { activeOrg, session } = useSession();
+  const { activeInstance } = useInstance();
 
   const [documents, setDocuments] = useState<KnowledgeDoc[]>([]);
   const [selectedCollection, setSelectedCollection] = useState<string>('all');
@@ -158,16 +160,19 @@ export function KnowledgePage() {
 
   useEffect(() => {
     loadDocuments();
-  }, [activeOrg, session, selectedCollection]);
+  }, [activeOrg, session, selectedCollection, activeInstance]);
 
   async function loadDocuments() {
     setLoading(true);
     setError(null);
     try {
-      const url =
+      let url =
         selectedCollection === 'all'
           ? baseUrl
           : `${baseUrl}?collection=${encodeURIComponent(selectedCollection)}`;
+      if (activeInstance) {
+        url += `${url.includes('?') ? '&' : '?'}instanceId=${encodeURIComponent(activeInstance)}`;
+      }
 
       const res = await fetch(url, { headers: getHeaders() });
       if (!res.ok) {
@@ -233,6 +238,7 @@ export function KnowledgePage() {
           collection: modalCollection,
           title: modalTitle.trim(),
           content: modalContent.trim(),
+          instanceId: activeInstance || undefined,
         }),
       });
 

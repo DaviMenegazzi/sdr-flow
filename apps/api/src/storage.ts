@@ -23,6 +23,8 @@ export interface StoredSettings {
   evolutionServerUrl?: string;
   evolutionApiKey?: string;
   publicApiUrl?: string;
+  googleClientId?: string;
+  googleClientSecret?: string;
 }
 
 export interface StoredKnowledgeDoc {
@@ -33,6 +35,7 @@ export interface StoredKnowledgeDoc {
   metadata?: Record<string, unknown>;
   embedding?: number[];
   token_count: number;
+  instanceId?: string;
   created_at: string;
   updated_at: string;
 }
@@ -43,6 +46,7 @@ export interface ExternalIntegration {
   name: string;
   status: 'connected' | 'disconnected' | 'error';
   accountEmail?: string;
+  instanceId?: string;
   credentials: {
     client_id?: string;
     client_secret?: string;
@@ -255,6 +259,8 @@ export class StandaloneStore {
       evolutionServerUrl: this.data.settings.evolutionServerUrl || process.env.EVOLUTION_SERVER_URL || 'http://127.0.0.1:8080',
       evolutionApiKey: this.data.settings.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'EvolutionApiSecretKey_2026',
       publicApiUrl: this.data.settings.publicApiUrl || process.env.PUBLIC_API_URL || '',
+      googleClientId: this.data.settings.googleClientId || process.env.GOOGLE_CLIENT_ID || '',
+      googleClientSecret: this.data.settings.googleClientSecret || process.env.GOOGLE_CLIENT_SECRET || '',
     };
   }
 
@@ -268,17 +274,24 @@ export class StandaloneStore {
     if (patch.evolutionServerUrl) process.env.EVOLUTION_SERVER_URL = patch.evolutionServerUrl;
     if (patch.evolutionApiKey) process.env.EVOLUTION_API_KEY = patch.evolutionApiKey;
     if (patch.publicApiUrl) process.env.PUBLIC_API_URL = patch.publicApiUrl;
+    if (patch.googleClientId) process.env.GOOGLE_CLIENT_ID = patch.googleClientId;
+    if (patch.googleClientSecret) process.env.GOOGLE_CLIENT_SECRET = patch.googleClientSecret;
 
     this.persist();
     return this.getSettings();
   }
 
   // --- KNOWLEDGE BASE ---
-  listKnowledge(collection?: string): StoredKnowledgeDoc[] {
+  listKnowledge(collection?: string, instanceId?: string): StoredKnowledgeDoc[] {
     const docs = Object.values(this.data.knowledge || {});
-    const filtered = collection && collection !== 'all'
+    let filtered = collection && collection !== 'all'
       ? docs.filter(d => d.collection.toLowerCase() === collection.toLowerCase())
       : docs;
+
+    if (instanceId) {
+      filtered = filtered.filter(d => !d.instanceId || d.instanceId === instanceId);
+    }
+
     return filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
 
@@ -290,6 +303,7 @@ export class StandaloneStore {
     collection?: string;
     title: string;
     content: string;
+    instanceId?: string;
     metadata?: Record<string, unknown>;
   }): StoredKnowledgeDoc {
     if (!this.data.knowledge) this.data.knowledge = {};
@@ -307,6 +321,7 @@ export class StandaloneStore {
       collection,
       title,
       content,
+      instanceId: params.instanceId?.trim() || undefined,
       metadata: params.metadata || {},
       embedding,
       token_count,
@@ -325,6 +340,7 @@ export class StandaloneStore {
       collection?: string;
       title?: string;
       content?: string;
+      instanceId?: string;
       metadata?: Record<string, unknown>;
     }
   ): StoredKnowledgeDoc | null {
@@ -334,6 +350,7 @@ export class StandaloneStore {
     const title = patch.title !== undefined ? patch.title.trim() : existing.title;
     const content = patch.content !== undefined ? patch.content.trim() : existing.content;
     const collection = patch.collection !== undefined ? patch.collection.trim().toLowerCase() : existing.collection;
+    const instanceId = patch.instanceId !== undefined ? (patch.instanceId.trim() || undefined) : existing.instanceId;
     const now = new Date().toISOString();
 
     let embedding = existing.embedding;
@@ -347,6 +364,7 @@ export class StandaloneStore {
       collection,
       title,
       content,
+      instanceId,
       metadata: patch.metadata !== undefined ? patch.metadata : existing.metadata,
       embedding,
       token_count,
@@ -365,9 +383,11 @@ export class StandaloneStore {
     return true;
   }
 
-  listCollections(): Array<{ collection: string; count: number }> {
+  listCollections(instanceId?: string): Array<{ collection: string; count: number }> {
     const counts: Record<string, number> = {};
-    for (const doc of Object.values(this.data.knowledge || {})) {
+    const docs = Object.values(this.data.knowledge || {});
+    const filtered = instanceId ? docs.filter(d => !d.instanceId || d.instanceId === instanceId) : docs;
+    for (const doc of filtered) {
       counts[doc.collection] = (counts[doc.collection] || 0) + 1;
     }
     return Object.entries(counts).map(([collection, count]) => ({ collection, count }));
@@ -375,11 +395,14 @@ export class StandaloneStore {
 
   searchKnowledge(
     query: string,
-    options?: { collection?: string; threshold?: number; limit?: number }
+    options?: { collection?: string; threshold?: number; limit?: number; instanceId?: string }
   ): Array<StoredKnowledgeDoc & { similarity: number }> {
     if (!this.data.knowledge) return [];
     const queryEmb = KnowledgeRepository.generateFallbackEmbedding(query);
-    const candidates = Object.values(this.data.knowledge);
+    let candidates = Object.values(this.data.knowledge);
+    if (options?.instanceId) {
+      candidates = candidates.filter(d => !d.instanceId || d.instanceId === options.instanceId);
+    }
     const targetCol = options?.collection && options.collection !== 'all' ? options.collection.toLowerCase() : undefined;
     const threshold = typeof options?.threshold === 'number' ? options.threshold : 0.2;
     const limit = typeof options?.limit === 'number' ? options.limit : 5;
@@ -402,9 +425,11 @@ export class StandaloneStore {
     return hits.slice(0, limit);
   }
   // --- EXTERNAL INTEGRATIONS ---
-  listIntegrations(): ExternalIntegration[] {
+  listIntegrations(instanceId?: string): ExternalIntegration[] {
     if (!this.data.integrations) return [];
-    return Object.values(this.data.integrations);
+    const all = Object.values(this.data.integrations);
+    if (!instanceId) return all;
+    return all.filter(i => !i.instanceId || i.instanceId === instanceId || i.instanceId === 'global');
   }
 
   getIntegration(id: string): ExternalIntegration | null {
@@ -412,9 +437,16 @@ export class StandaloneStore {
     return this.data.integrations[id] || null;
   }
 
-  getIntegrationByProvider(provider: string): ExternalIntegration | null {
+  getIntegrationByProvider(provider: string, instanceId?: string): ExternalIntegration | null {
     if (!this.data.integrations) return null;
-    return Object.values(this.data.integrations).find(i => i.provider === provider && i.status === 'connected') || null;
+    const all = Object.values(this.data.integrations).filter(i => i.provider === provider && i.status === 'connected');
+    if (instanceId) {
+      const match = all.find(i => i.instanceId === instanceId);
+      if (match) return match;
+      const globalMatch = all.find(i => !i.instanceId || i.instanceId === 'global');
+      if (globalMatch) return globalMatch;
+    }
+    return all[0] || null;
   }
 
   saveIntegration(integration: ExternalIntegration): ExternalIntegration {

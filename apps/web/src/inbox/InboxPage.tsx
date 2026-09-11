@@ -25,6 +25,7 @@ import {
   Download,
 } from 'lucide-react';
 import { useSession } from '../session';
+import { useInstance } from '../context/InstanceContext';
 import { buildAgentDebugExport, createAgentDebugFilename } from './debug-export';
 
 interface ConversationItem {
@@ -131,6 +132,7 @@ const STAGE_CONFIG: Record<string, { label: string; bg: string; text: string }> 
 
 export function InboxPage() {
   const { session, activeOrg } = useSession();
+  const { activeInstance } = useInstance();
 
   const [connections, setConnections] = useState<Array<{ id: string; name: string; provider: string; status: string }>>([]);
   const [connectionFilter, setConnectionFilter] = useState<string>('ALL');
@@ -389,9 +391,26 @@ export function InboxPage() {
       } catch {}
 
       setConnections(merged);
+      if (activeInstance) {
+        const matching = merged.find(c => c.name === activeInstance || c.id === activeInstance);
+        if (matching) {
+          setConnectionFilter(matching.id);
+        }
+      }
     }
     void loadConnections();
   }, [session, activeOrg, isStandalone]);
+
+  useEffect(() => {
+    if (activeInstance && connections.length > 0) {
+      const matching = connections.find(c => c.name === activeInstance || c.id === activeInstance);
+      if (matching) {
+        setConnectionFilter(matching.id);
+        setSelectedId(null);
+        setSelectedConv(null);
+      }
+    }
+  }, [activeInstance, connections]);
 
   async function loadConversations(isBackground = false) {
     if (!isBackground) {
