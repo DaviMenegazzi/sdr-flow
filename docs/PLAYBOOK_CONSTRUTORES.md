@@ -50,12 +50,20 @@ O catálogo atual possui **44 tipos de nó**, divididos em **10 categorias funda
 ### 🟡 2.2. Guardas e Regras de Segurança (`guard.*`)
 *Filtram e protegem o fluxo antes de gastar tokens de IA ou acionar ações comerciais.*
 
-#### 4. Modo Teste (`guard.test_mode`)
-- **O que faz:** Filtra os números autorizados a testar a IA enquanto o fluxo ainda não foi liberado para o público geral.
-- **Lógica por trás:** Compara o telefone do lead com a lista de números autorizados (`allowedPhones`). Se ativado e o número não constar na lista, a mensagem é imediatamente desviada para o ramo bloqueado.
+#### 4. Filtro de Conexão / Gate de Mensagens Recebidas (`guard.test_mode`)
+- **O que faz:** Funciona como um **portão de permissão de segurança** posicionado logo após o recebimento da mensagem (`trigger.message_received`). Controla de forma estrita quais remetentes têm permissão para avançar no fluxo da IA.
+- **Lógica por trás:**
+  - **Múltiplos Contatos:** Valida o número do remetente contra a lista `allowedPhones`. Suporta múltiplos números e realiza normalização inteligente de formatos brasileiros (DDI `55`, DDD e 9º dígito).
+  - **Múltiplos Grupos:** Detecta se a mensagem partiu de um grupo de WhatsApp (`@g.us`, `isGroup: true`) e valida contra a lista de grupos autorizados (`allowedGroups`), comparando tanto JIDs completos quanto IDs limpos.
+  - **Interrupção Silenciosa ("Morre no Filtro"):** Se o remetente (contato ou grupo) não estiver nas listas de liberação, a execução é interrompida na saída `blocked`. A mensagem "morre" no filtro: nenhuma resposta é gerada, nenhum token de IA é gasto e os blocos seguintes não são executados.
+  - **Interface Zero Code:** No construtor visual, inputs de texto cru foram substituídos por **chips/tags visuais** com botão de exclusão (`X`) e um dropdown integrado que busca contatos e grupos em tempo real direto da instância conectada na Evolution API.
+- **Configurações:**
+  - `enabled` (`boolean`): Ativa ou desativa o filtro (quando desativado, qualquer remetente passa livremente).
+  - `allowedPhones` (`string[]`): Lista de telefones de teste/contatos autorizados.
+  - `allowedGroups` (`string[]`): Lista de JIDs de grupos autorizados (ex: `120363024823948293@g.us`).
 - **Portas de saída:**
-  - `pass`: Lead autorizado ou modo teste desativado.
-  - `blocked`: Lead não autorizado. Deve ser conectado ao nó `output.end` para encerrar silenciosamente sem gastar IA.
+  - `pass`: Remetente autorizado (ou filtro desativado). O fluxo continua para os nós seguintes.
+  - `blocked`: Remetente não autorizado. Deve ser deixado desconectado ou ligado a `output.end` para encerramento silencioso imediato.
 
 #### 5. Atendimento Humano Ativo (`guard.human_takeover`)
 - **O que faz:** Verifica se a conversa já foi assumida por um atendente humano no Inbox.
@@ -345,20 +353,34 @@ pela porta `error`; não existe sucesso simulado.*
 - **Variáveis geradas:** `{{calendar.event_id}}`, `{{calendar.cancelled}}` e
   `{{calendar.cancellation_reason}}`.
 
-> Os quatro nós usam `GOOGLE_CALENDAR_CREDENTIALS_JSON` no backend. Tokens OAuth nunca devem ser
-> colocados no `config` do nó nem no grafo publicado.
+> **Conexões Externas & OAuth Oficial:**
+> Agora o SDR Flow conta com uma seção dedicada de **Conexões Externas & Integrações (`/integrations`)**.
+> O conector do Google Calendar permite autenticação oficial via OAuth 2.0 através do botão *"Conectar com Google"*, 
+> gerenciando tokens e refresh tokens com renovação automática pelo servidor.
+> Os nós `calendar.*` resolvem as credenciais ativas diretamente do armazenamento seguro do servidor (`StandaloneStore`), 
+> dispensando a necessidade de colocar chaves manuais em arquivos `.env` ou expor tokens no JSON dos fluxos.
+> Além disso, o usuário pode visualizar e sincronizar todos os calendários da sua conta Google diretamente pela interface.
 
 ---
 
 ### 🔴 2.10. Saídas (`output.*`)
 *Enviam a resposta de volta ao cliente ou encerram a execução.*
 
-#### 30. Enviar Mensagem (`output.send_text`)
-- **O que faz:** Envia a mensagem de texto pelo WhatsApp através da Evolution API.
+#### 30. Enviar Mensagem / Disparo Multi-Destinatário (`output.send_text`)
+- **O que faz:** Envia mensagens de texto via WhatsApp (Evolution API) com suporte a disparo para múltiplos destinatários simultâneos (lead, consultores específicos ou grupos de notificação).
+- **Lógica por trás:**
+  - Suporta três modos de entrega controlados pela propriedade `targetMode`:
+    1. `active_lead`: Envia a mensagem exclusivamente para o lead que enviou a mensagem (padrão de atendimento SDR).
+    2. `specific_targets`: Envia exclusivamente para uma lista de contatos e/ou grupos selecionados (ideal para finalizações onde a mensagem é uma notificação interna para uma equipe ou grupo de vendas).
+    3. `both`: Envia a mensagem para o lead da conversa e, simultaneamente, dispara cópia da notificação para os contatos e grupos definidos em `targets`.
+  - **Autocomplete Dinâmico da Evolution API:** No builder, o operador não precisa digitar JIDs ou números manualmente. Um dropdown com busca lista os contatos e grupos da instância conectada em tempo real para seleção rápida com 1 clique.
 - **Configurações:**
-  - `text`: Texto a ser enviado. Geralmente interpolado como `{{decision.reply}}`.
-  - `typing`: Se ativado, simula o indicador *"digitando..."* no WhatsApp do cliente antes de enviar a mensagem, aumentando a humanização.
+  - `text` (`string`): Mensagem a ser enviada. Aceita interpolação de variáveis como `{{decision.reply}}`, `{{lead.name}}`, `{{lead.phone}}`.
+  - `typing` (`boolean`): Simula o indicador *"digitando..."* no WhatsApp antes do envio.
+  - `targetMode` (`'active_lead' | 'specific_targets' | 'both'`): Define os destinatários da mensagem.
+  - `targets` (`string[]`): Lista de telefones ou JIDs de grupos (`120363...@g.us`) destinatários quando o modo for `specific_targets` ou `both`.
 - **Portas de saída:** `next` (deve ser conectada ao término ou ao próximo passo).
+- **Variáveis de saída:** `{{output.send_text.sent}}`, `{{output.send_text.messageIds}}`, `{{output.send_text.destinations}}`.
 
 #### 31. Enviar Mídia (`output.send_media`)
 - **O que faz:** Envia fotos, arquivos PDF, vídeos ou áudios gravados através de uma URL pública.
@@ -498,3 +520,32 @@ Com essa estrutura:
 - A mensagem final é dividida em no máximo três bolhas completas e cada envio fica registrado;
 - Falhas de provedor ou calendário terminam em ramo explícito de erro ou handoff, nunca em sucesso
   simulado.
+
+
+---
+
+## 🗂️ 3. Novas Mecânicas: Abas Superiores do Construtor (Builder Tabs)
+
+O Construtor de Fluxos (`/flows/new` ou `/flows?id=...`) agora conta com uma barra superior de navegação dividida em **3 visões especializadas**, facilitando a criação, manutenção e depuração dos fluxos sem fricção:
+
+```
+[ 🗺️ Construtor Visual ]    [ ✍️ Prompts & Conhecimento (N) ]    [ 🔄 Mapa de Variáveis ]
+```
+
+### 1. Construtor Visual (`Canvas`)
+- Interface visual baseada em React Flow / XYFlow.
+- Permite arrastar blocos da biblioteca lateral, conectar portas de entrada e saída, reposicionar nós e inspecionar configurações detalhadas no painel direito.
+- Suporta atalhos de teclado de desfazer/refazer (`Ctrl+Z`, `Ctrl+Shift+Z` ou `Ctrl+Y`) e auto-layout inteligente com Dagre (`Organizar`).
+
+### 2. Prompts & Conhecimento (`PromptsView`)
+- **Visão consolidada de todas as instruções de IA do fluxo** em um único lugar, sem precisar caçar nós espalhados pelo canvas.
+- **Edição Inline Direta:** Permite alterar as instruções de sistema (`system`), prompts do agente (`prompt`), mensagens de saída e perguntas de nós de inteligência e saída em tempo real com auto-salvamento no grafo.
+- **Métricas em Tempo Real:** Contador dinâmico de caracteres e estimativa de tokens consumidos por bloco.
+- **Associação com Bases de Conhecimento (RAG):** Exibe nós conectados às coleções do `/knowledge` (Preços, Catálogo, FAQ, Objeções e Políticas).
+- **Botão "Localizar no Canvas":** Ao clicar no ícone de localização de qualquer bloco, a interface alterna automaticamente para a aba do Construtor Visual e focaliza no nó correspondente.
+
+### 3. Mapa de Variáveis (`VariablesView`)
+- **Matriz de Linhagem e Dependência de Dados:** Analisa e mapeia todas as variáveis produzidas e consumidas ao longo do fluxo.
+- **Produtores vs. Consumidores:** Lista quais nós geram dados (ex: `agent.decide` gerando `{{decision.reply}}`, `context.memory` gerando `{{recentMessages}}`, etc.) e quais nós leem essas variáveis via interpolação (`{{...}}`).
+- **Alerta de Variáveis Órfãs:** Aponta visualmente em amarelo nós que tentam consumir variáveis que não possuem produtor correspondente no fluxo, prevenindo falhas de execução em produção.
+- **Cópia Rápida:** Botão de 1 clique para copiar a tag de interpolação exata da variável para a área de transferência.

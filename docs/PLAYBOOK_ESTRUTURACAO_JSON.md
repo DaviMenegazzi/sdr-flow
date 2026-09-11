@@ -73,13 +73,24 @@ Abaixo estão todos os nós aceitos e como deve ser preenchido o seu respectivo 
 - `trigger.manual`: `"config": {}`.
 
 #### B) Guardas (`guard.*`)
-- `guard.test_mode`:
+- `guard.test_mode` (Filtro de Conexão / Gate de Permissão):
   ```json
   "config": {
     "enabled": true,
-    "allowedPhones": ["555592311146"]
+    "allowedPhones": [
+      "5551999998888",
+      "+55 51 98888-7777"
+    ],
+    "allowedGroups": [
+      "120363024823948293@g.us",
+      "120363999999999999@g.us"
+    ]
   }
   ```
+  *Lógica do Gate:*
+  - `allowedPhones`: Array de números autorizados (suporta normalização de DDI `55`, DDD e 9º dígito).
+  - `allowedGroups`: Array de JIDs de grupos do WhatsApp autorizados (`@g.us` ou ID limpo).
+  - Se o remetente (contato ou grupo) não constar nas listas, a mensagem sai pela porta `blocked` e é interrompida silenciosamente ("morre no filtro") sem gerar resposta nem gastar tokens de IA.
 - `guard.human_takeover`: `"config": {}`.
 - `guard.business_hours`:
   ```json
@@ -338,13 +349,31 @@ Abaixo estão todos os nós aceitos e como deve ser preenchido o seu respectivo 
 > `error`.
 
 #### I) Saídas (`output.*`)
-- `output.send_text`:
+- `output.send_text` (Disparo Multi-Destinatário / Envio):
   ```json
   "config": {
     "text": "{{decision.reply}}",
-    "typing": true
+    "typing": true,
+    "targetMode": "active_lead",
+    "targets": []
   }
   ```
+  Ou para notificação multi-destinatário (contatos e/ou grupos):
+  ```json
+  "config": {
+    "text": "🚨 Notificação: Lead qualificado! Nome: {{lead.name}} - Telefone: {{lead.phone}}",
+    "typing": true,
+    "targetMode": "both",
+    "targets": [
+      "5551988881111",
+      "120363024823948293@g.us"
+    ]
+  }
+  ```
+  *Modos de Destino (`targetMode`):*
+  - `"active_lead"`: Envia apenas para o lead que enviou a mensagem (padrão de atendimento SDR).
+  - `"specific_targets"`: Envia apenas para a lista especificada em `targets` (contatos e/ou grupos).
+  - `"both"`: Envia para o lead ativo e simultaneamente dispara a mensagem para os destinos em `targets`.
 - `output.send_media`:
   ```json
   "config": {
@@ -571,11 +600,12 @@ Este template representa o fluxo comercial completo de pré-vendas com proteçã
     {
       "id": "guard_test",
       "type": "guard.test_mode",
-      "label": "Modo teste",
+      "label": "Filtro de Conexão / Gate",
       "position": { "x": 300, "y": 150 },
       "config": {
         "enabled": true,
-        "allowedPhones": ["555592311146"]
+        "allowedPhones": ["5551999998888", "5551988887777"],
+        "allowedGroups": ["120363024823948293@g.us"]
       }
     },
     {
@@ -643,7 +673,9 @@ Este template representa o fluxo comercial completo de pré-vendas com proteçã
       "position": { "x": 1800, "y": 250 },
       "config": {
         "text": "{{decision.reply}}",
-        "typing": true
+        "typing": true,
+        "targetMode": "active_lead",
+        "targets": []
       }
     },
     {
