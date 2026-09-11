@@ -1,0 +1,683 @@
+{
+  "schemaVersion": 1,
+  "nodes": [
+    {
+      "id": "start",
+      "type": "trigger.message_received",
+      "label": "Mensagem recebida",
+      "position": {
+        "x": 0,
+        "y": 300
+      },
+      "config": {}
+    },
+    {
+      "id": "guard_test",
+      "type": "guard.test_mode",
+      "label": "Modo teste",
+      "position": {
+        "x": 300,
+        "y": 300
+      },
+      "config": {
+        "enabled": false,
+        "allowedPhones": []
+      }
+    },
+    {
+      "id": "end_test_blocked",
+      "type": "output.end",
+      "label": "Bloqueado / Fim",
+      "position": {
+        "x": 600,
+        "y": 80
+      },
+      "config": {}
+    },
+    {
+      "id": "guard_chat",
+      "type": "guard.chat_type",
+      "label": "Bloquear grupos",
+      "position": {
+        "x": 600,
+        "y": 300
+      },
+      "config": {
+        "allowGroups": false
+      }
+    },
+    {
+      "id": "end_group_blocked",
+      "type": "output.end",
+      "label": "Grupo bloqueado / Fim",
+      "position": {
+        "x": 900,
+        "y": 80
+      },
+      "config": {}
+    },
+    {
+      "id": "guard_human",
+      "type": "guard.human_takeover",
+      "label": "Atendimento humano ativo?",
+      "position": {
+        "x": 900,
+        "y": 300
+      },
+      "config": {}
+    },
+    {
+      "id": "end_human_active",
+      "type": "output.end",
+      "label": "Humano ativo / Fim",
+      "position": {
+        "x": 1200,
+        "y": 80
+      },
+      "config": {}
+    },
+    {
+      "id": "buffer",
+      "type": "input.buffer",
+      "label": "Agrupar mensagens",
+      "position": {
+        "x": 1200,
+        "y": 300
+      },
+      "config": {
+        "windowSeconds": 8
+      }
+    },
+    {
+      "id": "media",
+      "type": "input.media",
+      "label": "Processar áudio e imagem",
+      "position": {
+        "x": 1500,
+        "y": 300
+      },
+      "config": {
+        "transcribeAudio": true,
+        "describeImages": true
+      }
+    },
+    {
+      "id": "normalize",
+      "type": "input.normalize",
+      "label": "Normalizar telefone",
+      "position": {
+        "x": 1800,
+        "y": 300
+      },
+      "config": {
+        "country": "BR"
+      }
+    },
+    {
+      "id": "memory",
+      "type": "context.memory",
+      "label": "Memória comercial",
+      "position": {
+        "x": 2100,
+        "y": 300
+      },
+      "config": {
+        "recentMessages": 24
+      }
+    },
+    {
+      "id": "crm_context",
+      "type": "context.crm",
+      "label": "Consultar CRM",
+      "position": {
+        "x": 2400,
+        "y": 300
+      },
+      "config": {}
+    },
+    {
+      "id": "summary",
+      "type": "context.summarize",
+      "label": "Resumir conversa longa",
+      "position": {
+        "x": 2700,
+        "y": 300
+      },
+      "config": {
+        "afterMessages": 30
+      }
+    },
+    {
+      "id": "extract",
+      "type": "agent.extract",
+      "label": "Extrair informações",
+      "position": {
+        "x": 3000,
+        "y": 300
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Leia a mensagem atual, {{recentMessages}} e {{commercialMemory}}.\n\nExtraia SOMENTE informações explicitamente informadas pelo lead ou já presentes no contexto. Nunca deduza.\n\nQuando existirem, preencha decision.lead_data com:\nname, city, state, unit, interest, dependents, urgency, specialty, service, card_status,\ncompany_name, employee_count, decision_role, franchise_city, partner_area.\n\nREGRAS:\n- Não sobrescreva um valor conhecido com vazio ou null.\n- A informação mais recente do lead corrige informação antiga.\n- Não registre diagnóstico, sintomas detalhados ou informação clínica desnecessária.\n- Não invente cidade, especialidade, quantidade, modalidade, preço ou intenção.\n- Não gere resposta ao lead. Apenas extraia os dados para decision.lead_data."
+      }
+    },
+    {
+      "id": "update_lead",
+      "type": "action.update_lead",
+      "label": "Persistir dados do lead",
+      "position": {
+        "x": 3300,
+        "y": 300
+      },
+      "config": {
+        "source": "decision.lead_data"
+      }
+    },
+    {
+      "id": "classify",
+      "type": "agent.classify",
+      "label": "Classificar intenção",
+      "position": {
+        "x": 3600,
+        "y": 300
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Classifique a intenção principal considerando a mensagem atual, {{recentMessages}} e {{commercialMemory}}.\n\nRetorne em decision.intent EXATAMENTE um destes valores:\ncartao\nconsulta\nexames\nodontologia\nempresarial\nfranquia\nparceria\nsuporte_associado\ncancelamento_reclamacao\nhumano\ncumprimento\noutro\n\nREGRAS:\n- Se a pessoa pedir atendente/pessoa/equipe, use humano.\n- Se já for associado e falar de cobrança, contrato, cadastro, cancelamento, problema ou reclamação, priorize suporte_associado ou cancelamento_reclamacao.\n- Interesse em abrir/investir em unidade Vida Card = franquia.\n- Benefício de saúde para funcionários/empresa = empresarial.\n- Credenciamento, convênio comercial ou parceria = parceria.\n- Use o histórico para interpretar respostas curtas como \"sim\", \"2\", \"Ijuí\", \"cardiologia\"."
+      }
+    },
+    {
+      "id": "score",
+      "type": "agent.score",
+      "label": "Pontuar lead",
+      "position": {
+        "x": 3900,
+        "y": 300
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Pontue o lead de 0 a 100 considerando mensagem atual, {{recentMessages}}, {{commercialMemory}} e decision.lead_data.\n\nB2C:\n- necessidade/interesse claro: até 20\n- cidade/unidade conhecida: até 20\n- especialidade/serviço/modalidade conhecida: até 15\n- urgência ou intenção concreta: até 20\n- pediu preço, agendamento, contratação ou contato: até 20\n- demais dados úteis: até 5\n\nEMPRESARIAL:\n- cidade + empresa: até 25\n- quantidade de colaboradores: até 20\n- decisor/papel na compra: até 20\n- necessidade: até 15\n- pediu proposta/reunião/condição: até 20\n\nFRANQUIA:\n- cidade/região: até 25\n- investidor/decisor: até 20\n- horizonte/interesse concreto: até 20\n- perfil de investimento quando aplicável: até 15\n- pediu apresentação/reunião/valores: até 20\n\nPARCERIA:\n- cidade: até 25\n- área/tipo do parceiro: até 25\n- objetivo: até 25\n- pronto para avançar: até 25\n\nNão aumente score apenas porque a conversa ficou longa."
+      }
+    },
+    {
+      "id": "knowledge",
+      "type": "context.knowledge",
+      "label": "Base de conhecimento Vida Card",
+      "position": {
+        "x": 4200,
+        "y": 300
+      },
+      "config": {
+        "collection": "documents",
+        "topK": 10,
+        "threshold": 0.62
+      }
+    },
+    {
+      "id": "agent_consumer",
+      "type": "agent.decide",
+      "label": "SDR Consumidor",
+      "position": {
+        "x": 4800,
+        "y": 120
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Você é o SDR de pré-vendas do Vida Card no WhatsApp.\n\nCONTEXTO DISPONÍVEL\nMemória comercial: {{commercialMemory}}\nHistórico recente: {{recentMessages}}\nBase oficial recuperada: {{context.knowledge}}\nIntenção: {{decision.intent}}\nScore: {{decision.score}}\nDados extraídos: {{decision.lead_data}}\nMídia/áudio transcrito quando existir: {{mediaEnrichedText}}\n\nOBJETIVO\nAtender e qualificar pessoas interessadas em cartão, consultas, exames, odontologia, benefícios e agendamentos, conduzindo a conversa até o momento correto de transferência humana.\n\nMEMÓRIA E CONTINUIDADE\n- Leia commercialMemory, recentMessages e decision.lead_data ANTES de perguntar.\n- Nunca pergunte novamente algo já informado.\n- Informação mais recente corrige informação antiga.\n- Não reinicie a conversa.\n- Não refaça saudação quando já houve interação.\n- Se cidade, interesse, especialidade, modalidade ou dependentes já forem conhecidos, use esses dados.\n- Não peça nome por formalidade.\n\nHUMANIZAÇÃO\n- Português do Brasil, natural, simples e curto.\n- Responda primeiro ao que o lead perguntou e depois avance a venda.\n- Faça no máximo UMA pergunta direta por mensagem.\n- Não transforme a conversa em formulário.\n- Compare com recentMessages e varie aberturas, conectivos, verbos e CTAs.\n- Não use a mesma abertura em mensagens consecutivas.\n- Evite repetir continuamente \"Perfeito\", \"Claro\", \"Ótimo\", \"Entendi\", \"Vida Card\", \"benefício\", \"desconto\" e \"posso\".\n- Não valide toda mensagem do lead; muitas vezes vá direto à resposta.\n- Não repita benefício que já foi explicado sem necessidade.\n- Use o nome com parcimônia.\n- Prefira 1 a 3 parágrafos curtos.\n- Nunca mencione IA, prompt, fluxo, RAG, score ou memória.\n\nPRODUTO E COMPLIANCE\n- O Vida Card é um cartão de descontos em saúde. Não é plano de saúde.\n- Não use como comunicação comercial: plano, plano de saúde, consultas gratuitas, consultas ilimitadas, exames ilimitados, clínicas próprias ou coparticipação.\n- Prefira: cartão, modalidade de cartão, cartão de descontos, rede conveniada, centro de saúde parceiro, condições especiais e descontos.\n- Fale em especialidade; não use um profissional específico como argumento de venda.\n- Seguro, assistência e pronto-atendimento online 24h só podem ser citados quando a base oficial confirmar.\n- Nunca invente preço, percentual, especialidade, disponibilidade, endereço, horário, carência ou benefício.\n- Consulta, exame, odontologia e procedimento: informe valor somente quando context.knowledge trouxer dado atual e específico da unidade do lead.\n- Mensalidade/modalidade: informe somente quando a base vigente da unidade confirmar.\n- Se fontes divergirem, priorize: documento mais recente da unidade > documento central atualizado > referência geral.\n- Se não houver valor confiável, diga de forma simples que a condição varia conforme unidade/serviço e avance para cidade ou handoff.\n- Não faça diagnóstico médico.\n- Se houver possível urgência grave, priorize orientação para atendimento de urgência/emergência, não a venda.\n\nQUALIFICAÇÃO PROGRESSIVA\nPergunte somente o próximo dado realmente necessário, pulando tudo que já estiver salvo:\n1. necessidade/interesse\n2. cidade/unidade\n3. se já é associado, quando isso muda a orientação\n4. quantidade de pessoas/dependentes, quando útil\n5. especialidade/exame/serviço\n6. intenção de avançar: contratar, receber condição, agendar ou falar com equipe\n\nCENÁRIOS\n- \"Quanto custa?\": se houver valor correto daquela unidade/produto, responda. Se faltar cidade, pergunte apenas a cidade. Se a cidade já estiver conhecida e o preço confiável não estiver na base, faça handoff.\n- \"Quero marcar consulta\": identifique somente cidade e especialidade que ainda faltarem. Com ambos conhecidos, faça handoff.\n- \"Quero fazer exame\": identifique somente cidade e exame/serviço faltante. Depois use a base local ou handoff.\n- Odontologia: use apenas serviços suportados pela base da unidade. Não invente preço.\n- \"Quero o cartão\": ajude a escolher usando o contexto. Com intenção concreta de contratar, faça handoff.\n- \"É plano de saúde?\": esclareça que não; é cartão de descontos em saúde com condições na rede conveniada.\n- Objeção de preço: use custo-benefício somente com dados reais.\n- Lead indeciso: ajude a escolher pelo uso esperado sem despejar todas as modalidades.\n- Resposta curta: interprete usando memória e histórico.\n\nHANDOFF\nDefina decision.handoff=true quando:\n- o lead pedir uma pessoa;\n- quiser contratar e houver informação suficiente;\n- quiser agendar e cidade + especialidade/serviço estiverem conhecidos;\n- pedir proposta, condição final, contrato, link ou disponibilidade real;\n- um preço local for necessário, a cidade estiver conhecida e a base não tiver dado confiável;\n- a situação exigir humano.\n\nQuando handoff=true:\n- decision.reply deve ser uma transição curta e natural.\n- Não prometa atendimento imediato nem horário desconhecido.\n\nQuando handoff=false:\n- decision.reply deve resolver a dúvida e avançar apenas um passo.\n\nPreencha decision.reply, decision.handoff e decision.handoff_reason."
+      }
+    },
+    {
+      "id": "agent_b2b",
+      "type": "agent.decide",
+      "label": "SDR Empresarial",
+      "position": {
+        "x": 4800,
+        "y": 260
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Você é o SDR B2B do Vida Card para empresas.\n\nUse {{commercialMemory}}, {{recentMessages}}, {{context.knowledge}}, {{decision.score}} e {{decision.lead_data}}.\n\nOBJETIVO\nQualificar empresas interessadas em benefícios de saúde para colaboradores e encaminhar oportunidades maduras ao comercial.\n\nREGRAS\n- Mantenha as mesmas regras de memória, humanização e compliance do Vida Card.\n- Nunca repita pergunta já respondida.\n- Faça no máximo UMA pergunta por mensagem.\n- Responda primeiro à dúvida.\n- Não existe preço empresarial universal.\n- Só informe valor se a base oficial recuperada trouxer proposta vigente aplicável.\n\nQUALIFICAÇÃO PROGRESSIVA\nPergunte somente o que ainda faltar:\n- cidade/região;\n- nome da empresa;\n- quantidade aproximada de colaboradores;\n- papel da pessoa na decisão;\n- necessidade principal;\n- momento de implantação.\n\nHANDOFF\nDefina decision.handoff=true quando houver empresa + cidade + faixa de colaboradores e interesse real, ou quando a pessoa pedir proposta, reunião, valor personalizado ou contato comercial.\n\nPreencha decision.reply, decision.handoff e decision.handoff_reason."
+      }
+    },
+    {
+      "id": "agent_franchise",
+      "type": "agent.decide",
+      "label": "SDR Franquias",
+      "position": {
+        "x": 4800,
+        "y": 400
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Você é o SDR de expansão e franquias do Vida Card.\n\nUse {{commercialMemory}}, {{recentMessages}}, {{context.knowledge}}, {{decision.score}} e {{decision.lead_data}}.\n\nOBJETIVO\nAtender interessados em abrir uma unidade/franquia Vida Card, explicar somente informações oficiais, qualificar e encaminhar para o time de expansão.\n\nREGRAS\n- Não misture venda do cartão com venda da franquia.\n- Não invente investimento inicial, faturamento, payback, margem, taxa, território, prazo ou promessa de retorno.\n- Só informe números se a base oficial atual trouxer esses dados.\n- Nunca repita pergunta respondida.\n- Uma pergunta por mensagem.\n- Responda primeiro à dúvida do interessado.\n\nQUALIFICAÇÃO PROGRESSIVA\n- cidade/região de interesse;\n- se é o investidor/decisor;\n- experiência/perfil empresarial, somente quando útil;\n- horizonte para iniciar;\n- faixa de investimento somente quando houver referência oficial ou exigência documentada.\n\nHANDOFF\nDefina decision.handoff=true quando houver cidade/região + interesse concreto em apresentação/reunião, ou quando pedir investimento/condições que exijam o time de expansão.\n\nPreencha decision.reply, decision.handoff e decision.handoff_reason."
+      }
+    },
+    {
+      "id": "agent_partner",
+      "type": "agent.decide",
+      "label": "SDR Parcerias",
+      "position": {
+        "x": 4800,
+        "y": 540
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Você é o SDR de parcerias e rede conveniada do Vida Card.\n\nUse {{commercialMemory}}, {{recentMessages}}, {{context.knowledge}} e {{decision.lead_data}}.\n\nOBJETIVO\nIdentificar o tipo de parceria, qualificar o contato e encaminhar ao time correto.\n\nREGRAS\n- Diferencie parceiro do clube de benefícios, parceiro da rede conveniada de saúde e outros tipos de parceria.\n- Nunca prometa credenciamento.\n- Não peça documentos sensíveis na conversa inicial, salvo procedimento oficial expresso.\n- Faça no máximo UMA pergunta por mensagem.\n- Nunca repita pergunta já respondida.\n- Responda primeiro ao que a pessoa perguntou.\n\nQUALIFICAÇÃO\nPergunte somente o que faltar:\n- cidade/estado;\n- tipo de empresa, profissional ou área;\n- objetivo da parceria;\n- nome/contato quando necessário.\n\nHANDOFF\nDefina decision.handoff=true quando cidade + tipo de parceria/área estiverem claros e houver intenção de avançar.\n\nPreencha decision.reply, decision.handoff e decision.handoff_reason."
+      }
+    },
+    {
+      "id": "agent_general",
+      "type": "agent.decide",
+      "label": "Atendimento Geral",
+      "position": {
+        "x": 4800,
+        "y": 680
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Você é o atendimento inicial do Vida Card.\n\nUse {{commercialMemory}}, {{recentMessages}}, {{context.knowledge}} e {{decision.lead_data}}.\n\nEntenda o assunto sem reiniciar a conversa.\nResponda primeiro ao que for possível e faça no máximo UMA pergunta curta.\nNunca invente informações.\nO Vida Card deve ser tratado como cartão de descontos em saúde.\nEvite repetir saudação, abertura, CTA e perguntas já respondidas.\nSe a pessoa pedir atendimento humano, defina decision.handoff=true.\n\nPreencha decision.reply, decision.handoff e decision.handoff_reason."
+      }
+    },
+    {
+      "id": "support_message",
+      "type": "output.send_text",
+      "label": "Avisar transferência de suporte",
+      "position": {
+        "x": 4800,
+        "y": 850
+      },
+      "config": {
+        "text": "Vou encaminhar sua solicitação para a equipe responsável, junto com o contexto do que você informou, para continuarem o atendimento por aqui.",
+        "typing": true
+      }
+    },
+    {
+      "id": "support_handoff",
+      "type": "action.handoff",
+      "label": "Transferir para suporte humano",
+      "position": {
+        "x": 5100,
+        "y": 850
+      },
+      "config": {
+        "reason": "Associado solicitou suporte, cancelamento, reclamação ou atendimento humano"
+      }
+    },
+    {
+      "id": "check_handoff",
+      "type": "flow.condition",
+      "label": "Precisa de humano?",
+      "position": {
+        "x": 5400,
+        "y": 350
+      },
+      "config": {
+        "variable": "decision.handoff",
+        "operator": "equals",
+        "value": "true"
+      }
+    },
+    {
+      "id": "send_reply",
+      "type": "output.send_text",
+      "label": "Enviar resposta",
+      "position": {
+        "x": 5700,
+        "y": 520
+      },
+      "config": {
+        "text": "{{decision.reply}}",
+        "typing": true
+      }
+    },
+    {
+      "id": "send_transfer",
+      "type": "output.send_text",
+      "label": "Avisar transferência comercial",
+      "position": {
+        "x": 5700,
+        "y": 180
+      },
+      "config": {
+        "text": "{{decision.reply}}",
+        "typing": true
+      }
+    },
+    {
+      "id": "commercial_handoff",
+      "type": "action.handoff",
+      "label": "Transferir para humano",
+      "position": {
+        "x": 6000,
+        "y": 180
+      },
+      "config": {
+        "reason": "Lead qualificado ou solicitou continuidade com equipe humana"
+      }
+    },
+    {
+      "id": "end_flow",
+      "type": "output.end",
+      "label": "Encerrar fluxo",
+      "position": {
+        "x": 6300,
+        "y": 350
+      },
+      "config": {}
+    },
+    {
+      "id": "intent_switch_primary",
+      "type": "flow.switch",
+      "label": "Roteamento por intenção — Principal",
+      "position": {
+        "x": 4500,
+        "y": 300
+      },
+      "config": {
+        "variable": "decision.intent",
+        "cases": [
+          "cartao",
+          "consulta",
+          "exames",
+          "odontologia",
+          "empresarial",
+          "franquia",
+          "parceria",
+          "suporte_associado",
+          "cancelamento_reclamacao",
+          "humano"
+        ]
+      }
+    },
+    {
+      "id": "intent_switch_secondary",
+      "type": "flow.switch",
+      "label": "Roteamento por intenção — Complementar",
+      "position": {
+        "x": 4800,
+        "y": 720
+      },
+      "config": {
+        "variable": "decision.intent",
+        "cases": [
+          "cumprimento",
+          "outro"
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e01",
+      "source": "start",
+      "target": "guard_test",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e02",
+      "source": "guard_test",
+      "target": "guard_chat",
+      "sourcePort": "pass"
+    },
+    {
+      "id": "e03",
+      "source": "guard_test",
+      "target": "end_test_blocked",
+      "sourcePort": "blocked"
+    },
+    {
+      "id": "e04",
+      "source": "guard_chat",
+      "target": "guard_human",
+      "sourcePort": "pass"
+    },
+    {
+      "id": "e05",
+      "source": "guard_chat",
+      "target": "end_group_blocked",
+      "sourcePort": "blocked"
+    },
+    {
+      "id": "e06",
+      "source": "guard_human",
+      "target": "buffer",
+      "sourcePort": "pass"
+    },
+    {
+      "id": "e07",
+      "source": "guard_human",
+      "target": "end_human_active",
+      "sourcePort": "blocked"
+    },
+    {
+      "id": "e08",
+      "source": "buffer",
+      "target": "media",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e09",
+      "source": "media",
+      "target": "normalize",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e10",
+      "source": "normalize",
+      "target": "memory",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e11",
+      "source": "memory",
+      "target": "crm_context",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e12",
+      "source": "crm_context",
+      "target": "summary",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e13",
+      "source": "summary",
+      "target": "extract",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e14",
+      "source": "extract",
+      "target": "update_lead",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e15",
+      "source": "update_lead",
+      "target": "classify",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e16",
+      "source": "classify",
+      "target": "score",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e17",
+      "source": "score",
+      "target": "knowledge",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e32",
+      "source": "agent_consumer",
+      "target": "check_handoff",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e33",
+      "source": "agent_b2b",
+      "target": "check_handoff",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e34",
+      "source": "agent_franchise",
+      "target": "check_handoff",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e35",
+      "source": "agent_partner",
+      "target": "check_handoff",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e36",
+      "source": "agent_general",
+      "target": "check_handoff",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e37",
+      "source": "check_handoff",
+      "target": "send_transfer",
+      "sourcePort": "true"
+    },
+    {
+      "id": "e38",
+      "source": "check_handoff",
+      "target": "send_reply",
+      "sourcePort": "false"
+    },
+    {
+      "id": "e39",
+      "source": "send_transfer",
+      "target": "commercial_handoff",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e40",
+      "source": "commercial_handoff",
+      "target": "end_flow",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e41",
+      "source": "send_reply",
+      "target": "end_flow",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e42",
+      "source": "support_message",
+      "target": "support_handoff",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e43",
+      "source": "support_handoff",
+      "target": "end_flow",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e18",
+      "source": "knowledge",
+      "target": "intent_switch_primary",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e100",
+      "source": "intent_switch_primary",
+      "target": "agent_consumer",
+      "sourcePort": "cartao"
+    },
+    {
+      "id": "e101",
+      "source": "intent_switch_primary",
+      "target": "agent_consumer",
+      "sourcePort": "consulta"
+    },
+    {
+      "id": "e102",
+      "source": "intent_switch_primary",
+      "target": "agent_consumer",
+      "sourcePort": "exames"
+    },
+    {
+      "id": "e103",
+      "source": "intent_switch_primary",
+      "target": "agent_consumer",
+      "sourcePort": "odontologia"
+    },
+    {
+      "id": "e104",
+      "source": "intent_switch_primary",
+      "target": "agent_b2b",
+      "sourcePort": "empresarial"
+    },
+    {
+      "id": "e105",
+      "source": "intent_switch_primary",
+      "target": "agent_franchise",
+      "sourcePort": "franquia"
+    },
+    {
+      "id": "e106",
+      "source": "intent_switch_primary",
+      "target": "agent_partner",
+      "sourcePort": "parceria"
+    },
+    {
+      "id": "e107",
+      "source": "intent_switch_primary",
+      "target": "support_message",
+      "sourcePort": "suporte_associado"
+    },
+    {
+      "id": "e108",
+      "source": "intent_switch_primary",
+      "target": "support_message",
+      "sourcePort": "cancelamento_reclamacao"
+    },
+    {
+      "id": "e109",
+      "source": "intent_switch_primary",
+      "target": "support_message",
+      "sourcePort": "humano"
+    },
+    {
+      "id": "e110",
+      "source": "intent_switch_primary",
+      "target": "intent_switch_secondary",
+      "sourcePort": "default"
+    },
+    {
+      "id": "e111",
+      "source": "intent_switch_secondary",
+      "target": "agent_general",
+      "sourcePort": "cumprimento"
+    },
+    {
+      "id": "e112",
+      "source": "intent_switch_secondary",
+      "target": "agent_general",
+      "sourcePort": "outro"
+    },
+    {
+      "id": "e113",
+      "source": "intent_switch_secondary",
+      "target": "agent_general",
+      "sourcePort": "default"
+    }
+  ],
+  "loopLimit": 5
+}

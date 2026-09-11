@@ -142,7 +142,15 @@ export async function executeFlow(
       result = await executor(
         ctx,
         currentNode.type === 'guard.test_mode' && testMode.data.enabled
-          ? { ...currentNode.config, enabled: true, allowedPhones: [testMode.data.phone] }
+          ? {
+              ...currentNode.config,
+              enabled: true,
+              allowedPhones: Array.from(new Set([
+                ...(Array.isArray(currentNode.config.allowedPhones) ? currentNode.config.allowedPhones : []),
+                testMode.data.phone,
+              ].filter(Boolean))),
+              allowedGroups: Array.isArray(currentNode.config.allowedGroups) ? currentNode.config.allowedGroups : [],
+            }
           : currentNode.config,
         services,
         isResuming ? options.resumePort || 'reply' : undefined

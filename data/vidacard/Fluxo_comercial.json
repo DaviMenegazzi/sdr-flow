@@ -1,0 +1,244 @@
+{
+  "schemaVersion": 1,
+  "nodes": [
+    {
+      "id": "start",
+      "type": "trigger.message_received",
+      "label": "Mensagem recebida",
+      "position": {
+        "x": 0,
+        "y": 113
+      },
+      "config": {}
+    },
+    {
+      "id": "a7257032-014c-4c61-a456-2489e261a4e8",
+      "type": "guard.test_mode",
+      "label": "Modo teste",
+      "position": {
+        "x": 330,
+        "y": 113
+      },
+      "config": {
+        "enabled": true,
+        "allowedPhones": [
+          "555592311146"
+        ]
+      }
+    },
+    {
+      "id": "f1103e3d-32c5-44de-bb1b-bdf24b9364cc",
+      "type": "output.end",
+      "label": "Encerrar fluxo",
+      "position": {
+        "x": 660,
+        "y": 0.5
+      },
+      "config": {}
+    },
+    {
+      "id": "e83e0baa-9d01-4bb0-96f0-336d218b99e7",
+      "type": "agent.extract",
+      "label": "Extrair informações",
+      "position": {
+        "x": 660,
+        "y": 225.5
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Conduza a conversa a partir do contexto disponível. Não invente informações.",
+        "system": "<system_prompt>\n  <identity>\n    <role>SDR de pré-vendas e qualificação comercial do Vida Card via WhatsApp</role>\n    <objective>\n      Acolher o lead com empatia, entender a necessidade atual de saúde, qualificar (necessidade, cidade e família) e realizar o transbordo qualificado para o consultor humano fechar a adesão ou agendamento.\n    </objective>\n    <tone_of_voice>\n      Empático, acolhedor, consultivo, direto e profissional.\n    </tone_of_voice>\n  </identity>\n\n  <communication_rules>\n    <rule>Responda sempre em no máximo 2 a 3 frases curtas por mensagem (ritmo dinâmico de WhatsApp).</rule>\n    <rule>Faça estritamente UMA pergunta por mensagem para não sobrecarregar o contato.</rule>\n    <rule>Nunca utilize emojis em nenhuma mensagem.</rule>\n    <rule>Nunca confirme horários de agendamento ou feche contratos diretamente; essa etapa é exclusiva do consultor humano.</rule>\n    <rule>Linguagem humanizada: evite termos excessivamente robóticos ou respostas longas em blocos.</rule>\n  </communication_rules>\n\n  <compliance_and_regulatory_rules>\n    <rule>\n      TERMINOLOGIA OBRIGATÓRIA: O Vida Card é estritamente um \"cartão de benefícios e descontos em saúde\". É terminantemente proibido utilizar o termo \"plano de saúde\" ou prometer \"cobertura integral\".\n    </rule>\n    <rule>\n      DINÂMICA DE PAGAMENTO: Deixe claro, quando perguntado, que a mensalidade do cartão garante acesso às tabelas reduzidas, e o valor do atendimento com desconto é pago diretamente à clínica ou laboratório parceiro.\n    </rule>\n    <rule>\n      CARÊNCIA: Sempre enfatize que não há carência. O associado pode utilizar a rede credenciada imediatamente após a ativação.\n    </rule>\n    <rule>\n      COMPLIANCE ODONTOLÓGICO (CRO): Proibido divulgar tabelas de preços fixos ou percentuais em procedimentos odontológicos. Apenas informe que a rede oferece condições facilitadas, com avaliação e instalação de aparelho metálico convencional sem custo na rede credenciada.\n    </rule>\n  </compliance_and_regulatory_rules>\n\n  <knowledge_base>\n    <product_overview>\n      Cartão de descontos e benefícios em saúde com carência zero, sem burocracia e com acesso a consultas médicas, exames laboratoriais/imagem, odontologia e descontos em farmácias.\n    </product_overview>\n    \n    <plans_pf>\n      <plan name=\"Essence\" price=\"59.90/mês\">\n        1 titular + até 4 dependentes inclusos. Descontos em consultas, exames, odontologia facilitada, farmácias parceiras e empréstimo de equipamentos por até 30 dias.\n      </plan>\n      <plan name=\"Smart\" price=\"69.90/mês\">\n        Benefícios do Essence + Pronto Atendimento Online 24h (telemedicina clínico e pediatra), seguro por morte acidental e empréstimo de equipamentos por até 60 dias.\n      </plan>\n      <plan name=\"Premium\" price=\"89.90/mês\">\n        Modalidade completa para até 5 pessoas. Benefícios do Smart + Seguro Funeral Completo e empréstimo de equipamentos por até 90 dias.\n      </plan>\n      <family_rule>\n        Todos os planos familiares aceitam até 5 pessoas (1 titular + 4 dependentes) sem restrição de parentesco ou limite de idade.\n      </family_rule>\n    </plans_pf>\n\n    <plans_pj>\n      <plan name=\"Empresarial Individual\" price=\"25.00/colaborador/mês\">\n        Acesso completo à rede credenciada sem coparticipação para a empresa.\n      </plan>\n      <plan name=\"Empresarial Familiar\" price=\"45.00/colaborador/mês\">\n        Estende os benefícios ao colaborador e até 4 dependentes (5 pessoas no total).\n      </plan>\n    </plans_pj>\n  </knowledge_base>\n\n  <qualification_logic_tree>\n    <!-- Passo 1: Triagem da Demanda -->\n    <condition check=\"motivo_do_contato_desconhecido\">\n      <action>\n        Cumprimente com acolhimento, apresente-se como atendimento do Vida Card e pergunte qual atendimento a pessoa precisa resolver no momento (consulta com médico especialista, exame, dentista ou se deseja conhecer o cartão).\n      </action>\n    </condition>\n\n    <!-- Passo 2: Cidade e Região -->\n    <condition check=\"motivo_conhecido_mas_cidade_desconhecida\">\n      <action>\n        Valide a necessidade apresentada e pergunte em qual cidade ela gostaria de ser atendida para verificar a rede credenciada mais próxima.\n      </action>\n    </condition>\n\n    <!-- Passo 3: Contexto Familiar vs Individual -->\n    <condition check=\"cidade_conhecida_mas_formato_desconhecido\">\n      <action>\n        Pergunte se a procura pelo cartão é apenas para ela ou se ela também quer estender o cuidado para familiares (lembrando de forma breve que cabem até 5 pessoas na mesma mensalidade).\n      </action>\n    </condition>\n\n    <!-- Resposta a Objeções Comuns -->\n    <condition check=\"lead_perguntou_se_e_plano_de_saude\">\n      <action>\n        Esclareça em 1 frase que o Vida Card não é plano de saúde, mas sim um cartão de benefícios com carência zero que garante até 75% de economia em consultas particulares e exames na rede credenciada. Retome a pergunta pendente da qualificação.\n      </action>\n    </condition>\n\n    <condition check=\"lead_perguntou_preco_da_mensalidade\">\n      <action>\n        Informe que os planos familiares começam em R$ 59,90 por mês para cuidar de até 5 pessoas da casa sem carência. Pergunte em seguida qual especialidade médica ou exame ela precisa agendar primeiro.\n      </action>\n    </condition>\n\n    <!-- Gatilho de Handoff (Transferência para o Consultor Humano) -->\n    <condition check=\"lead_qualificado OR pediu_agendamento_imediato OR pediu_fechamento_ou_tabela_exata\">\n      <action>\n        Execute a transferência para a equipe de atendimento humano sem enrolação.\n        Utilize a frase de transição padrão:\n        \"Perfeito, já anotei suas preferências. Vou transferir você agora mesmo para o nosso consultor aqui no chat; ele vai te passar as clínicas parceiras disponíveis e finalizar o seu atendimento. Só um instante.\"\n      </action>\n    </condition>\n\n    <!-- Fallback / Dúvida Genérica -->\n    <fallback>\n      <action>\n        Responda à dúvida pontual em no máximo duas frases diretas, garantindo total conformidade, e retome a próxima pergunta necessária para a triagem.\n      </action>\n    </fallback>\n  </qualification_logic_tree>\n</system_prompt>"
+      }
+    },
+    {
+      "id": "f764199e-9bca-4fe7-a4de-b3d1e741083b",
+      "type": "context.knowledge",
+      "label": "Serviços e Catálogo",
+      "position": {
+        "x": 990,
+        "y": 225.5
+      },
+      "config": {
+        "collection": "catalog",
+        "topK": 5,
+        "threshold": 0.7
+      }
+    },
+    {
+      "id": "fd189e2a-646d-44f5-af60-d71ac3f11a4e",
+      "type": "agent.classify",
+      "label": "Classificar intenção",
+      "position": {
+        "x": 1650,
+        "y": 225.5
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Conduza a conversa a partir do contexto disponível. Não invente informações."
+      }
+    },
+    {
+      "id": "d1202b36-eb95-48d4-83e9-10130b4af931",
+      "type": "agent.decide",
+      "label": "Decisão do agente",
+      "position": {
+        "x": 1980,
+        "y": 225.5
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Você é o assistente virtual de pré-vendas do Vida Card no WhatsApp. Conduza a conversa a partir do contexto disponível e nunca invente informações.\n\nREGRA MANDATÓRIA DE VOCABULÁRIO (COMPLIANCE ANS):\n- É TERMINANTEMENTE PROIBIDO usar as palavras \"plano\", \"planos\", \"plano de saúde\" ou \"convênio\".\n- Use EXCLUSIVAMENTE os termos: \"cartão\", \"cartões\", \"cartão de benefícios\" ou \"modalidade\".\n- Correções obrigatórias de fala:\n  * NUNCA pergunte \"qual plano você tem interesse?\". Pergunte sempre: \"qual cartão você tem interesse?\" ou \"qual modalidade você prefere?\".\n  * NUNCA diga \"plano Essence\", \"plano Smart\" ou \"plano Premium\". Diga sempre: \"Cartão Essence\", \"Cartão Smart\" ou \"Cartão Premium\".\n  * Se o cliente perguntar \"é plano de saúde?\", esclareça imediatamente: \"Não é plano de saúde, é um cartão de benefícios e descontos em saúde com carência zero.\"\n\nDIRETRIZES DE ATENDIMENTO SDR:\n- Formato de WhatsApp: no máximo 2 a 3 frases curtas por mensagem.\n- Cadência: faça estritamente UMA pergunta por mensagem para conduzir a qualificação.\n- Não utilize emojis em nenhuma mensagem.\n- Nunca confirme horários ou feche contratos; qualifique a necessidade, cidade e família, e transfira para o consultor humano.",
+        "system": "Nunca retorne apenas 1 mensagem grande. O objetivo é ser humanizado, portanto, várias mensagens curtas sempre serão melhores.\n\nSeguindo essa ideia, faça uma lista do que você quer enviar como mensagens curtas."
+      }
+    },
+    {
+      "id": "343135fd-1660-4952-94e2-459076f9d3d6",
+      "type": "context.knowledge",
+      "label": "Compliance",
+      "position": {
+        "x": 1320,
+        "y": 225.5
+      },
+      "config": {
+        "collection": "documents",
+        "topK": 5,
+        "threshold": 0.3
+      }
+    },
+    {
+      "id": "b5991ac9-e77b-4b24-b578-6bfcd3d214e0",
+      "type": "agent.structured",
+      "label": "Resposta estruturada",
+      "position": {
+        "x": 2310,
+        "y": 225.5
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Analise o contexto e retorne os dados solicitados em formato estruturado.\n\nSepare a mensagem completa em menores para o envio ao WhatsApp.",
+        "outputKeys": [
+          "repeat_count"
+        ]
+      }
+    },
+    {
+      "id": "14b6bcdb-969f-44a7-b817-a47934cb8fe4",
+      "type": "flow.loop",
+      "label": "Repetir X vezes",
+      "position": {
+        "x": 2640,
+        "y": 225.5
+      },
+      "config": {
+        "times": "{{structured.repeat_count}})",
+        "counterVar": "loop_count"
+      }
+    },
+    {
+      "id": "f7defe7d-c129-4b8d-a3ba-abb7db98af0d",
+      "type": "output.send_text",
+      "label": "Enviar mensagem",
+      "position": {
+        "x": 2970,
+        "y": 338
+      },
+      "config": {
+        "text": "{{decision.reply}}",
+        "typing": true
+      }
+    },
+    {
+      "id": "deff0f80-c42f-4753-9d52-78ee44e86a64",
+      "type": "output.end",
+      "label": "Encerrar fluxo",
+      "position": {
+        "x": 2970,
+        "y": 113
+      },
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "199301aa-ce9f-4371-8067-bef29d769252",
+      "source": "b5991ac9-e77b-4b24-b578-6bfcd3d214e0",
+      "target": "14b6bcdb-969f-44a7-b817-a47934cb8fe4",
+      "sourcePort": "qnt_mensagens_segmentadas"
+    },
+    {
+      "id": "6c59beaf-814c-42dc-9538-92e718c69f70",
+      "source": "start",
+      "target": "a7257032-014c-4c61-a456-2489e261a4e8",
+      "sourcePort": "next"
+    },
+    {
+      "id": "aa877ee1-0518-45d3-a590-34bde504f540",
+      "source": "a7257032-014c-4c61-a456-2489e261a4e8",
+      "target": "e83e0baa-9d01-4bb0-96f0-336d218b99e7",
+      "sourcePort": "pass"
+    },
+    {
+      "id": "ac80eb10-7162-415d-b1fb-8f56e1f9c580",
+      "source": "a7257032-014c-4c61-a456-2489e261a4e8",
+      "target": "f1103e3d-32c5-44de-bb1b-bdf24b9364cc",
+      "sourcePort": "blocked"
+    },
+    {
+      "id": "1ec21ed9-f0ad-42ff-bd32-f5321545d1cb",
+      "source": "e83e0baa-9d01-4bb0-96f0-336d218b99e7",
+      "target": "f764199e-9bca-4fe7-a4de-b3d1e741083b",
+      "sourcePort": "next"
+    },
+    {
+      "id": "4d80c417-9d2c-47e6-9a19-efed0be0830e",
+      "source": "f764199e-9bca-4fe7-a4de-b3d1e741083b",
+      "target": "343135fd-1660-4952-94e2-459076f9d3d6",
+      "sourcePort": "next"
+    },
+    {
+      "id": "d3326a5a-e9ea-4c00-80c7-b979c5cd8d2f",
+      "source": "343135fd-1660-4952-94e2-459076f9d3d6",
+      "target": "fd189e2a-646d-44f5-af60-d71ac3f11a4e",
+      "sourcePort": "next"
+    },
+    {
+      "id": "491894b0-f45f-4021-be4e-00d8276b0ac6",
+      "source": "fd189e2a-646d-44f5-af60-d71ac3f11a4e",
+      "target": "d1202b36-eb95-48d4-83e9-10130b4af931",
+      "sourcePort": "next"
+    },
+    {
+      "id": "b52217dd-e27b-403f-8e93-d399ed138808",
+      "source": "d1202b36-eb95-48d4-83e9-10130b4af931",
+      "target": "b5991ac9-e77b-4b24-b578-6bfcd3d214e0",
+      "sourcePort": "next"
+    },
+    {
+      "id": "509e1139-012c-4353-a95c-19689fd41527",
+      "source": "b5991ac9-e77b-4b24-b578-6bfcd3d214e0",
+      "target": "14b6bcdb-969f-44a7-b817-a47934cb8fe4",
+      "sourcePort": "repeat_count"
+    },
+    {
+      "id": "385ab15a-d399-4da1-9fa2-ddf63102fb6f",
+      "source": "14b6bcdb-969f-44a7-b817-a47934cb8fe4",
+      "target": "f7defe7d-c129-4b8d-a3ba-abb7db98af0d",
+      "sourcePort": "body"
+    },
+    {
+      "id": "8fbbf69f-a24e-4f62-b0dd-f1ea56095f7e",
+      "source": "14b6bcdb-969f-44a7-b817-a47934cb8fe4",
+      "target": "deff0f80-c42f-4753-9d52-78ee44e86a64",
+      "sourcePort": "done"
+    }
+  ],
+  "testMode": {
+    "enabled": true,
+    "phone": "555592311146"
+  },
+  "loopLimit": 1
+}

@@ -16,7 +16,7 @@ import {
   type MetaCredentials,
 } from '@sdr/db';
 import { saveFlowSchema, memberRoleSchema, type FlowGraph, normalizeConversationStage, isPhoneNumberMatch, type FlowContext } from '@sdr/shared';
-import { catalog, validateGraph, replayFlow, runPlayground, executeFlow, MockLLMProvider, type FlowServices } from '@sdr/flow';
+import { catalog, validateGraph, replayFlow, runPlayground, executeFlow, MockLLMProvider, GoogleCalendarClient, type FlowServices } from '@sdr/flow';
 import { parseEvolutionWebhook, parseMetaWebhook, processInboundWebhook } from './webhook.js';
 import { ConnectionManager } from './whatsapp/connection-manager.js';
 import { EvolutionClient } from './whatsapp/evolution-client.js';
@@ -26,7 +26,7 @@ import { orgRateLimiter, publicRateLimiter } from './rate-limit.js';
 import { AlertMonitor } from './alerts/alert-monitor.js';
 import { createCalendarProvider, OpenAIProvider, type RuntimeConfig } from '@sdr/flow/server';
 import { secretMatches, verifyMetaSignature } from './whatsapp/webhook-auth.js';
-import { standaloneStore, type StoredFlow } from './storage.js';
+import { standaloneStore, type StoredFlow, type ExternalIntegration } from './storage.js';
 import { wsServer } from './ws.js';
 import { conversationDebugRegistry, type DebugFlowSnapshot } from './debug-session.js';
 import {
@@ -203,6 +203,60 @@ export function createApp(config: ApiConfig = {}): Express {
     } catch (err) {
       logger.error({ err }, 'Falha ao buscar instâncias da Evolution API');
       res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao comunicar com Evolution API.' });
+    }
+  });
+
+  // Cache para contatos e grupos da instância (TTL: 30s)
+  const targetsCache = new Map<string, { timestamp: number; data: any }>();
+
+  app.get('/api/connections/instances/:instanceName/targets', async (req, res) => {
+    try {
+      const { instanceName } = req.params;
+      const cached = targetsCache.get(instanceName);
+      if (cached && Date.now() - cached.timestamp < 30_000) {
+        res.json(cached.data);
+        return;
+      }
+
+      const client = getEvoClient(req.query.serverUrl as string, req.query.apiKey as string);
+
+      const [groups, chats] = await Promise.all([
+        client.fetchGroups(instanceName).catch(() => []),
+        client.fetchChats(instanceName).catch(() => []),
+      ]);
+
+      const formattedGroups = groups.map(g => ({
+        id: g.id,
+        jid: g.id,
+        name: g.subject || g.id,
+        type: 'group' as const,
+        size: g.size,
+      }));
+
+      const formattedContacts = chats
+        .filter(c => !c.id.endsWith('@g.us'))
+        .map(c => {
+          const cleanPhone = c.id.replace(/@.*$/, '');
+          return {
+            id: cleanPhone,
+            jid: c.id,
+            name: c.name || c.pushName || cleanPhone,
+            type: 'contact' as const,
+          };
+        });
+
+      const result = {
+        instanceName,
+        groups: formattedGroups,
+        contacts: formattedContacts,
+        timestamp: new Date().toISOString(),
+      };
+
+      targetsCache.set(instanceName, { timestamp: Date.now(), data: result });
+      res.json(result);
+    } catch (err) {
+      logger.error({ err, instance: req.params.instanceName }, 'Erro ao buscar destinatários da instância');
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao listar contatos/grupos' });
     }
   });
 
@@ -931,6 +985,207 @@ export function createApp(config: ApiConfig = {}): Express {
       }
     } catch (err) {
       res.status(500).json({ ok: false, error: err instanceof Error ? err.message : 'Falha ao testar conexão.' });
+    }
+  });
+
+  // =========================================================================
+  // CONEXÕES EXTERNAS & INTEGRAÇÕES MODULARES (Google Calendar, CRMs, etc.)
+  // =========================================================================
+
+  app.get('/api/integrations', (_req, res) => {
+    try {
+      const integrations = standaloneStore.listIntegrations();
+      // Sanitiza credenciais sensíveis antes de enviar ao frontend
+      const sanitized = integrations.map(item => ({
+        id: item.id,
+        provider: item.provider,
+        name: item.name,
+        status: item.status,
+        accountEmail: item.accountEmail,
+        connectedAt: item.connectedAt,
+        updatedAt: item.updatedAt,
+        hasRefreshToken: Boolean(item.credentials?.refresh_token),
+        hasAccessToken: Boolean(item.credentials?.access_token),
+        metadata: item.metadata || {},
+      }));
+      res.json(sanitized);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao listar integrações.' });
+    }
+  });
+
+  app.get('/api/integrations/google/auth-url', (req, res) => {
+    try {
+      const clientId = (req.query.clientId as string || process.env.GOOGLE_CLIENT_ID || '').trim();
+      const redirectUri = (req.query.redirectUri as string || `${req.protocol}://${req.get('host')}/api/integrations/google/callback`).trim();
+
+      if (!clientId) {
+        res.status(400).json({ error: 'Client ID do Google não configurado. Informe o Client ID nas configurações de Integrações.' });
+        return;
+      }
+
+      const scopes = [
+        'openid',
+        'https://www.googleapis.com/auth/userinfo.email',
+        'https://www.googleapis.com/auth/userinfo.profile',
+        'https://www.googleapis.com/auth/calendar',
+        'https://www.googleapis.com/auth/calendar.events',
+      ].join(' ');
+
+      const params = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: scopes,
+        access_type: 'offline',
+        prompt: 'consent',
+      });
+
+      const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+      res.json({ url, redirectUri });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao gerar URL de autorização Google.' });
+    }
+  });
+
+  app.post('/api/integrations/google/callback', async (req, res) => {
+    try {
+      const { code, clientId, clientSecret, redirectUri } = req.body;
+      const cId = (clientId || process.env.GOOGLE_CLIENT_ID || '').trim();
+      const cSecret = (clientSecret || process.env.GOOGLE_CLIENT_SECRET || '').trim();
+      const rUri = (redirectUri || `${req.protocol}://${req.get('host')}/api/integrations/google/callback`).trim();
+
+      if (!code) {
+        res.status(400).json({ error: 'Código de autorização (code) ausente.' });
+        return;
+      }
+      if (!cId || !cSecret) {
+        res.status(400).json({ error: 'Google Client ID e Client Secret são necessários para concluir a autenticação.' });
+        return;
+      }
+
+      // Troca code por access_token e refresh_token
+      const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code,
+          client_id: cId,
+          client_secret: cSecret,
+          redirect_uri: rUri,
+          grant_type: 'authorization_code',
+        }).toString(),
+      });
+
+      const tokens = await tokenResp.json();
+      if (!tokenResp.ok || tokens.error) {
+        res.status(400).json({ error: tokens.error_description || tokens.error || 'Falha ao trocar código por token no Google.' });
+        return;
+      }
+
+      // Busca dados do usuário (email da conta conectada)
+      let accountEmail = '';
+      try {
+        const userinfoResp = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: { Authorization: `Bearer ${tokens.access_token}` },
+        });
+        if (userinfoResp.ok) {
+          const userinfo = await userinfoResp.json();
+          accountEmail = userinfo.email || '';
+        }
+      } catch {
+        // Fallback silencioso
+      }
+
+      const integrationId = 'google_calendar_primary';
+      const saved = standaloneStore.saveIntegration({
+        id: integrationId,
+        provider: 'google_calendar',
+        name: accountEmail ? `Google Calendar (${accountEmail})` : 'Google Calendar',
+        status: 'connected',
+        accountEmail,
+        connectedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        credentials: {
+          client_id: cId,
+          client_secret: cSecret,
+          refresh_token: tokens.refresh_token,
+          access_token: tokens.access_token,
+          expires_at: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined,
+        },
+      });
+
+      res.json({
+        ok: true,
+        message: 'Google Calendar conectado com sucesso!',
+        integration: {
+          id: saved.id,
+          name: saved.name,
+          accountEmail: saved.accountEmail,
+          status: saved.status,
+        },
+      });
+    } catch (err) {
+      logger.error({ err }, 'Erro no callback do Google Calendar');
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha na autenticação com o Google.' });
+    }
+  });
+
+  // Conexão direta / manual (com credentials JSON ou tokens)
+  app.post('/api/integrations/google/connect', async (req, res) => {
+    try {
+      const { clientId, clientSecret, refreshToken, accessToken, accountEmail } = req.body;
+      if (!refreshToken && !accessToken) {
+        res.status(400).json({ error: 'Informe ao menos um Refresh Token ou Access Token válido.' });
+        return;
+      }
+
+      const integrationId = 'google_calendar_primary';
+      const saved = standaloneStore.saveIntegration({
+        id: integrationId,
+        provider: 'google_calendar',
+        name: accountEmail ? `Google Calendar (${accountEmail})` : 'Google Calendar',
+        status: 'connected',
+        accountEmail: accountEmail || 'Conta Google Conectada',
+        connectedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        credentials: {
+          client_id: clientId,
+          client_secret: clientSecret,
+          refresh_token: refreshToken,
+          access_token: accessToken,
+        },
+      });
+
+      res.json({ ok: true, integration: saved });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao salvar integração.' });
+    }
+  });
+
+  app.delete('/api/integrations/:id', (req, res) => {
+    try {
+      const success = standaloneStore.deleteIntegration(req.params.id);
+      res.json({ ok: success });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao desconectar integração.' });
+    }
+  });
+
+  app.get('/api/integrations/google/calendars', async (_req, res) => {
+    try {
+      const integration = standaloneStore.getIntegrationByProvider('google_calendar');
+      if (!integration || integration.status !== 'connected' || !integration.credentials) {
+        res.status(404).json({ error: 'Nenhuma conexão ativa com o Google Calendar encontrada.' });
+        return;
+      }
+
+      const client = new GoogleCalendarClient(globalThis.fetch, integration.credentials);
+      const calendars = await client.listCalendarList();
+      res.json(calendars);
+    } catch (err) {
+      logger.error({ err }, 'Falha ao listar calendários do Google');
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao listar calendários da conta conectada.' });
     }
   });
 

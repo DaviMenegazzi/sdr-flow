@@ -68,19 +68,61 @@ export const executors: Record<NodeType, NodeExecutor> = {
   // --- GUARDS ---
   'guard.test_mode': async (ctx, config, _services) => {
     if (!config.enabled) {
-      return { port: 'pass', output: { testMode: false } };
+      return { port: 'pass', output: { testMode: false, disabled: true } };
     }
-    const leadPhone = ctx.lead?.phone || '';
-    const allowed = Array.isArray(config.allowedPhones) && config.allowedPhones.some(
-      (phone: string) => isPhoneNumberMatch(leadPhone, phone)
+
+    const leadPhone = ctx.lead?.phone || String(ctx.variables.senderPhone || '');
+    const isGroup = Boolean(
+      ctx.variables.isGroup ||
+      leadPhone.includes('@g.us') ||
+      (typeof ctx.variables.remoteJid === 'string' && ctx.variables.remoteJid.endsWith('@g.us'))
+    );
+    const incomingGroupId = String(
+      ctx.variables.groupId ||
+      (typeof ctx.variables.remoteJid === 'string' && ctx.variables.remoteJid.endsWith('@g.us') ? ctx.variables.remoteJid : '') ||
+      (leadPhone.includes('@g.us') ? leadPhone : '')
     );
 
-    if (allowed) {
-      return { port: 'pass', output: { allowed: true, phone: leadPhone } };
+    const allowedPhones: string[] = Array.isArray(config.allowedPhones) ? config.allowedPhones : [];
+    const allowedGroups: string[] = Array.isArray(config.allowedGroups) ? config.allowedGroups : [];
+
+    // Se a mensagem partiu de um grupo
+    if (isGroup) {
+      const groupMatched = allowedGroups.some(g => {
+        if (!g) return false;
+        const cleanIncoming = incomingGroupId.replace(/@g\.us$/, '').trim().toLowerCase();
+        const cleanAllowed = g.replace(/@g\.us$/, '').trim().toLowerCase();
+        return cleanIncoming === cleanAllowed || incomingGroupId.toLowerCase() === g.toLowerCase();
+      });
+
+      if (groupMatched) {
+        return { port: 'pass', output: { allowed: true, isGroup: true, groupId: incomingGroupId } };
+      }
+      return {
+        port: 'blocked',
+        output: {
+          allowed: false,
+          isGroup: true,
+          groupId: incomingGroupId,
+          reason: 'Grupo não autorizado no filtro de conexão',
+        },
+      };
     }
+
+    // Se a mensagem partiu de um contato direto
+    const phoneMatched = allowedPhones.some((phone: string) => isPhoneNumberMatch(leadPhone, phone));
+    if (phoneMatched) {
+      return { port: 'pass', output: { allowed: true, isGroup: false, phone: leadPhone } };
+    }
+
     return {
       port: 'blocked',
-      output: { allowed: false, phone: leadPhone, reason: 'Telefone não autorizado no modo teste' },
+      output: {
+        allowed: false,
+        isGroup: false,
+        phone: leadPhone,
+        reason: 'Telefone não autorizado no filtro de conexão',
+      },
     };
   },
 
@@ -820,26 +862,61 @@ export const executors: Record<NodeType, NodeExecutor> = {
   // --- OUTPUT ---
   'output.send_text': async (ctx, config, services) => {
     const text = interpolate(config.text, ctx);
-    const phone = ctx.lead?.phone || '';
+    const activePhone = ctx.lead?.phone || '';
+    const targetMode = config.targetMode || 'active_lead';
+    const rawTargets: string[] = Array.isArray(config.targets) ? config.targets : [];
 
-    let messageId = '';
-    if (text && phone && services.messaging) {
-      const res = await services.messaging.sendText(ctx.connectionId, phone, text, {
-        typing: config.typing ?? true,
-      });
-      messageId = res.messageId;
+    const destinations = new Set<string>();
 
-      if (services.db) {
-        await services.db.saveMessage(ctx.organizationId, ctx.connectionId, ctx.conversationId, {
-          sender: 'ai',
-          direction: 'OUTBOUND',
-          content: text,
-          providerMessageId: messageId,
-        });
+    if (targetMode === 'active_lead' || targetMode === 'both') {
+      if (activePhone) destinations.add(activePhone);
+    }
+
+    if (targetMode === 'specific_targets' || targetMode === 'both') {
+      for (const t of rawTargets) {
+        if (typeof t === 'string' && t.trim()) {
+          const resolved = interpolate(t.trim(), ctx);
+          if (resolved) destinations.add(resolved);
+        }
       }
     }
 
-    return { port: 'next', output: { sent: Boolean(text), messageId, text } };
+    const sentMessageIds: string[] = [];
+
+    if (text && services.messaging && destinations.size > 0) {
+      for (const dest of destinations) {
+        try {
+          const res = await services.messaging.sendText(ctx.connectionId, dest, text, {
+            typing: config.typing ?? true,
+          });
+          if (res.messageId) {
+            sentMessageIds.push(res.messageId);
+          }
+
+          // Grava no banco se o destino for a conversa ativa
+          if (services.db && dest === activePhone) {
+            await services.db.saveMessage(ctx.organizationId, ctx.connectionId, ctx.conversationId, {
+              sender: 'ai',
+              direction: 'OUTBOUND',
+              content: text,
+              providerMessageId: res.messageId,
+            });
+          }
+        } catch {
+          // Continua para os demais destinatários se houver falha em um
+        }
+      }
+    }
+
+    return {
+      port: 'next',
+      output: {
+        sent: sentMessageIds.length > 0,
+        messageIds: sentMessageIds,
+        destinations: Array.from(destinations),
+        text,
+      },
+    };
   },
 
   'output.send_media': async (ctx, config, services) => {

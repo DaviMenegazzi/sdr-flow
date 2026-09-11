@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ReactFlow, ReactFlowProvider, Background, MiniMap, Controls, useReactFlow, useNodesInitialized, type Connection } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
-import { ArrowLeft, CheckCheck, ChevronRight, Download, FileJson, LayoutGrid, Play, Plus, Redo2, Repeat, Save, Search, Trash2, Undo2, Upload, X, ShieldAlert, CheckCircle2, Radio, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, CheckCheck, ChevronRight, Download, FileJson, LayoutGrid, Play, Plus, Redo2, Repeat, Save, Search, Trash2, Undo2, Upload, X, ShieldAlert, CheckCircle2, Radio, AlertTriangle, Bot, Network } from 'lucide-react';
+import { PromptsView } from './PromptsView';
+import { VariablesView } from './VariablesView';
 import { Link } from 'react-router-dom';
 import { flowGraphSchema, flowTestModeSchema, nodeTypeSchema, type FlowGraph } from '@sdr/shared';
 import { catalog, categories, categoryColors, createBlankFlow, createSdrTemplate, validateGraph } from '@sdr/flow';
@@ -41,6 +43,7 @@ function Editor() {
   const [fitRequested, setFitRequested] = useState(false);
   const [measurements, setMeasurements] = useState<Record<string, { width: number; height: number }>>({});
   const { session, activeOrg, organizations } = useSession();
+  const [activeTab, setActiveTab] = useState<'canvas' | 'prompts' | 'variables'>('canvas');
   const [query, setQuery] = useState('');
   const [notice, setNotice] = useState('');
   const [showValidation, setShowValidation] = useState(false);
@@ -406,8 +409,117 @@ function Editor() {
           </div>
         </div>
       </header>
+      {/* Abas Superiores do Builder (Visual, Prompts, Variáveis) */}
+      <div
+        className="builder-tabs-bar"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 24px',
+          background: 'var(--color-bg-primary)',
+          borderBottom: '1px solid var(--color-border-secondary)',
+          gap: 4,
+          flexShrink: 0,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setActiveTab('canvas')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 7,
+            padding: '10px 16px',
+            fontSize: 13,
+            fontWeight: activeTab === 'canvas' ? 600 : 500,
+            color: activeTab === 'canvas' ? 'var(--color-bg-accent, #464feb)' : 'var(--color-text-secondary)',
+            border: 'none',
+            borderBottom: activeTab === 'canvas' ? '2px solid var(--color-bg-accent, #464feb)' : '2px solid transparent',
+            borderRadius: 0,
+            background: 'transparent',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <LayoutGrid size={15} />
+          <span>Construtor Visual</span>
+        </button>
 
-      {/* Barra de Configuração do Modo Teste */}
+        <button
+          type="button"
+          onClick={() => setActiveTab('prompts')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 7,
+            padding: '10px 16px',
+            fontSize: 13,
+            fontWeight: activeTab === 'prompts' ? 600 : 500,
+            color: activeTab === 'prompts' ? 'var(--color-bg-accent, #464feb)' : 'var(--color-text-secondary)',
+            border: 'none',
+            borderBottom: activeTab === 'prompts' ? '2px solid var(--color-bg-accent, #464feb)' : '2px solid transparent',
+            borderRadius: 0,
+            background: 'transparent',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <Bot size={15} />
+          <span>Prompts & Conhecimento</span>
+          <span
+            style={{
+              fontSize: 10,
+              padding: '2px 7px',
+              borderRadius: 10,
+              background: activeTab === 'prompts' ? '#464feb15' : 'var(--color-bg-secondary)',
+              color: activeTab === 'prompts' ? 'var(--color-bg-accent, #464feb)' : 'var(--color-text-secondary)',
+              fontWeight: 700,
+            }}
+          >
+            {graph.nodes.filter(n => typeof n.config.prompt === 'string' || typeof n.config.system === 'string' || n.type === 'context.knowledge' || n.type === 'output.send_text').length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('variables')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 7,
+            padding: '10px 16px',
+            fontSize: 13,
+            fontWeight: activeTab === 'variables' ? 600 : 500,
+            color: activeTab === 'variables' ? 'var(--color-bg-accent, #464feb)' : 'var(--color-text-secondary)',
+            border: 'none',
+            borderBottom: activeTab === 'variables' ? '2px solid var(--color-bg-accent, #464feb)' : '2px solid transparent',
+            borderRadius: 0,
+            background: 'transparent',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <Network size={15} />
+          <span>Mapa de Variáveis</span>
+        </button>
+      </div>
+
+
+      {activeTab === 'prompts' && (
+        <div style={{ flex: 1, minHeight: 0, background: 'var(--color-bg-primary)', overflow: 'hidden' }}>
+          <PromptsView onSelectNodeInCanvas={nodeId => { setActiveTab('canvas'); focusNode(nodeId); }} />
+        </div>
+      )}
+
+      {activeTab === 'variables' && (
+        <div style={{ flex: 1, minHeight: 0, background: 'var(--color-bg-primary)', overflow: 'hidden' }}>
+          <VariablesView onSelectNodeInCanvas={nodeId => { setActiveTab('canvas'); focusNode(nodeId); }} />
+        </div>
+      )}
+
+      {activeTab === 'canvas' && (
+        <>
+          {/* Barra de Configuração do Modo Teste */}
       <section
         aria-label="Configuração do Modo Teste"
         style={{
@@ -784,6 +896,8 @@ function Editor() {
           )}
         </aside>
       </div>
+        </>
+      )}
 
       <footer className="statusbar">
         <span>

@@ -118,6 +118,19 @@ export class GoogleCalendarClient {
       { method: 'DELETE' },
     );
   }
+
+  async listCalendarList(): Promise<Array<{ id: string; summary: string; primary?: boolean; description?: string }>> {
+    const payload = await this.request<{ items?: Array<{ id?: string; summary?: string; primary?: boolean; description?: string }> }>(
+      '/users/me/calendarList',
+    );
+    if (!payload?.items) return [];
+    return payload.items.map(c => ({
+      id: c.id || 'primary',
+      summary: c.summary || c.id || 'Calendário',
+      primary: Boolean(c.primary),
+      description: c.description,
+    }));
+  }
 }
 
 export function parseGoogleCalendarCredentials(raw: unknown): GoogleCalendarCredentials {

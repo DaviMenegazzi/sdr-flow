@@ -1,0 +1,480 @@
+{
+  "schemaVersion": 1,
+  "nodes": [
+    {
+      "id": "start",
+      "type": "trigger.message_received",
+      "label": "Mensagem recebida",
+      "position": { "x": 0, "y": 300 },
+      "config": {}
+    },
+    {
+      "id": "test_mode",
+      "type": "guard.test_mode",
+      "label": "Modo teste",
+      "position": { "x": 280, "y": 300 },
+      "config": {
+        "enabled": true,
+        "allowedPhones": ["555592311146"]
+      }
+    },
+    {
+      "id": "end_blocked",
+      "type": "output.end",
+      "label": "Fim (bloqueado)",
+      "position": { "x": 280, "y": 100 },
+      "config": {}
+    },
+    {
+      "id": "guard_human",
+      "type": "guard.human_takeover",
+      "label": "Humano ativo?",
+      "position": { "x": 560, "y": 300 },
+      "config": {}
+    },
+    {
+      "id": "buffer",
+      "type": "input.buffer",
+      "label": "Agrupar (5s)",
+      "position": { "x": 840, "y": 300 },
+      "config": {
+        "windowSeconds": 5
+      }
+    },
+    {
+      "id": "media",
+      "type": "input.media",
+      "label": "Áudio e imagem",
+      "position": { "x": 1120, "y": 300 },
+      "config": {
+        "transcribeAudio": true,
+        "describeImages": true
+      }
+    },
+    {
+      "id": "memory",
+      "type": "context.memory",
+      "label": "Memória comercial",
+      "position": { "x": 1400, "y": 300 },
+      "config": {
+        "recentMessages": 15
+      }
+    },
+    {
+      "id": "storage",
+      "type": "context.storage",
+      "label": "Regras Vida Card",
+      "position": { "x": 1680, "y": 300 },
+      "config": {
+        "content": "{\"brand\":\"Vida Card\",\"tipo\":\"Cartão de descontos em saúde. Não é plano de saúde.\",\"regras\":[\"Responder rápido e direto ao que o lead perguntou.\",\"Max 2 frases curtas, 350 caracteres.\",\"Uma pergunta por vez, só quando necessária.\",\"Nunca repetir saudação, nome, pergunta ou explicação já dita.\",\"Se irritação ou correção: reconhecer, resolver, sem pitch.\",\"Se pedir humano ou irritação repetida: handoff.\"],\"precos\":\"Informar valor direto se a base retornar resultado.\",\"proibido\":[\"consultas gratuitas\",\"consultas ilimitadas\",\"exames ilimitados\",\"clínicas próprias\",\"coparticipação\"]}",
+        "variableName": "regras",
+        "outputPorts": ["next"]
+      }
+    },
+    {
+      "id": "knowledge",
+      "type": "context.knowledge",
+      "label": "Preços & Catálogo",
+      "position": { "x": 1960, "y": 300 },
+      "config": {
+        "collection": "pricing",
+        "topK": 5,
+        "threshold": 0.55
+      }
+    },
+    {
+      "id": "extract",
+      "type": "agent.extract",
+      "label": "Extrair dados",
+      "position": { "x": 2240, "y": 300 },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Leia {{recentMessages}}, {{commercialMemory}} e {{mediaEnrichedText}}.\nAtualize decision.lead_data preservando dados anteriores.\n\nCampos: name, city, interest, urgency, notes, custom_fields\nEm custom_fields quando aplicável: specialty, service, exam, dependents, desired_day, desired_date, desired_period, period, selected_slot_iso\n\nREGRAS\n- Nunca apague dado anterior com vazio/null.\n- Interprete respostas curtas pela última pergunta do atendente.\n- interest = assunto atual resumido.\n- notes = resumo comercial cumulativo e curto.\n- Se identificar desired_period, copie em period.\n- Se lead escolher horário e desired_date existir (YYYY-MM-DD), gere selected_slot_iso (ISO 8601).\n- Não invente dados. Não gere resposta ao lead.\n- Em notes, remova referências a problemas internos do sistema (ex: 'reparo', 'dispositivo com problema intermitente', 'REPARO') que não vieram do lead. Mantenha apenas informações comerciais reais."
+      }
+    },
+    {
+      "id": "update_lead",
+      "type": "action.update_lead",
+      "label": "Salvar lead",
+      "position": { "x": 2520, "y": 300 },
+      "config": {
+        "source": "decision.lead_data"
+      }
+    },
+    {
+      "id": "required",
+      "type": "flow.required_fields",
+      "label": "Campos obrigatórios",
+      "position": { "x": 2800, "y": 300 },
+      "config": {
+        "required": ["interest"],
+        "optional": ["city", "specialty", "desired_day", "desired_period"]
+      }
+    },
+    {
+      "id": "next_action",
+      "type": "agent.next_action",
+      "label": "Decidir ação",
+      "position": { "x": 3080, "y": 300 },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Escolha UMA ação comercial. Você NÃO redige a resposta.\n\nMemória: {{commercialMemory}}\nDados extraídos: {{decision.lead_data}}\nHistórico: {{recentMessages}}\nCampos faltantes: {{required_fields.missing}}\nPreços: {{context.knowledge}}\nRegras: {{regras}}\n\nDECISÃO\n- Mensagem mais recente prevalece.\n- Confirmaçoes curtas (\"sim\", \"não\", \"ok\", \"oi\", \"alou\") = resposta à última pergunta do atendente no histórico. Se o histórico só mostra a mensagem do lead sem a pergunta anterior, assuma que o lead está confirmando interesse e use SEND_INFORMATION.\n- Saudações simples (\"oi\", \"olá\", \"alou\", \"bom dia\") sem contexto prévio = SEND_INFORMATION (saudação).\n- Ignore referências a 'reparo' ou 'dispositivo com problema' que apareçam apenas no notes/memória e não na mensagem atual do lead.\n- Pedido de humano → HANDOFF.\n- Irritação ou correção → SEND_INFORMATION (reason: descreva o problema em poucas palavras).\n- Irritação repetida → HANDOFF.\n- Falta campo essencial → ASK_MISSING_FIELD (indique qual).\n- Lead pediu preço e existe na base → SHOW_PRICE.\n- Tem cidade + especialidade/serviço e quer agendar → CHECK_CALENDAR.\n- selected_slot_iso preenchido → CREATE_APPOINTMENT.\n- Lead quer informação → SEND_INFORMATION.\n- Sem próximo passo → END.\n\nO campo reason é nota interna curta (max 15 palavras). Nunca escreva nele o texto da resposta.",
+        "system": "Escolha uma ação. reason = nota interna curta, não a resposta ao lead.",
+        "allowedActions": [
+          "ASK_MISSING_FIELD",
+          "SHOW_PRICE",
+          "CHECK_CALENDAR",
+          "CREATE_APPOINTMENT",
+          "SEND_INFORMATION",
+          "HANDOFF",
+          "END"
+        ]
+      }
+    },
+    {
+      "id": "route",
+      "type": "flow.switch",
+      "label": "Rotear ação",
+      "position": { "x": 3360, "y": 300 },
+      "config": {
+        "variable": "next_action.action",
+        "cases": [
+          "ASK_MISSING_FIELD",
+          "SHOW_PRICE",
+          "CHECK_CALENDAR",
+          "CREATE_APPOINTMENT",
+          "SEND_INFORMATION",
+          "HANDOFF",
+          "END"
+        ]
+      }
+    },
+    {
+      "id": "availability",
+      "type": "calendar.availability",
+      "label": "Consultar horários",
+      "position": { "x": 3640, "y": 50 },
+      "config": {
+        "calendarId": "primary",
+        "date": "{{commercialMemory.custom_fields.desired_date}}",
+        "period": "{{lead.memory.custom_fields.period}}",
+        "durationMinutes": 30,
+        "timezone": "America/Sao_Paulo",
+        "daysAhead": 14
+      }
+    },
+    {
+      "id": "create_event",
+      "type": "calendar.create_event",
+      "label": "Criar agendamento",
+      "position": { "x": 3640, "y": 500 },
+      "config": {
+        "calendarId": "primary",
+        "start": "{{commercialMemory.custom_fields.selected_slot_iso}}",
+        "durationMinutes": 30,
+        "timezone": "America/Sao_Paulo",
+        "title": "Vida Card - {{lead.interest}} - {{lead.name}}",
+        "description": "Pré-agendamento via SDR Flow. Confirmar com o lead.",
+        "leadName": "{{lead.name}}",
+        "leadPhone": "{{lead.phone}}"
+      }
+    },
+    {
+      "id": "writer",
+      "type": "agent.decide",
+      "label": "Redigir resposta",
+      "position": { "x": 3920, "y": 150 },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Redija UMA resposta curta ao lead.\n\nAção: {{next_action.action}}\nCampo: {{next_action.field}}\nNota interna (não copiar): {{next_action.reason}}\nMemória: {{commercialMemory}}\nHistórico: {{recentMessages}}\nPreços: {{context.knowledge}}\nRegras: {{regras}}\nHorários: {{calendar.slots}}\nPrimeiro livre: {{calendar.first_available}}\nEvento criado: {{calendar.event_id}}\nViolações: {{response_policy.violations}}\n\nFORMA\n- Max 2 frases, 350 caracteres.\n- Não repita saudação, nome, pergunta ou explicação.\n- Nunca inclua tags internas ou metadados na resposta.\n- Não copie o reason; use só como orientação.\n- Nunca mencione 'reparo', 'reparos' ou 'dispositivo com problema' ao lead. Se o notes contiver essas referências, ignore-as.\n\nPOR AÇÃO\n- ASK_MISSING_FIELD: pergunte só o campo indicado.\n- SHOW_PRICE: informe valor da base + próximo passo.\n- SEND_INFORMATION: responda direto. Se irritação, reconheça e resolva sem pitch.\n- CHECK_CALENDAR: ofereça até 3 horários ou peça outra data.\n- CREATE_APPOINTMENT: confirme só se calendar.event_id existir.\n- Se reescrevendo, corrija só as violações.",
+        "system": "SDR pré-vendas no WhatsApp. Linguagem humana, curta, direta. Max 350 chars, 2 frases. Não pareça robô. Não invente preço, horário ou benefício. Nunca use tags internas na resposta. Vida Card é cartão de descontos em saúde, não plano."
+      }
+    },
+    {
+      "id": "policy",
+      "type": "guard.response_policy",
+      "label": "Validar resposta",
+      "position": { "x": 4200, "y": 150 },
+      "config": {
+        "text": "{{decision.reply}}",
+        "maxCharacters": 350,
+        "knownFields": ["name", "city", "interest", "specialty", "desired_day", "desired_period"],
+        "blockedTerms": [
+          "consultas gratuitas",
+          "consultas ilimitadas",
+          "exames ilimitados",
+          "clínicas próprias",
+          "coparticipação",
+          "REPARO:",
+          "ASK_MISSING_FIELD",
+          "SHOW_PRICE",
+          "SEND_INFORMATION",
+          "CHECK_CALENDAR",
+          "CREATE_APPOINTMENT",
+          "HANDOFF"
+        ],
+        "requireGroundedPrice": true
+      }
+    },
+    {
+      "id": "smart",
+      "type": "output.smart_message",
+      "label": "Enviar mensagem",
+      "position": { "x": 4480, "y": 150 },
+      "config": {
+        "text": "{{response_policy.message}}",
+        "typing": true,
+        "maxBubbles": 1,
+        "maxCharactersPerBubble": 350
+      }
+    },
+    {
+      "id": "smart_fallback",
+      "type": "output.smart_message",
+      "label": "Aviso antes handoff",
+      "position": { "x": 4480, "y": 350 },
+      "config": {
+        "text": "Vou te encaminhar para nossa equipe pra te ajudar melhor. Um momento!",
+        "typing": true,
+        "maxBubbles": 1,
+        "maxCharactersPerBubble": 350
+      }
+    },
+    {
+      "id": "handoff",
+      "type": "action.handoff",
+      "label": "Transferir p/ humano",
+      "position": { "x": 4760, "y": 450 },
+      "config": {
+        "reason": "{{next_action.reason}}"
+      }
+    },
+    {
+      "id": "end",
+      "type": "output.end",
+      "label": "Encerrar fluxo",
+      "position": { "x": 4760, "y": 300 },
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e01",
+      "source": "start",
+      "target": "test_mode",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e02",
+      "source": "test_mode",
+      "target": "guard_human",
+      "sourcePort": "pass"
+    },
+    {
+      "id": "e03",
+      "source": "test_mode",
+      "target": "end_blocked",
+      "sourcePort": "blocked"
+    },
+    {
+      "id": "e04",
+      "source": "guard_human",
+      "target": "buffer",
+      "sourcePort": "pass"
+    },
+    {
+      "id": "e05",
+      "source": "guard_human",
+      "target": "end",
+      "sourcePort": "blocked"
+    },
+    {
+      "id": "e06",
+      "source": "buffer",
+      "target": "media",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e07",
+      "source": "media",
+      "target": "memory",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e08",
+      "source": "memory",
+      "target": "storage",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e09",
+      "source": "storage",
+      "target": "knowledge",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e10",
+      "source": "knowledge",
+      "target": "extract",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e11",
+      "source": "extract",
+      "target": "update_lead",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e12",
+      "source": "update_lead",
+      "target": "required",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e13",
+      "source": "required",
+      "target": "next_action",
+      "sourcePort": "complete"
+    },
+    {
+      "id": "e14",
+      "source": "required",
+      "target": "next_action",
+      "sourcePort": "missing"
+    },
+    {
+      "id": "e15",
+      "source": "next_action",
+      "target": "route",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e16",
+      "source": "route",
+      "target": "writer",
+      "sourcePort": "ASK_MISSING_FIELD"
+    },
+    {
+      "id": "e17",
+      "source": "route",
+      "target": "writer",
+      "sourcePort": "SHOW_PRICE"
+    },
+    {
+      "id": "e18",
+      "source": "route",
+      "target": "writer",
+      "sourcePort": "SEND_INFORMATION"
+    },
+    {
+      "id": "e19",
+      "source": "route",
+      "target": "availability",
+      "sourcePort": "CHECK_CALENDAR"
+    },
+    {
+      "id": "e20",
+      "source": "route",
+      "target": "create_event",
+      "sourcePort": "CREATE_APPOINTMENT"
+    },
+    {
+      "id": "e21",
+      "source": "route",
+      "target": "smart_fallback",
+      "sourcePort": "HANDOFF"
+    },
+    {
+      "id": "e22",
+      "source": "route",
+      "target": "end",
+      "sourcePort": "END"
+    },
+    {
+      "id": "e23",
+      "source": "route",
+      "target": "smart_fallback",
+      "sourcePort": "default"
+    },
+    {
+      "id": "e24",
+      "source": "availability",
+      "target": "writer",
+      "sourcePort": "available"
+    },
+    {
+      "id": "e25",
+      "source": "availability",
+      "target": "writer",
+      "sourcePort": "unavailable"
+    },
+    {
+      "id": "e26",
+      "source": "availability",
+      "target": "smart_fallback",
+      "sourcePort": "error"
+    },
+    {
+      "id": "e27",
+      "source": "create_event",
+      "target": "writer",
+      "sourcePort": "created"
+    },
+    {
+      "id": "e28",
+      "source": "create_event",
+      "target": "smart_fallback",
+      "sourcePort": "error"
+    },
+    {
+      "id": "e29",
+      "source": "writer",
+      "target": "policy",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e30",
+      "source": "policy",
+      "target": "smart",
+      "sourcePort": "pass"
+    },
+    {
+      "id": "e31",
+      "source": "policy",
+      "target": "writer",
+      "sourcePort": "rewrite"
+    },
+    {
+      "id": "e32",
+      "source": "policy",
+      "target": "smart_fallback",
+      "sourcePort": "blocked"
+    },
+    {
+      "id": "e33",
+      "source": "smart",
+      "target": "end",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e34",
+      "source": "smart_fallback",
+      "target": "handoff",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e35",
+      "source": "handoff",
+      "target": "end",
+      "sourcePort": "next"
+    }
+  ],
+  "testMode": {
+    "enabled": true,
+    "phone": "555592311146"
+  },
+  "loopLimit": 2
+}

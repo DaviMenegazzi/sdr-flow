@@ -378,7 +378,12 @@ export async function processInboundWebhook(
         type: incoming.messageType,
         mediaUrl: incoming.mediaUrl,
       })),
-      variables: {},
+      variables: {
+        remoteJid: event.remoteJid,
+        isGroup: Boolean(event.remoteJid?.endsWith('@g.us') || (event as any).isGroup),
+        groupId: event.remoteJid?.endsWith('@g.us') ? event.remoteJid : undefined,
+        senderPhone: event.phone,
+      },
       tokens: { input: 0, output: 0 },
     };
 

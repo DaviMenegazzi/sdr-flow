@@ -1,0 +1,262 @@
+{
+  "schemaVersion": 1,
+  "nodes": [
+    {
+      "id": "start",
+      "type": "trigger.message_received",
+      "label": "Mensagem recebida",
+      "position": { "x": 0, "y": 260 },
+      "config": {}
+    },
+    {
+      "id": "guard_human",
+      "type": "guard.human_takeover",
+      "label": "Atendimento humano ativo?",
+      "position": { "x": 260, "y": 260 },
+      "config": {}
+    },
+    {
+      "id": "buffer",
+      "type": "input.buffer",
+      "label": "Agrupar mensagens (8s)",
+      "position": { "x": 520, "y": 260 },
+      "config": {
+        "windowSeconds": 8
+      }
+    },
+    {
+      "id": "media",
+      "type": "input.media",
+      "label": "Processar áudio e imagem",
+      "position": { "x": 780, "y": 260 },
+      "config": {
+        "transcribeAudio": true,
+        "describeImages": true
+      }
+    },
+    {
+      "id": "memory",
+      "type": "context.memory",
+      "label": "Memória comercial",
+      "position": { "x": 1040, "y": 260 },
+      "config": {
+        "recentMessages": 12
+      }
+    },
+    {
+      "id": "storage",
+      "type": "context.storage",
+      "label": "Contexto interno Vida Card",
+      "position": { "x": 1300, "y": 260 },
+      "config": {
+        "content": "{\"brand\":\"Vida Card\",\"positioning\":\"Cartão de descontos em saúde; não é plano de saúde.\",\"debounce_policy\":{\"quiet_window_seconds\":8,\"instruction\":\"Tratar todas as mensagens recebidas na janela como uma única fala e responder uma única vez.\"},\"conversation_rules\":[\"Responder primeiro ao que o lead acabou de dizer.\",\"Enviar uma única mensagem com no máximo duas frases curtas e 350 caracteres.\",\"Fazer no máximo uma pergunta, apenas quando necessária para o próximo passo.\",\"Nunca repetir saudação, nome, pergunta, explicação ou CTA já usado.\",\"Uma correção ou irritação do lead interrompe o avanço comercial: reconhecer brevemente e resolver o ponto sem reapresentar o produto.\",\"Pedido explícito de humano ou irritação repetida deve gerar handoff.\",\"Interpretar confirmações curtas pela última pergunta do atendente.\",\"Não usar CTA genérico quando existir um próximo passo concreto.\"],\"pricing_rule\":\"Se a coleção pricing retornar um valor aplicável, informar o valor diretamente antes de nova pergunta ou handoff.\",\"flows\":{\"cartao\":[\"necessidade\",\"cidade_quando_necessaria\",\"preco_modalidade\",\"contratacao\"],\"consulta\":[\"cidade\",\"especialidade\",\"preco_condicao\",\"agendamento\"],\"exames\":[\"cidade\",\"exame\",\"preco_condicao\",\"agendamento\"],\"odontologia\":[\"cidade\",\"tratamento\",\"condicao\",\"avaliacao_agendamento\"],\"empresarial\":[\"cidade\",\"empresa\",\"colaboradores\",\"decisor\",\"proposta\"],\"franquia\":[\"cidade_regiao\",\"perfil_decisor\",\"momento\",\"apresentacao\"],\"parceria\":[\"cidade\",\"tipo_parceiro\",\"objetivo\",\"encaminhamento\"]},\"forbidden_commercial_claims\":[\"consultas gratuitas\",\"consultas ilimitadas\",\"exames ilimitados\",\"clínicas próprias\",\"coparticipação\"]}",
+        "variableName": "vida_context",
+        "outputPorts": ["next"]
+      }
+    },
+    {
+      "id": "extract",
+      "type": "agent.extract",
+      "label": "Extrair e atualizar dados",
+      "position": { "x": 1560, "y": 260 },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Leia a mensagem atual, {{recentMessages}}, {{commercialMemory}} e {{mediaEnrichedText}}.\n\nAtualize decision.lead_data preservando tudo que já estiver salvo.\n\nUse os campos persistentes:\nname\ncity\ninterest\nurgency\nstage_intent\nnotes\ncustom_fields\n\nEm custom_fields, use quando aplicável:\nspecialty\nservice\nexam\ndependents\ncard_status\ndesired_day\ndesired_date\ndesired_period\nperiod\nselected_time\nselected_slot_iso\ncompany_name\nemployee_count\ndecision_role\nfranchise_city\npartner_area\ncalendar_event_id\n\nREGRAS\n- Considere as mensagens agrupadas como uma única fala; a informação mais recente corrige a anterior.\n- Nunca apague um dado antigo preenchido com vazio/null.\n- Interprete respostas curtas usando a última pergunta do atendente.\n- Quando identificar desired_period, salve o mesmo valor também em period para uso da agenda.\n- interest deve resumir o assunto atual, sem transformar reclamação ou irritação em interesse comercial.\n- notes deve manter um resumo comercial cumulativo e curto, registrando correções factuais relevantes sem rotular o lead.\n- Se o lead escolher um horário e já existir desired_date em YYYY-MM-DD, gere selected_slot_iso em ISO 8601.\n- Não invente preço, data, especialidade, agenda ou informação comercial.\n- Não gere resposta ao lead."
+      }
+    },
+    {
+      "id": "update_lead",
+      "type": "action.update_lead",
+      "label": "Salvar memória do lead",
+      "position": { "x": 1820, "y": 260 },
+      "config": {
+        "source": "decision.lead_data"
+      }
+    },
+    {
+      "id": "pricing",
+      "type": "context.knowledge",
+      "label": "Preços & Planos",
+      "position": { "x": 2080, "y": 260 },
+      "config": {
+        "collection": "pricing",
+        "topK": 5,
+        "threshold": 0.55
+      }
+    },
+    {
+      "id": "required",
+      "type": "flow.required_fields",
+      "label": "Campos obrigatórios",
+      "position": { "x": 2340, "y": 260 },
+      "config": {
+        "required": ["interest"],
+        "optional": ["city", "specialty", "desired_day", "desired_period"]
+      }
+    },
+    {
+      "id": "next_action",
+      "type": "agent.next_action",
+      "label": "Próxima ação",
+      "position": { "x": 2600, "y": 260 },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Você decide a PRÓXIMA AÇÃO comercial do Vida Card, não a redação.\n\nContexto:\nMemória anterior: {{commercialMemory}}\nDados extraídos nesta execução: {{decision.lead_data}}\nHistórico: {{recentMessages}}\nCampos faltantes: {{required_fields.missing}}\nBase Preços & Planos: {{context.knowledge}}\nContexto interno: {{vida_context}}\n\nPRIORIDADE DE CONVERSA\n- Trate mensagens agrupadas na janela como uma única fala e escolha somente uma ação para o conjunto.\n- A mensagem mais recente prevalece sobre uma intenção parcial anterior.\n- Se houver pedido explícito de atendente humano, escolha HANDOFF.\n- Se houver irritação ou correção do lead pela primeira vez, escolha SEND_INFORMATION e comece reason com \"REPARO:\"; a resposta deve reparar o ponto sem avançar a venda.\n- Se a irritação se repetir no histórico ou não houver solução segura, escolha HANDOFF.\n- Não escolha END como resposta a uma correção ou reclamação; silêncio nesse caso piora a conversa.\n- Interprete \"sim\", \"não\" e confirmações curtas pela última pergunta do atendente.\n\nREGRAS COMERCIAIS\n- Nunca peça novamente um campo já conhecido.\n- Se o lead pediu preço e existe valor aplicável em context.knowledge, escolha SHOW_PRICE.\n- Se o lead quer consulta, exame ou odonto e faltam cidade, especialidade ou serviço necessários, escolha ASK_MISSING_FIELD e indique somente o primeiro campo realmente necessário.\n- Se já houver cidade e serviço ou especialidade e o lead quer verificar horários, escolha CHECK_CALENDAR.\n- Se o lead escolheu um horário e custom_fields.selected_slot_iso está preenchido, escolha CREATE_APPOINTMENT.\n- Se o lead pede explicação ou informação e não é hora de preço ou agendamento, escolha SEND_INFORMATION.\n- Se pedir suporte, cancelamento, reclamação sem solução segura, proposta final ou ação que o fluxo não consegue concluir, escolha HANDOFF.\n- Se não houver próximo passo útil, escolha END.\n\nFUNIS\nCartão: necessidade -> preço/modalidade -> contratação.\nConsulta: cidade -> especialidade -> preço -> agenda.\nExames: cidade -> exame -> preço -> agenda.\nOdonto: cidade -> tratamento -> condição -> avaliação/agenda.\nEmpresarial: cidade -> empresa -> colaboradores -> decisor -> proposta/handoff.\nFranquia: cidade/região -> perfil -> momento -> apresentação/handoff.\nParceria: cidade -> tipo -> objetivo -> handoff.\n\nNunca invente valores ou disponibilidade.",
+        "system": "Escolha exatamente uma ação permitida. Priorize continuidade, reparo de conversa e segurança antes de avanço comercial.",
+        "allowedActions": [
+          "ASK_MISSING_FIELD",
+          "SHOW_PRICE",
+          "CHECK_CALENDAR",
+          "CREATE_APPOINTMENT",
+          "SEND_INFORMATION",
+          "HANDOFF",
+          "END"
+        ]
+      }
+    },
+    {
+      "id": "route",
+      "type": "flow.switch",
+      "label": "Executar próxima ação",
+      "position": { "x": 2880, "y": 260 },
+      "config": {
+        "variable": "next_action.action",
+        "cases": [
+          "ASK_MISSING_FIELD",
+          "SHOW_PRICE",
+          "CHECK_CALENDAR",
+          "CREATE_APPOINTMENT",
+          "SEND_INFORMATION",
+          "HANDOFF",
+          "END"
+        ]
+      }
+    },
+    {
+      "id": "availability",
+      "type": "calendar.availability",
+      "label": "Consultar disponibilidade",
+      "position": { "x": 3200, "y": 430 },
+      "config": {
+        "calendarId": "primary",
+        "date": "{{commercialMemory.custom_fields.desired_date}}",
+        "period": "{{lead.memory.custom_fields.period}}",
+        "durationMinutes": 30,
+        "timezone": "America/Sao_Paulo",
+        "daysAhead": 14
+      }
+    },
+    {
+      "id": "create_event",
+      "type": "calendar.create_event",
+      "label": "Criar agendamento",
+      "position": { "x": 3200, "y": 620 },
+      "config": {
+        "calendarId": "primary",
+        "start": "{{commercialMemory.custom_fields.selected_slot_iso}}",
+        "durationMinutes": 30,
+        "timezone": "America/Sao_Paulo",
+        "title": "Vida Card - {{lead.interest}} - {{lead.name}}",
+        "description": "Agendamento originado pelo SDR Flow.",
+        "leadName": "{{lead.name}}",
+        "leadPhone": "{{lead.phone}}"
+      }
+    },
+    {
+      "id": "writer",
+      "type": "agent.decide",
+      "label": "Redigir resposta objetiva",
+      "position": { "x": 3520, "y": 240 },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Redija UMA única resposta usando:\nPróxima ação: {{next_action.action}}\nCampo a perguntar: {{next_action.field}}\nMotivo: {{next_action.reason}}\nMemória: {{commercialMemory}}\nDados atualizados: {{decision.lead_data}}\nHistórico: {{recentMessages}}\nPreços & Planos: {{context.knowledge}}\nContexto interno: {{vida_context}}\nHorários encontrados: {{calendar.slots}}\nPrimeiro horário livre: {{calendar.first_available}}\nEvento criado: {{calendar.event_id}}\nViolações anteriores, se houver: {{response_policy.violations}}\n\nREGRAS DE FORMA\n- Entregue somente o texto ao lead, em uma única mensagem.\n- Use no máximo 2 frases curtas, 350 caracteres e uma pergunta.\n- Não repita saudação, nome do lead, explicação, pergunta ou CTA já usado.\n- Não reapresente o Vida Card se o lead não pediu uma explicação.\n- Não use perguntas genéricas como \"quer saber mais?\".\n- Responda primeiro ao ponto atual; só avance a venda quando isso for natural.\n\nASK_MISSING_FIELD:\nPergunte somente {{next_action.field}}.\n\nSHOW_PRICE:\nInforme somente o valor ou condição recuperada da base e um próximo passo concreto, se necessário.\n\nSEND_INFORMATION:\nResponda diretamente. Se {{next_action.reason}} começar com \"REPARO:\", reconheça o incômodo ou a correção em poucas palavras, peça desculpas quando adequado e resolva o ponto; não faça pitch, não reapresente o produto e não force pergunta.\n\nCHECK_CALENDAR:\nSe calendar.slots tiver horários, ofereça no máximo 3 opções na mesma mensagem. Se não houver, peça outra data ou período.\n\nCREATE_APPOINTMENT:\nSó confirme o agendamento se calendar.event_id existir.\n\nSe estiver reescrevendo por response_policy, corrija somente as violações apontadas, sem acrescentar conteúdo.",
+        "system": "Você atende pelo Vida Card no WhatsApp com linguagem humana, curta e direta. Gere uma única mensagem de até 350 caracteres e no máximo duas frases. Nunca repita saudação, nome, pergunta ou explicação já feita. Não pareça FAQ, robô ou formulário. Evite começar com \"Perfeito\", \"Entendi\", \"Claro\" ou \"Ótimo\". O Vida Card é cartão de descontos em saúde, não plano de saúde. Nunca invente preço, desconto, horário, agenda, carência ou benefício. Em correções e irritação, repare a conversa antes de qualquer objetivo comercial."
+      }
+    },
+    {
+      "id": "policy",
+      "type": "guard.response_policy",
+      "label": "Validar resposta",
+      "position": { "x": 3800, "y": 240 },
+      "config": {
+        "text": "{{decision.reply}}",
+        "maxCharacters": 350,
+        "knownFields": ["name", "city", "interest", "specialty", "desired_day", "desired_period"],
+        "blockedTerms": [
+          "consultas gratuitas",
+          "consultas ilimitadas",
+          "exames ilimitados",
+          "clínicas próprias",
+          "coparticipação"
+        ],
+        "requireGroundedPrice": true
+      }
+    },
+    {
+      "id": "smart",
+      "type": "output.smart_message",
+      "label": "Enviar uma mensagem",
+      "position": { "x": 4080, "y": 240 },
+      "config": {
+        "text": "{{response_policy.message}}",
+        "typing": true,
+        "maxBubbles": 1,
+        "maxCharactersPerBubble": 350
+      }
+    },
+    {
+      "id": "handoff",
+      "type": "action.handoff",
+      "label": "Transferir para humano",
+      "position": { "x": 3800, "y": 540 },
+      "config": {
+        "reason": "{{next_action.reason}}"
+      }
+    },
+    {
+      "id": "end",
+      "type": "output.end",
+      "label": "Encerrar fluxo",
+      "position": { "x": 4380, "y": 360 },
+      "config": {}
+    }
+  ],
+  "edges": [
+    { "id": "e01", "source": "start", "target": "guard_human", "sourcePort": "next" },
+    { "id": "e02", "source": "guard_human", "target": "buffer", "sourcePort": "pass" },
+    { "id": "e03", "source": "guard_human", "target": "end", "sourcePort": "blocked" },
+    { "id": "e04", "source": "buffer", "target": "media", "sourcePort": "next" },
+    { "id": "e05", "source": "media", "target": "memory", "sourcePort": "next" },
+    { "id": "e06", "source": "memory", "target": "storage", "sourcePort": "next" },
+    { "id": "e07", "source": "storage", "target": "extract", "sourcePort": "next" },
+    { "id": "e08", "source": "extract", "target": "update_lead", "sourcePort": "next" },
+    { "id": "e09", "source": "update_lead", "target": "pricing", "sourcePort": "next" },
+    { "id": "e10", "source": "pricing", "target": "required", "sourcePort": "next" },
+    { "id": "e11", "source": "required", "target": "next_action", "sourcePort": "complete" },
+    { "id": "e12", "source": "required", "target": "next_action", "sourcePort": "missing" },
+    { "id": "e13", "source": "next_action", "target": "route", "sourcePort": "next" },
+    { "id": "e14", "source": "route", "target": "writer", "sourcePort": "ASK_MISSING_FIELD" },
+    { "id": "e15", "source": "route", "target": "writer", "sourcePort": "SHOW_PRICE" },
+    { "id": "e16", "source": "route", "target": "writer", "sourcePort": "SEND_INFORMATION" },
+    { "id": "e17", "source": "route", "target": "availability", "sourcePort": "CHECK_CALENDAR" },
+    { "id": "e18", "source": "availability", "target": "writer", "sourcePort": "available" },
+    { "id": "e19", "source": "availability", "target": "writer", "sourcePort": "unavailable" },
+    { "id": "e20", "source": "availability", "target": "handoff", "sourcePort": "error" },
+    { "id": "e21", "source": "route", "target": "create_event", "sourcePort": "CREATE_APPOINTMENT" },
+    { "id": "e22", "source": "create_event", "target": "writer", "sourcePort": "created" },
+    { "id": "e23", "source": "create_event", "target": "handoff", "sourcePort": "error" },
+    { "id": "e24", "source": "route", "target": "handoff", "sourcePort": "HANDOFF" },
+    { "id": "e25", "source": "route", "target": "end", "sourcePort": "END" },
+    { "id": "e26", "source": "route", "target": "handoff", "sourcePort": "default" },
+    { "id": "e27", "source": "writer", "target": "policy", "sourcePort": "next" },
+    { "id": "e28", "source": "policy", "target": "smart", "sourcePort": "pass" },
+    { "id": "e29", "source": "policy", "target": "writer", "sourcePort": "rewrite" },
+    { "id": "e30", "source": "policy", "target": "handoff", "sourcePort": "blocked" },
+    { "id": "e31", "source": "smart", "target": "end", "sourcePort": "next" },
+    { "id": "e32", "source": "handoff", "target": "end", "sourcePort": "next" }
+  ],
+  "loopLimit": 2
+}

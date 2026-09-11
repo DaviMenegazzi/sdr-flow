@@ -37,11 +37,31 @@ export interface StoredKnowledgeDoc {
   updated_at: string;
 }
 
+export interface ExternalIntegration {
+  id: string;
+  provider: 'google_calendar' | 'hubspot' | 'rdstation' | 'kommo';
+  name: string;
+  status: 'connected' | 'disconnected' | 'error';
+  accountEmail?: string;
+  credentials: {
+    client_id?: string;
+    client_secret?: string;
+    refresh_token?: string;
+    access_token?: string;
+    expires_at?: number;
+    [key: string]: any;
+  };
+  metadata?: Record<string, any>;
+  connectedAt?: string;
+  updatedAt: string;
+}
+
 export interface StoreData {
   flows: Record<string, StoredFlow>;
   activeBindings: Record<string, string>;
   settings: StoredSettings;
   knowledge?: Record<string, StoredKnowledgeDoc>;
+  integrations?: Record<string, ExternalIntegration>;
 }
 
 export class StandaloneStore {
@@ -68,6 +88,7 @@ export class StandaloneStore {
           activeBindings: parsed.activeBindings || {},
           settings: parsed.settings || {},
           knowledge: parsed.knowledge || {},
+          integrations: parsed.integrations || {},
         };
       }
     } catch {
@@ -379,6 +400,41 @@ export class StandaloneStore {
 
     hits.sort((a, b) => b.similarity - a.similarity);
     return hits.slice(0, limit);
+  }
+  // --- EXTERNAL INTEGRATIONS ---
+  listIntegrations(): ExternalIntegration[] {
+    if (!this.data.integrations) return [];
+    return Object.values(this.data.integrations);
+  }
+
+  getIntegration(id: string): ExternalIntegration | null {
+    if (!this.data.integrations) return null;
+    return this.data.integrations[id] || null;
+  }
+
+  getIntegrationByProvider(provider: string): ExternalIntegration | null {
+    if (!this.data.integrations) return null;
+    return Object.values(this.data.integrations).find(i => i.provider === provider && i.status === 'connected') || null;
+  }
+
+  saveIntegration(integration: ExternalIntegration): ExternalIntegration {
+    if (!this.data.integrations) this.data.integrations = {};
+    const existing = this.data.integrations[integration.id];
+    const saved: ExternalIntegration = {
+      ...existing,
+      ...integration,
+      updatedAt: new Date().toISOString(),
+    };
+    this.data.integrations[saved.id] = saved;
+    this.persist();
+    return saved;
+  }
+
+  deleteIntegration(id: string): boolean {
+    if (!this.data.integrations || !this.data.integrations[id]) return false;
+    delete this.data.integrations[id];
+    this.persist();
+    return true;
   }
 }
 

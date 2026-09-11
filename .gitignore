@@ -8,3 +8,5 @@ coverage/
 *.tsbuildinfo
 artifacts/
 .local/
+data/store.json
+graphify-out/

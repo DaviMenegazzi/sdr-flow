@@ -1,0 +1,457 @@
+{
+  "schemaVersion": 1,
+  "nodes": [
+    {
+      "id": "start",
+      "type": "trigger.message_received",
+      "label": "Mensagem recebida",
+      "position": {
+        "x": 0,
+        "y": 260
+      },
+      "config": {}
+    },
+    {
+      "id": "guard_chat",
+      "type": "guard.chat_type",
+      "label": "Bloquear grupos",
+      "position": {
+        "x": 260,
+        "y": 260
+      },
+      "config": {
+        "allowGroups": false
+      }
+    },
+    {
+      "id": "guard_human",
+      "type": "guard.human_takeover",
+      "label": "Atendimento humano ativo?",
+      "position": {
+        "x": 520,
+        "y": 260
+      },
+      "config": {}
+    },
+    {
+      "id": "buffer",
+      "type": "input.buffer",
+      "label": "Agrupar mensagens",
+      "position": {
+        "x": 780,
+        "y": 260
+      },
+      "config": {
+        "windowSeconds": 5
+      }
+    },
+    {
+      "id": "media",
+      "type": "input.media",
+      "label": "Processar mídia",
+      "position": {
+        "x": 1040,
+        "y": 260
+      },
+      "config": {
+        "transcribeAudio": true,
+        "describeImages": true
+      }
+    },
+    {
+      "id": "memory",
+      "type": "context.memory",
+      "label": "Memória comercial",
+      "position": {
+        "x": 1300,
+        "y": 260
+      },
+      "config": {
+        "recentMessages": 50
+      }
+    },
+    {
+      "id": "extract",
+      "type": "agent.extract",
+      "label": "Atualizar contexto",
+      "position": {
+        "x": 1560,
+        "y": 260
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Leia a mensagem atual, {{recentMessages}} e {{commercialMemory}}.\n\nAtualize decision.lead_data usando SOMENTE os campos persistentes abaixo:\nname\ncity\nurgency\ninterest\nbudget\ntimeline\ndecision_maker\npain_points\nobjections\nstage_intent\nnotes\ncustom_fields\n\nREGRAS\n- Preserve tudo que já existir em commercialMemory.\n- Nunca substitua informação conhecida por vazio/null.\n- A mensagem mais recente pode corrigir um dado antigo.\n- Não invente.\n\ninterest:\nresuma o interesse principal.\nExemplos:\n\"consulta - oftalmologia\"\n\"exame - hemograma\"\n\"cartão - família\"\n\"odontologia - implante\"\n\"empresarial\"\n\"franquia\"\n\"parceria\"\n\"suporte\"\n\nstage_intent:\nuse quando aplicável:\n\"descoberta\"\n\"qualificacao\"\n\"preco\"\n\"agendamento\"\n\"contratacao\"\n\"proposta\"\n\"handoff\"\n\"suporte\"\n\nnotes:\nmantenha um resumo comercial CUMULATIVO e curto.\nExemplo:\n\"Lead de Campinas busca oftalmologia e quer marcar para segunda-feira. Já perguntou preço e disponibilidade.\"\n\ncustom_fields:\npreserve as chaves existentes e grave dados específicos quando aparecerem:\nunit\nspecialty\nservice\nexam\ndependents\ncard_status\ndesired_day\ndesired_date\ndesired_period\ndesired_time\ncompany_name\nemployee_count\ndecision_role\nfranchise_city\npartner_area\n\nCONTINUIDADE\nSe a resposta for curta, interprete pela última pergunta.\nExemplo:\n\"oftalmologia\" após \"Qual especialidade?\" => specialty=\"oftalmologia\", service=\"consulta\".\n\"segunda\" após pergunta de data => desired_day=\"segunda-feira\", stage_intent=\"agendamento\".\n\nNão gere resposta ao lead."
+      }
+    },
+    {
+      "id": "update_lead",
+      "type": "action.update_lead",
+      "label": "Salvar memória",
+      "position": {
+        "x": 1820,
+        "y": 260
+      },
+      "config": {
+        "source": "decision.lead_data"
+      }
+    },
+    {
+      "id": "pricing",
+      "type": "context.knowledge",
+      "label": "Preços & Planos",
+      "position": {
+        "x": 2080,
+        "y": 260
+      },
+      "config": {
+        "collection": "pricing",
+        "topK": 10,
+        "threshold": 0.55
+      }
+    },
+    {
+      "id": "agent",
+      "type": "agent.structured",
+      "label": "SDR Vida Card",
+      "position": {
+        "x": 2340,
+        "y": 260
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Gere uma resposta estruturada para WhatsApp.\n\nRETORNE OBRIGATORIAMENTE:\ncount\nmessage_1\nmessage_2\nmessage_3\nhandoff\nhandoff_reason\n\ncount deve ser exatamente:\n\"1\"\n\"2\"\nou\n\"3\"\n\nQUANTIDADE DE BOLHAS\n\nUse \"1\" quando:\n- resposta simples;\n- preço único;\n- confirmação curta;\n- transição curta.\n\nUse \"2\" quando:\n- resposta + próximo passo;\n- explicação curta + pergunta/CTA;\n- é o formato padrão mais natural.\n\nUse \"3\" quando:\n- houver mais de uma informação relevante;\n- comparação curta entre opções;\n- mais de uma pergunta relacionada;\n- duas bolhas deixariam a resposta pesada.\n\nNunca use 3 apenas para parecer humano.\n\nTAMANHO\n- normalmente 50 a 150 caracteres por bolha;\n- máximo aproximado de 190;\n- não corte frases no meio;\n- não repita conteúdo;\n- deixe message_2/message_3 vazias quando não usadas.\n\nORDEM\nmessage_1 responde diretamente.\nAs próximas avançam a venda ou organizam a explicação.\nA última bolha pode ser CTA, pergunta curta ou transição para humano.\n\nPREÇOS\nSe Preços & Planos trouxer valor aplicável, o preço deve aparecer antes de qualquer nova pergunta.\n\nEXEMPLOS\n\n\"Quanto custa?\"\ncount=\"1\"\nmessage_1=\"A modalidade disponível fica em R$ 69,90 por mês.\"\n\n\"Quanto fica oftalmologia em Ijuí?\"\ncount=\"2\"\nmessage_1=\"Em Ijuí, a consulta de oftalmologia fica em R$ X com o cartão.\"\nmessage_2=\"Quer que eu te encaminhe para o agendamento?\"\n\n\"Quais opções e valores?\"\ncount=\"3\"\nmessage_1=\"Hoje aparecem três opções para esse perfil.\"\nmessage_2=\"Essence: R$ X | Smart: R$ Y | Premium: R$ Z.\"\nmessage_3=\"Pelo uso que você comentou, a Smart parece a mais adequada. Quer seguir por ela?\"\n\nPreencha handoff como true ou false.\nPreencha handoff_reason de forma curta.",
+        "system": "Você é o SDR comercial do Vida Card no WhatsApp.\n\nOBJETIVO\nAtender qualquer tipo de lead do Vida Card: cartão, consultas, exames, odontologia, empresarial, franquias, parcerias e suporte inicial.\n\nCONTEXTO\nMemória persistente: {{commercialMemory}}\nHistórico recente: {{recentMessages}}\nPreços & Planos recuperados: {{context.knowledge}}\nDados atualizados do lead: {{decision.lead_data}}\nMídia/áudio quando houver: {{mediaEnrichedText}}\n\nPRINCÍPIO CENTRAL\nA conversa precisa AVANÇAR.\nNunca volte para uma etapa já concluída.\nNunca pergunte novamente algo que já aparece na memória, histórico, notes, interest ou custom_fields.\n\nMEMÓRIA\nAntes de responder:\n1. leia commercialMemory;\n2. leia recentMessages;\n3. leia decision.lead_data;\n4. considere a última pergunta feita ao lead;\n5. interprete respostas curtas pelo contexto.\n\nExemplos:\n- última pergunta: \"Qual especialidade?\" + lead: \"oftalmologia\" => especialidade já conhecida;\n- última pergunta: \"Qual cidade?\" + lead: \"Ijuí\" => cidade já conhecida;\n- lead: \"sim\" => responda ao passo comercial anterior, não reinicie a conversa.\n\nPRODUTO\nO Vida Card é um cartão de descontos em saúde. Não é plano de saúde.\nModalidades, mensalidades, dependentes, especialidades, valores e condições podem variar por unidade.\nNunca invente informação local.\n\nCOMPLIANCE\nNão use como promessa comercial:\n- plano de saúde;\n- consultas gratuitas;\n- consultas ilimitadas;\n- exames ilimitados;\n- clínicas próprias;\n- coparticipação.\n\nPREÇOS — REGRA PRIORITÁRIA\nA base {{context.knowledge}} vem da coleção \"Preços & Planos\".\nQuando o lead perguntar:\n- preço;\n- valor;\n- mensalidade;\n- quanto custa;\n- quanto fica;\n- tabela;\n- condição;\n\ne a base trouxer um valor aplicável:\n1. INFORME O VALOR DIRETAMENTE;\n2. não responda apenas \"varia\";\n3. não peça outro dado antes do preço, se o dado necessário já estiver conhecido;\n4. não faça handoff antes de informar um preço já encontrado;\n5. depois do preço, avance para contratação/agendamento quando fizer sentido.\n\nSe houver várias opções relevantes, apresente no máximo 3.\nSó diga que precisa confirmar quando o valor não estiver na base, estiver conflitante ou estiver claramente vencido.\n\nFUNIL DINÂMICO\n\nCARTÃO\nnecessidade -> cidade quando necessária -> preço/modalidade -> contratação.\n\nCONSULTA\ncidade -> especialidade -> preço/condição -> agendamento.\n\nEXAMES\ncidade -> exame -> preço/condição -> agendamento.\n\nODONTOLOGIA\ncidade -> tratamento -> condição permitida -> avaliação/agendamento.\n\nEMPRESARIAL\ncidade -> empresa -> quantidade de colaboradores -> decisor/necessidade -> proposta.\n\nFRANQUIA\ncidade/região -> perfil/decisor -> momento -> apresentação/equipe de expansão.\nNunca invente investimento, faturamento, payback ou retorno.\n\nPARCERIA\ncidade -> tipo de parceiro -> objetivo -> equipe responsável.\n\nSUPORTE\nSe já for associado e falar de cobrança, cancelamento, contrato, problema ou reclamação, encaminhe para humano sem tentar vender novamente.\n\nNATURALIDADE\n- português do Brasil;\n- tom de WhatsApp;\n- frases simples;\n- não comece toda mensagem com saudação;\n- evite repetir \"Perfeito\", \"Entendi\", \"Claro\", \"Ótimo\";\n- não repita o nome da pessoa;\n- não diga \"você tem interesse em...\" quando isso já está evidente;\n- não termine sempre com \"quer saber mais?\";\n- não transforme a conversa em formulário;\n- responda primeiro ao que foi perguntado.\n\nHANDOFF\nUse handoff=true quando:\n- o lead pedir humano;\n- quiser contratar;\n- quiser agendar e já houver cidade + serviço/especialidade;\n- precisar de agenda/disponibilidade real;\n- pedir proposta;\n- for suporte/cancelamento/reclamação;\n- faltar informação local que a base não resolve.\n\nNão prometa atendimento imediato.\n",
+        "outputKeys": [
+          "count",
+          "message_1",
+          "message_2",
+          "message_3",
+          "handoff",
+          "handoff_reason"
+        ]
+      }
+    },
+    {
+      "id": "count_switch",
+      "type": "flow.switch",
+      "label": "Quantidade de mensagens",
+      "position": {
+        "x": 2640,
+        "y": 260
+      },
+      "config": {
+        "variable": "structured.count",
+        "cases": [
+          "1",
+          "2",
+          "3"
+        ]
+      }
+    },
+    {
+      "id": "b1_m1",
+      "type": "output.send_text",
+      "label": "1 bolha",
+      "position": {
+        "x": 2940,
+        "y": 80
+      },
+      "config": {
+        "text": "{{structured.message_1}}",
+        "typing": true
+      }
+    },
+    {
+      "id": "b2_m1",
+      "type": "output.send_text",
+      "label": "2 bolhas — 1",
+      "position": {
+        "x": 2940,
+        "y": 220
+      },
+      "config": {
+        "text": "{{structured.message_1}}",
+        "typing": true
+      }
+    },
+    {
+      "id": "b2_m2",
+      "type": "output.send_text",
+      "label": "2 bolhas — 2",
+      "position": {
+        "x": 3220,
+        "y": 220
+      },
+      "config": {
+        "text": "{{structured.message_2}}",
+        "typing": true
+      }
+    },
+    {
+      "id": "b3_m1",
+      "type": "output.send_text",
+      "label": "3 bolhas — 1",
+      "position": {
+        "x": 2940,
+        "y": 380
+      },
+      "config": {
+        "text": "{{structured.message_1}}",
+        "typing": true
+      }
+    },
+    {
+      "id": "b3_m2",
+      "type": "output.send_text",
+      "label": "3 bolhas — 2",
+      "position": {
+        "x": 3220,
+        "y": 380
+      },
+      "config": {
+        "text": "{{structured.message_2}}",
+        "typing": true
+      }
+    },
+    {
+      "id": "b3_m3",
+      "type": "output.send_text",
+      "label": "3 bolhas — 3",
+      "position": {
+        "x": 3500,
+        "y": 380
+      },
+      "config": {
+        "text": "{{structured.message_3}}",
+        "typing": true
+      }
+    },
+    {
+      "id": "handoff_check",
+      "type": "flow.condition",
+      "label": "Precisa de humano?",
+      "position": {
+        "x": 3820,
+        "y": 260
+      },
+      "config": {
+        "variable": "structured.handoff",
+        "operator": "equals",
+        "value": "true"
+      }
+    },
+    {
+      "id": "handoff",
+      "type": "action.handoff",
+      "label": "Transferir para humano",
+      "position": {
+        "x": 4100,
+        "y": 160
+      },
+      "config": {
+        "reason": "{{structured.handoff_reason}}"
+      }
+    },
+    {
+      "id": "end",
+      "type": "output.end",
+      "label": "Encerrar fluxo",
+      "position": {
+        "x": 4380,
+        "y": 260
+      },
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e01",
+      "source": "start",
+      "target": "guard_chat",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e02",
+      "source": "guard_chat",
+      "target": "guard_human",
+      "sourcePort": "pass"
+    },
+    {
+      "id": "e03",
+      "source": "guard_chat",
+      "target": "end",
+      "sourcePort": "blocked"
+    },
+    {
+      "id": "e04",
+      "source": "guard_human",
+      "target": "buffer",
+      "sourcePort": "pass"
+    },
+    {
+      "id": "e05",
+      "source": "guard_human",
+      "target": "end",
+      "sourcePort": "blocked"
+    },
+    {
+      "id": "e06",
+      "source": "buffer",
+      "target": "media",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e07",
+      "source": "media",
+      "target": "memory",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e08",
+      "source": "memory",
+      "target": "extract",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e09",
+      "source": "extract",
+      "target": "update_lead",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e10",
+      "source": "update_lead",
+      "target": "pricing",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e11",
+      "source": "pricing",
+      "target": "agent",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e12",
+      "source": "agent",
+      "target": "count_switch",
+      "sourcePort": "count"
+    },
+    {
+      "id": "e13",
+      "source": "agent",
+      "target": "count_switch",
+      "sourcePort": "message_1"
+    },
+    {
+      "id": "e14",
+      "source": "agent",
+      "target": "count_switch",
+      "sourcePort": "message_2"
+    },
+    {
+      "id": "e15",
+      "source": "agent",
+      "target": "count_switch",
+      "sourcePort": "message_3"
+    },
+    {
+      "id": "e16",
+      "source": "agent",
+      "target": "count_switch",
+      "sourcePort": "handoff"
+    },
+    {
+      "id": "e17",
+      "source": "agent",
+      "target": "count_switch",
+      "sourcePort": "handoff_reason"
+    },
+    {
+      "id": "e18",
+      "source": "agent",
+      "target": "count_switch",
+      "sourcePort": "default"
+    },
+    {
+      "id": "e19",
+      "source": "count_switch",
+      "target": "b1_m1",
+      "sourcePort": "1"
+    },
+    {
+      "id": "e20",
+      "source": "count_switch",
+      "target": "b2_m1",
+      "sourcePort": "2"
+    },
+    {
+      "id": "e21",
+      "source": "count_switch",
+      "target": "b3_m1",
+      "sourcePort": "3"
+    },
+    {
+      "id": "e22",
+      "source": "count_switch",
+      "target": "b2_m1",
+      "sourcePort": "default"
+    },
+    {
+      "id": "e23",
+      "source": "b1_m1",
+      "target": "handoff_check",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e24",
+      "source": "b2_m1",
+      "target": "b2_m2",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e25",
+      "source": "b2_m2",
+      "target": "handoff_check",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e26",
+      "source": "b3_m1",
+      "target": "b3_m2",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e27",
+      "source": "b3_m2",
+      "target": "b3_m3",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e28",
+      "source": "b3_m3",
+      "target": "handoff_check",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e29",
+      "source": "handoff_check",
+      "target": "handoff",
+      "sourcePort": "true"
+    },
+    {
+      "id": "e30",
+      "source": "handoff_check",
+      "target": "end",
+      "sourcePort": "false"
+    },
+    {
+      "id": "e31",
+      "source": "handoff",
+      "target": "end",
+      "sourcePort": "next"
+    }
+  ],
+  "loopLimit": 5
+}

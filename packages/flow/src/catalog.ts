@@ -33,7 +33,11 @@ const schemas = {
   'trigger.message_received': empty,
   'trigger.schedule': z.strictObject({ cron: text('0 9 * * 1-5', 'Expressão cron'), timezone: text('America/Sao_Paulo', 'Fuso horário') }),
   'trigger.manual': empty,
-  'guard.test_mode': z.strictObject({ enabled: z.boolean().default(true).describe('Modo teste ativo'), allowedPhones: z.array(z.string().min(8)).default([]).describe('Telefones autorizados (JSON)') }),
+  'guard.test_mode': z.strictObject({
+    enabled: z.boolean().default(true).describe('Filtro ativo'),
+    allowedPhones: z.array(z.string()).default([]).describe('Contatos autorizados (números de telefone)'),
+    allowedGroups: z.array(z.string()).default([]).describe('Grupos autorizados (JID @g.us ou ID de grupo)'),
+  }),
   'guard.human_takeover': empty,
   'guard.business_hours': z.strictObject({ timezone: text('America/Sao_Paulo', 'Fuso horário'), start: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('08:00').describe('Início'), end: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('18:00').describe('Fim'), weekdays: z.array(z.number().int().min(0).max(6)).min(1).default([1,2,3,4,5]).describe('Dias da semana (0 = domingo)') }),
   'guard.chat_type': z.strictObject({ allowGroups: z.boolean().default(false).describe('Permitir grupos') }),
@@ -139,7 +143,12 @@ const schemas = {
     eventId: text('{{calendar.event_id}}', 'ID do evento'),
     reason: z.string().max(1000).default('').describe('Motivo do cancelamento'),
   }),
-  'output.send_text': z.strictObject({ text: text('{{decision.reply}}', 'Mensagem'), typing: z.boolean().default(true).describe('Mostrar digitando') }),
+  'output.send_text': z.strictObject({
+    text: text('{{decision.reply}}', 'Mensagem'),
+    typing: z.boolean().default(true).describe('Mostrar digitando'),
+    targetMode: z.enum(['active_lead', 'specific_targets', 'both']).default('active_lead').describe('Destinatário da mensagem'),
+    targets: z.array(z.string()).default([]).describe('Destinatários adicionais ou específicos (contatos/grupos)'),
+  }),
   'output.send_media': z.strictObject({ url: text('{{media.url}}', 'URL da mídia'), mediaType: z.enum(['image', 'audio', 'video', 'document']).default('image').describe('Tipo de mídia'), caption: z.string().default('').describe('Legenda') }),
   'output.send_template': z.strictObject({ name: text('hello_world', 'Nome do template aprovado'), language: text('pt_BR', 'Idioma') }),
   'output.smart_message': z.strictObject({
@@ -153,7 +162,7 @@ const schemas = {
 
 const labels: Record<NodeType, string> = {
   'trigger.message_received': 'Mensagem recebida', 'trigger.schedule': 'Agendamento', 'trigger.manual': 'Início manual',
-  'guard.test_mode': 'Modo teste', 'guard.human_takeover': 'Atendimento humano', 'guard.business_hours': 'Horário comercial', 'guard.chat_type': 'Tipo de conversa', 'guard.response_policy': 'Política de resposta',
+  'guard.test_mode': 'Filtro de Conexão / Gate', 'guard.human_takeover': 'Atendimento humano', 'guard.business_hours': 'Horário comercial', 'guard.chat_type': 'Tipo de conversa', 'guard.response_policy': 'Política de resposta',
   'input.buffer': 'Agrupar mensagens', 'input.media': 'Processar mídia', 'input.normalize': 'Normalizar telefone',
   'context.memory': 'Memória comercial', 'context.knowledge': 'Base de conhecimento', 'context.crm': 'Consultar CRM', 'context.summarize': 'Resumir conversa', 'context.storage': 'Armazenamento interno', 'context.conversation_state': 'Estado da conversa',
   'agent.decide': 'Decisão do agente', 'agent.classify': 'Classificar intenção', 'agent.extract': 'Extrair informações', 'agent.score': 'Pontuar lead', 'agent.structured': 'Resposta estruturada', 'agent.next_action': 'Próxima ação',
