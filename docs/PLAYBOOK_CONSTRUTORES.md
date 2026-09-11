@@ -153,10 +153,18 @@ O catálogo atual possui **44 tipos de nó**, divididos em **10 categorias funda
 - **Lógica por trás:** Mantém o contexto enxuto e reduz drasticamente o consumo de tokens em conversas muito longas.
 - **Portas de saída:** `next`.
 
-#### Armazenamento Interno (`context.storage`)
-- **O que faz:** Injeta conteúdo estático ou dinâmico (resolvendo variáveis como `{{lead.name}}`, `{{decision.reply}}` ou objetos JSON) em uma variável nomeada e permite declarar portas de saída customizadas.
-- **Suporte dinâmico:** Se `content` contiver tags de template como `{{...}}`, o nó interpola os valores reais do contexto da conversa e, quando for um JSON válido ou objeto referenciado, mantém a estrutura de dados acessível por propriedades (ex: `{{minha_var.campo}}`).
-- **Portas de saída:** valores definidos em `outputPorts` (padrão: `["next"]`).
+#### 14.1. Armazenamento Interno & Memória do Lead (`context.storage`)
+- **O que faz:** Injeta, manipula ou resgata dados na memória da conversa, com persistência automática no banco de dados (`lead.memory`) e suporte total a conteúdo estático, JSON e variáveis dinâmicas.
+- **Arquitetura de Memória em 3 Camadas:**
+  1. **Memória do Turno (`ctx.variables`):** O dado fica disponível imediatamente para qualquer bloco seguinte na mesma execução através de `{{variableName}}` ou `{{variableName.propriedade}}`.
+  2. **Memória Permanente do Lead (`lead.memory` & `custom_fields`):** Ao passar pelo nó, o valor é gravado em `ctx.lead.memory[variableName]` e `ctx.lead.memory.custom_fields[variableName]` e sincronizado no banco de dados (`services.db.updateLead`). Isso garante que em futuros turnos (mensagens enviadas horas ou dias depois), o dado continua salvo e é injetado automaticamente dentro de `{{commercialMemory}}` para todos os nós de inteligência (`agent.decide`, `agent.classify`, `agent.extract`).
+  3. **Modo Resgate Automático (Leitura / Get):** Se o campo `content` for deixado em branco (`""`), o nó atua como leitor: resgata o valor previamente salvo no perfil do lead (`lead.memory.custom_fields[variableName]`) ou no contexto e o disponibiliza novamente em `ctx.variables[variableName]`.
+- **Suporte a Conteúdo Dinâmico:**
+  - **Variáveis de template:** Interpola textos dinâmicos (ex: `"Lead {{lead.name}} da cidade {{lead.city}}"`).
+  - **Objetos estruturados:** Se `content` for uma tag única como `{{decision.lead_data}}` ou `{{pacote}}`, preserva a estrutura de objeto nativa, permitindo aos próximos blocos acessar propriedades filhas diretamente (ex: `{{meu_storage.campo}}`).
+  - **Templates JSON:** Se você escrever um JSON contendo variáveis (ex: `{"cliente": "{{lead.name}}"}`), o nó interpola e faz o parse para objeto JSON automaticamente.
+- **Saída no Debug / Painel (`output`):** Retorna `{ stored: boolean, retrieved: boolean, variableName: string, value: any, isDynamic: boolean, contentLength: number }`, permitindo inspecionar o valor exato salvo ou lido no painel de execuções.
+- **Portas de saída:** Valores definidos em `outputPorts` (padrão: `["next"]`).
 
 #### Estado da Conversa (`context.conversation_state`)
 - **O que faz:** Formaliza em qual etapa real a conversa está, qual ação acabou de ocorrer e qual

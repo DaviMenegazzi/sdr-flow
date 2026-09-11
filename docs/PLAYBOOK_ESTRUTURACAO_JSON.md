@@ -149,11 +149,12 @@ Abaixo estão todos os nós aceitos e como deve ser preenchido o seu respectivo 
 - `context.storage`:
   ```json
   "config": {
-    "content": "Texto estático, JSON ou variáveis dinâmicas (ex: {{lead.name}}, {{decision.lead_data}})",
+    "content": "Texto estático, JSON interno ou template dinâmico (ex: {{lead.name}}, {{decision.lead_data}}). Deixe vazio (\"\") para modo resgate/leitura.",
     "variableName": "storage",
     "outputPorts": ["next"]
   }
   ```
+  *(Persiste automaticamente em `lead.memory` e `lead.memory.custom_fields` no banco de dados, tornando o dado acessível tanto por `{{variableName}}` quanto dentro de `{{commercialMemory}}` nos próximos turnos da conversa.)*
 - `context.conversation_state`:
   ```json
   "config": {
