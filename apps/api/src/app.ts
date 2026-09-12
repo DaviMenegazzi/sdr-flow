@@ -1540,12 +1540,15 @@ export function createApp(config: ApiConfig = {}): Express {
           const target = otherConns?.find(c => c.phone && c.provider_instance_id && isPhoneNumberMatch(destPhone, c.phone));
 
           if (target?.provider_instance_id) {
-            const { data: thisConn } = await db
+            const { data: thisConns } = await db
               .from('connections')
               .select('phone')
-              .eq('provider_instance_id', instanceName)
+              .or(`provider_instance_id.eq.${instanceName},name.eq.${instanceName}`)
               .eq('provider', 'evolution')
-              .maybeSingle();
+              .order('created_at', { ascending: true })
+              .limit(1);
+
+            const thisConn = thisConns?.[0];
 
             if (thisConn?.phone) {
               const routedEvent = { ...event, fromMe: false, phone: thisConn.phone.replace(/\D/g, '') };
