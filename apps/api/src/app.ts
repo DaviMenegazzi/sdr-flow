@@ -103,18 +103,8 @@ export function createApp(config: ApiConfig = {}): Express {
     });
   });
   const protectedApi = authMiddleware(config);
-  const standaloneAllowed = config.standaloneMode === true || process.env.NODE_ENV === 'test';
-  app.use('/api', (req, res, next) => {
-    const publicPath = /^\/webhooks\/(evolution|meta)\/[0-9a-f-]{36}$/.test(req.path);
-    if (req.path === '/health' || publicPath || standaloneAllowed) { next(); return; }
-    void protectedApi(req, res, next);
-  });
-  app.use('/api', (req, res, next) => {
-    if (!standaloneAllowed && (/^\/settings(?:\/|$)/.test(req.path) || /^\/connections\/instances(?:\/|$)/.test(req.path) || /^\/connections\/evolution(?:\/|$)/.test(req.path) || /^\/flows(?:\/|$)/.test(req.path) || /^\/(knowledge|inbox|integrations)(?:\/|$)/.test(req.path))) {
-      res.status(404).json({ error: 'Recurso não encontrado.' }); return;
-    }
-    next();
-  });
+  app.use('/api/me', protectedApi);
+  app.use('/api/admin', protectedApi);
 
   app.get('/api/me', (req, res) => {
     const auth = res.locals.auth;
