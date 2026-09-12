@@ -16,7 +16,7 @@ async function main() {
 
   const { data: conns, error: connErr } = await db
     .from('connections')
-    .select('id, name, type, phone, owner_user_id, organization_id, created_at')
+    .select('id, name, provider, status, phone, owner_user_id, organization_id, created_at')
     .order('created_at', { ascending: true });
 
   if (connErr || !conns) {
@@ -191,7 +191,7 @@ async function main() {
   // 7. Verify final count
   const { data: finalConns } = await db
     .from('connections')
-    .select('id, name, type, phone')
+    .select('id, name, provider, status, phone')
     .order('created_at', { ascending: true });
 
   console.log('\n=== FINAL CONNECTIONS ===');
