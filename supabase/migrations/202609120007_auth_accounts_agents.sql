@@ -36,6 +36,16 @@ create unique index ai_agents_one_default_per_owner on public.ai_agents(organiza
 
 alter table public.connections add column owner_user_id uuid;
 alter table public.connections add column agent_id uuid;
+insert into public.organization_members (organization_id, user_id, role)
+select distinct c.organization_id, u.id, 'owner'::public.member_role
+from public.connections c
+cross join lateral (
+  select id from auth.users order by created_at asc limit 1
+) u
+where not exists (
+  select 1 from public.organization_members om where om.organization_id = c.organization_id
+)
+on conflict do nothing;
 update public.connections c set owner_user_id=(select om.user_id from public.organization_members om where om.organization_id=c.organization_id order by case om.role when 'owner' then 0 else 1 end,om.created_at limit 1) where owner_user_id is null;
 insert into public.profiles(user_id,status,default_organization_id)
 select distinct on (om.user_id) om.user_id,'active'::public.account_status,om.organization_id from public.organization_members om order by om.user_id,case om.role when 'owner' then 0 else 1 end,om.created_at
