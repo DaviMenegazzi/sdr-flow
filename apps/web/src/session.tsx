@@ -3,8 +3,8 @@ import { createClient, type Session } from '@supabase/supabase-js';
 import { Calendar, Cpu, Users, Copy, Check } from 'lucide-react';
 import type { MemberRole } from '@sdr/shared';
 
-const url = import.meta.env.VITE_SUPABASE_URL;
-const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const url = import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL;
+const key = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.SUPABASE_ANON_KEY;
 export const supabase = url && key ? createClient(url, key) : null;
 
 interface Org {
