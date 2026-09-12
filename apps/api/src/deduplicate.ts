@@ -37,167 +37,196 @@ async function main() {
   console.log(`Found ${whatsappConns.length} 'whatsapp' connections.`);
 
   if (whatsappConns.length <= 1) {
-    console.log('No duplicates to clean up!');
+    console.log('No duplicate whatsapp connections found. Nothing to do.');
     return;
   }
 
   const canonical = whatsappConns[0];
-  const duplicateIds = whatsappConns.slice(1).map(c => c.id);
+  const duplicates = whatsappConns.slice(1);
   console.log(`Canonical connection ID: ${canonical.id}`);
-  console.log(`Canonical phone: ${canonical.phone || 'null'} (will update to 555599940634)`);
-  console.log(`Duplicate connections to remove: ${duplicateIds.length}`);
-
-  // Inspect related data across all duplicate IDs
-  const { count: convCount } = await db
-    .from('conversations')
-    .select('*', { count: 'exact', head: true })
-    .in('connection_id', duplicateIds);
-  console.log(`Conversations linked to duplicates: ${convCount ?? 0}`);
-
-  const { count: msgCount } = await db
-    .from('messages')
-    .select('*', { count: 'exact', head: true })
-    .in('connection_id', duplicateIds);
-  console.log(`Messages linked to duplicates: ${msgCount ?? 0}`);
-
-  const { count: leadCount } = await db
-    .from('leads')
-    .select('*', { count: 'exact', head: true })
-    .in('connection_id', duplicateIds);
-  console.log(`Leads linked to duplicates: ${leadCount ?? 0}`);
-
-  const { count: dealCount } = await db
-    .from('deals')
-    .select('*', { count: 'exact', head: true })
-    .in('connection_id', duplicateIds);
-  console.log(`Deals linked to duplicates: ${dealCount ?? 0}`);
-
-  const { count: kdCount } = await db
-    .from('knowledge_documents')
-    .select('*', { count: 'exact', head: true })
-    .in('connection_id', duplicateIds);
-  console.log(`Knowledge docs linked to duplicates: ${kdCount ?? 0}`);
+  console.log(`Canonical phone: ${canonical.phone || 'null'} (setting to 555599940634)`);
+  console.log(`Duplicate connections to process: ${duplicates.length}`);
 
   const shouldExecute = process.argv.includes('--execute');
   if (!shouldExecute) {
-    console.log('\nDRY-RUN completed. To execute cleanup, run with --execute');
+    console.log('\n[DRY-RUN] Pass --execute to run the deduplication.');
     return;
   }
 
   console.log('\n>>> EXECUTING CLEANUP <<<');
 
-  // 1. Ensure canonical phone is set
+  // 1. Update canonical phone
   await db.from('connections').update({ phone: '555599940634' }).eq('id', canonical.id);
-  console.log('1. Updated canonical connection phone to 555599940634');
+  console.log('1. Canonical phone updated.');
 
-  // 2. We need to migrate references. In Postgres, leads have unique (organization_id, connection_id, phone).
-  // If leads on duplicate connections have same phone as leads on canonical connection, we must merge them or reassign.
-  // Let's fetch all leads pointing to duplicate connections.
-  const { data: dupLeads } = await db
-    .from('leads')
-    .select('id, organization_id, owner_user_id, connection_id, phone, name')
-    .in('connection_id', duplicateIds);
+  let totalMigratedMsgs = 0;
+  let totalMigratedConvs = 0;
 
-  if (dupLeads && dupLeads.length > 0) {
-    console.log(`Processing ${dupLeads.length} leads pointing to duplicate connections...`);
-    for (const lead of dupLeads) {
-      // Check if a lead with same org, canonical.id, and phone already exists
-      if (lead.phone) {
-        const { data: existingLead } = await db
+  for (let idx = 0; idx < duplicates.length; idx++) {
+    const dup = duplicates[idx];
+    const progress = `[${idx + 1}/${duplicates.length}] dup=${dup.id}`;
+
+    // A. Handle leads referencing this duplicate connection
+    const { data: dupLeads } = await db
+      .from('leads')
+      .select('id, organization_id, phone')
+      .eq('connection_id', dup.id);
+
+    if (dupLeads && dupLeads.length > 0) {
+      for (const lead of dupLeads) {
+        if (lead.phone) {
+          const { data: existingLead } = await db
+            .from('leads')
+            .select('id')
+            .eq('organization_id', lead.organization_id)
+            .eq('connection_id', canonical.id)
+            .eq('phone', lead.phone)
+            .maybeSingle();
+
+          if (existingLead && existingLead.id !== lead.id) {
+            await db.from('conversations').update({ lead_id: existingLead.id }).eq('lead_id', lead.id);
+            await db.from('deals').update({ lead_id: existingLead.id }).eq('lead_id', lead.id);
+            await db.from('leads').delete().eq('id', lead.id);
+            continue;
+          }
+        }
+        await db
           .from('leads')
+          .update({
+            connection_id: canonical.id,
+            owner_user_id: canonical.owner_user_id,
+          })
+          .eq('id', lead.id);
+      }
+    }
+
+    // B. Handle deals referencing this duplicate connection
+    await db
+      .from('deals')
+      .update({
+        connection_id: canonical.id,
+        owner_user_id: canonical.owner_user_id,
+      })
+      .eq('connection_id', dup.id);
+
+    // C. Handle knowledge documents
+    await db
+      .from('knowledge_documents')
+      .update({
+        connection_id: canonical.id,
+        owner_user_id: canonical.owner_user_id,
+      })
+      .eq('connection_id', dup.id);
+
+    // D. Migrate conversations and messages
+    const { data: dupConvs } = await db
+      .from('conversations')
+      .select('*')
+      .eq('connection_id', dup.id);
+
+    if (dupConvs && dupConvs.length > 0) {
+      for (const conv of dupConvs) {
+        // Find existing canonical conversation for this lead
+        const { data: existingConv } = await db
+          .from('conversations')
           .select('id')
-          .eq('organization_id', lead.organization_id)
+          .eq('organization_id', conv.organization_id)
           .eq('connection_id', canonical.id)
-          .eq('phone', lead.phone)
+          .eq('lead_id', conv.lead_id)
           .maybeSingle();
 
-        if (existingLead && existingLead.id !== lead.id) {
-          // Reassign conversations and deals pointing to `lead.id` to `existingLead.id`
-          await db.from('conversations').update({ lead_id: existingLead.id }).eq('lead_id', lead.id);
-          await db.from('deals').update({ lead_id: existingLead.id }).eq('lead_id', lead.id);
-          // Now safe to delete this duplicate lead
-          await db.from('leads').delete().eq('id', lead.id);
-          continue;
+        let targetConvId: string;
+        if (existingConv) {
+          targetConvId = existingConv.id;
+        } else {
+          // Create new conversation under canonical connection
+          const { data: createdConv, error: createConvErr } = await db
+            .from('conversations')
+            .insert({
+              organization_id: conv.organization_id,
+              connection_id: canonical.id,
+              lead_id: conv.lead_id,
+              flow_version_id: conv.flow_version_id,
+              stage: conv.stage,
+              bot_paused: conv.bot_paused,
+              handled_by: conv.handled_by,
+              assigned_user_id: conv.assigned_user_id,
+              last_message_at: conv.last_message_at,
+              created_at: conv.created_at,
+              updated_at: conv.updated_at,
+            })
+            .select('id')
+            .single();
+
+          if (createConvErr || !createdConv) {
+            console.error(`Failed to create canonical conversation for lead ${conv.lead_id}:`, createConvErr);
+            continue;
+          }
+          targetConvId = createdConv.id;
         }
+
+        // Re-target flow_executions if any
+        await db
+          .from('flow_executions')
+          .update({ conversation_id: targetConvId })
+          .eq('conversation_id', conv.id);
+
+        // Fetch and re-target messages
+        const { data: msgs } = await db
+          .from('messages')
+          .select('*')
+          .eq('conversation_id', conv.id);
+
+        if (msgs && msgs.length > 0) {
+          for (const m of msgs) {
+            const { error: insErr } = await db.from('messages').insert({
+              organization_id: m.organization_id,
+              connection_id: canonical.id,
+              conversation_id: targetConvId,
+              provider_message_id: m.provider_message_id,
+              direction: m.direction,
+              sender: m.sender,
+              content: m.content,
+              message_type: m.message_type,
+              created_at: m.created_at,
+            });
+            if (!insErr) {
+              totalMigratedMsgs++;
+            }
+          }
+        }
+
+        // Delete old messages
+        await db.from('messages').delete().eq('conversation_id', conv.id);
+        // Delete old conversation
+        await db.from('conversations').delete().eq('id', conv.id);
+        totalMigratedConvs++;
       }
-      // Otherwise just update connection_id and owner_user_id to canonical
-      await db
-        .from('leads')
-        .update({
-          connection_id: canonical.id,
-          owner_user_id: canonical.owner_user_id,
-        })
-        .eq('id', lead.id);
     }
-    console.log('2. Leads processed and merged into canonical connection.');
-  }
 
-  // 3. Update deals
-  const { error: dealsErr } = await db
-    .from('deals')
-    .update({
-      connection_id: canonical.id,
-      owner_user_id: canonical.owner_user_id,
-    })
-    .in('connection_id', duplicateIds);
-  if (dealsErr) console.error('Error updating deals:', dealsErr);
-  else console.log('3. Deals updated to canonical connection.');
-
-  // 4. Update knowledge_documents
-  const { error: kdErr } = await db
-    .from('knowledge_documents')
-    .update({
-      connection_id: canonical.id,
-      owner_user_id: canonical.owner_user_id,
-    })
-    .in('connection_id', duplicateIds);
-  if (kdErr) console.error('Error updating knowledge docs:', kdErr);
-  else console.log('4. Knowledge docs updated to canonical connection.');
-
-  // 5. Update messages
-  // Note: messages composite foreign key references conversations(organization_id, connection_id, id).
-  // In Postgres, if conversations and messages both have connection_id, we need conversations updated too.
-  // Let's update conversations and messages in chunks or batches if needed.
-  console.log('5. Updating conversations and messages...');
-  const { data: dupConvs } = await db
-    .from('conversations')
-    .select('id, organization_id')
-    .in('connection_id', duplicateIds);
-
-  if (dupConvs && dupConvs.length > 0) {
-    console.log(`Updating ${dupConvs.length} conversations...`);
-    // First update messages for these conversations
-    for (let i = 0; i < dupConvs.length; i += 50) {
-      const batch = dupConvs.slice(i, i + 50).map(c => c.id);
-      await db.from('messages').update({ connection_id: canonical.id }).in('conversation_id', batch);
-      await db.from('conversations').update({ connection_id: canonical.id }).in('id', batch);
-    }
-  }
-
-  // Update any leftover messages
-  await db.from('messages').update({ connection_id: canonical.id }).in('connection_id', duplicateIds);
-  console.log('5. Completed updating conversations and messages.');
-
-  // 6. Delete duplicate connections in chunks of 50
-  console.log(`6. Deleting ${duplicateIds.length} duplicate connections...`);
-  for (let i = 0; i < duplicateIds.length; i += 50) {
-    const batch = duplicateIds.slice(i, i + 50);
-    const { error: delErr } = await db.from('connections').delete().in('id', batch);
+    // E. Delete the duplicate connection
+    const { error: delErr } = await db.from('connections').delete().eq('id', dup.id);
     if (delErr) {
-      console.error(`Error deleting batch ${i}-${i + 50}:`, delErr);
+      console.error(`${progress} delete error:`, delErr);
+    } else if ((idx + 1) % 25 === 0 || idx + 1 === duplicates.length) {
+      console.log(`Processed ${idx + 1}/${duplicates.length} duplicate connections...`);
     }
   }
 
-  // 7. Verify final count
+  console.log(`\nMigration summary:`);
+  console.log(`- Conversations migrated/merged: ${totalMigratedConvs}`);
+  console.log(`- Messages migrated: ${totalMigratedMsgs}`);
+
+  // Final verification
   const { data: finalConns } = await db
     .from('connections')
     .select('id, name, provider, status, phone')
     .order('created_at', { ascending: true });
 
-  console.log('\n=== FINAL CONNECTIONS ===');
-  console.log(`Total remaining: ${finalConns?.length ?? 0}`);
+  console.log('\n=== FINAL REMAINING CONNECTIONS ===');
+  console.log(`Total count: ${finalConns?.length ?? 0}`);
   for (const fc of finalConns ?? []) {
-    console.log(` - ${fc.name} (${fc.phone || 'no-phone'}) [${fc.id}]`);
+    console.log(` - ${fc.name} (${fc.phone || 'no-phone'}) status=${fc.status} [${fc.id}]`);
   }
 }
 
