@@ -194,6 +194,7 @@ function ProtectedApp() {
               <GlobalTopHeader />
               <div style={{ flex: 1, minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
                 <Routes>
+                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
                   <Route path="/flows/new" element={<Builder />} />
                   <Route path="/flows" element={<Builder />} />
                   <Route path="/connections" element={<ConnectionsPage />} />
