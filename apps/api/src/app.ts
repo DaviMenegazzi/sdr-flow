@@ -884,13 +884,14 @@ export function createApp(config: ApiConfig = {}): Express {
 
       let resolvedConnectionId = connectionId;
       if (connectionId && !z.string().uuid().safeParse(connectionId).success) {
-        const { data: conn } = await ctx.db
+        const { data: conns } = await ctx.db
           .from('connections')
           .select('id')
           .or(`name.eq.${connectionId},provider_instance_id.eq.${connectionId}`)
-          .maybeSingle();
-        if (conn) {
-          resolvedConnectionId = conn.id;
+          .order('created_at', { ascending: true })
+          .limit(1);
+        if (conns && conns[0]) {
+          resolvedConnectionId = conns[0].id;
         }
       }
 
@@ -1583,13 +1584,16 @@ export function createApp(config: ApiConfig = {}): Express {
           const db = serviceDatabase(config.supabaseUrl, config.serviceRoleKey);
           convRepo = new ConversationRepository(db);
 
-          // Find connection by provider_instance_id
-          const { data: existingConn } = await db
+          // Find connection by provider_instance_id or name
+          const { data: existingConns } = await db
             .from('connections')
             .select('id, organization_id')
-            .eq('provider_instance_id', instanceName)
+            .or(`provider_instance_id.eq.${instanceName},name.eq.${instanceName}`)
             .eq('provider', 'evolution')
-            .maybeSingle();
+            .order('created_at', { ascending: true })
+            .limit(1);
+
+          const existingConn = existingConns?.[0];
 
           let dbConnectionId: string | null = null;
 
@@ -2824,9 +2828,24 @@ export function createApp(config: ApiConfig = {}): Express {
     const limit = req.query.limit ? Number(req.query.limit) : 50;
     const offset = req.query.offset ? Number(req.query.offset) : 0;
 
+    let resolvedConnectionId = connectionId;
+    if (connectionId && !z.string().uuid().safeParse(connectionId).success) {
+      const db = res.locals.db;
+      const { data: conns } = await db
+        .from('connections')
+        .select('id')
+        .eq('organization_id', orgId)
+        .or(`name.eq.${connectionId},provider_instance_id.eq.${connectionId}`)
+        .order('created_at', { ascending: true })
+        .limit(1);
+      if (conns && conns[0]) {
+        resolvedConnectionId = conns[0].id;
+      }
+    }
+
     const result = await inboxRepo.listConversations(orgId, {
       stage,
-      connectionId,
+      connectionId: resolvedConnectionId,
       handledBy,
       assignedUserId,
       search,

@@ -12,6 +12,7 @@ import { FlowNode, type CanvasNode } from './FlowNode';
 import { SchemaForm } from './SchemaForm';
 import { useBuilder } from './store';
 import { useSession } from '../session';
+import { useInstance } from '../context/InstanceContext';
 import { PlaygroundModal } from './PlaygroundModal';
 
 const nodeTypes = { flowNode: FlowNode };
@@ -53,8 +54,8 @@ function Editor() {
   const [flowId, setFlowId] = useState<string | null>(null);
   const [savedFlows, setSavedFlows] = useState<SavedFlow[]>([]);
   const [selectedEdges, setSelectedEdges] = useState<string[]>([]);
-  const [instances, setInstances] = useState<InstanceOption[]>([]);
-  const [targetInstance, setTargetInstance] = useState<string>('');
+  const { activeInstance, activeInstanceName, currentInstance, setActiveInstance } = useInstance();
+  const targetInstance = activeInstanceName || currentInstance?.name || '';
   const [activeBindings, setActiveBindings] = useState<Record<string, { flowId: string; flow?: any }>>({});
   const [liveError, setLiveError] = useState<{ nodeId: string; error: string; timestamp: string } | null>(null);
 
@@ -98,19 +99,6 @@ function Editor() {
 
   const refreshData = async () => {
     try {
-      const instRes = await fetch('/api/connections/instances');
-      if (instRes.ok) {
-        const data = await instRes.json();
-        if (Array.isArray(data)) {
-          setInstances(data);
-          setTargetInstance(current => {
-            if (current) return current;
-            const connected = data.find((i: any) => i.status === 'connected');
-            return connected ? connected.name : (data[0]?.name || '');
-          });
-        }
-      }
-
       const activeRes = await fetch('/api/flows/active');
       if (activeRes.ok) {
         const active = await activeRes.json();
@@ -134,7 +122,7 @@ function Editor() {
                 state.replace(parsed.data);
                 state.setName(flowToOpen.name);
                 setFlowId(flowToOpen.id);
-                if (flowToOpen.targetInstance) setTargetInstance(flowToOpen.targetInstance);
+                if (flowToOpen.targetInstance) setActiveInstance(flowToOpen.targetInstance);
                 layout(parsed.data);
                 setNotice(`Fluxo "${flowToOpen.name}" carregado.`);
               }
@@ -260,7 +248,7 @@ function Editor() {
       return;
     }
     if (publish && !targetInstance) {
-      setNotice('Selecione para qual instância WhatsApp ativar este fluxo.');
+      setNotice('Selecione uma instância no topo (TopBar) para vincular e publicar este fluxo.');
       return;
     }
 
@@ -337,7 +325,7 @@ function Editor() {
       const parsed = flowGraphSchema.parse(draft.graph);
       state.replace(parsed);
       state.setName(typeof draft.name === 'string' ? draft.name : 'Rascunho');
-      if (draft.targetInstance) setTargetInstance(draft.targetInstance);
+      if (draft.targetInstance) setActiveInstance(draft.targetInstance);
       setFlowId(null);
       layout(parsed);
       setNotice('Rascunho local recuperado.');
@@ -358,7 +346,7 @@ function Editor() {
     state.replace(parsed.data);
     state.setName(flow.name);
     setFlowId(flow.id);
-    if (flow.targetInstance) setTargetInstance(flow.targetInstance);
+    if (flow.targetInstance) setActiveInstance(flow.targetInstance);
     window.history.replaceState(null, '', `?id=${flow.id}`);
     layout(parsed.data);
     setNotice(`Fluxo "${flow.name}" aberto para edição.`);
@@ -631,44 +619,6 @@ function Editor() {
 
       <div className="editor-body">
         <aside className="node-library">
-          {/* Seletor de Instância do WhatsApp */}
-          <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--color-border-secondary)', background: 'var(--color-bg-secondary)' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-secondary)', marginBottom: 6 }}>
-              <Radio size={13} color="#16a34a" /> Instância WhatsApp Vinculada
-            </label>
-            <select
-              style={{
-                width: '100%',
-                padding: '6px 8px',
-                borderRadius: 6,
-                fontSize: 13,
-                border: '1px solid var(--color-border)',
-                background: 'var(--color-bg-primary)',
-                color: 'var(--color-text-primary)',
-                fontWeight: 500,
-              }}
-              value={targetInstance}
-              onChange={e => setTargetInstance(e.target.value)}
-            >
-              <option value="">-- Selecionar Instância --</option>
-              {instances.map(inst => (
-                <option key={inst.id || inst.name} value={inst.name}>
-                  {inst.name} {inst.phone ? `(+${inst.phone})` : `(${inst.status})`}
-                </option>
-              ))}
-            </select>
-            {targetInstance ? (
-              <div style={{ marginTop: 6, fontSize: 11, color: '#16a34a', display: 'flex', alignItems: 'center', gap: 5 }}>
-                <CheckCircle2 size={12} />
-                <span>Ativará para <strong>{targetInstance}</strong> ao Publicar</span>
-              </div>
-            ) : (
-              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-text-secondary)' }}>
-                Selecione o WhatsApp que será controlado por esta IA.
-              </div>
-            )}
-          </div>
-
           <div className="library-heading">
             <h2>Biblioteca de nós</h2>
             <span>{Object.keys(catalog).length}</span>
@@ -901,8 +851,8 @@ function Editor() {
 
       <footer className="statusbar">
         <span>
-          <i className="status-dot" style={{ background: targetInstance ? '#16a34a' : '#ca8a04' }} />
-          {targetInstance ? `Instância: ${targetInstance}` : 'Sem instância vinculada'}
+          <i className="status-dot" style={{ background: currentInstance?.status === 'connected' ? '#16a34a' : '#ca8a04' }} />
+          {targetInstance ? `Instância ativa: ${targetInstance}` : 'Nenhuma instância selecionada no topo'}
         </span>
         <span role="status" className="notice">{notice || 'Alterações no canvas ficam no rascunho até você salvar.'}</span>
         <span>{graph.nodes.length} nós · {graph.edges.length} conexões</span>

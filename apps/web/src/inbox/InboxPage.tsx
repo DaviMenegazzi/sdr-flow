@@ -402,13 +402,12 @@ export function InboxPage() {
   }, [session, activeOrg, isStandalone]);
 
   useEffect(() => {
-    if (activeInstance && connections.length > 0) {
+    if (activeInstance) {
       const matching = connections.find(c => c.name === activeInstance || c.id === activeInstance);
-      if (matching) {
-        setConnectionFilter(matching.id);
-        setSelectedId(null);
-        setSelectedConv(null);
-      }
+      setConnectionFilter(matching?.id || activeInstance);
+      setSelectedId(null);
+      setSelectedConv(null);
+      setMessages([]);
     }
   }, [activeInstance, connections]);
 
@@ -652,25 +651,6 @@ export function InboxPage() {
             >
               <RefreshCw size={14} className={loadingList ? 'animate-spin' : ''} />
             </button>
-          </div>
-
-          {/* Connection Selector */}
-          <div style={{ marginBottom: '10px' }}>
-            <label style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>
-              <Radio size={12} /> Instância WhatsApp
-            </label>
-            <select
-              value={connectionFilter}
-              onChange={e => { setConnectionFilter(e.target.value); setSelectedId(null); setSelectedConv(null); }}
-              style={{ fontSize: '12px', padding: '7px 10px', borderRadius: '6px', width: '100%' }}
-            >
-              <option value="ALL">{connections.length > 0 ? 'Todas as instâncias' : 'Nenhuma instância encontrada'}</option>
-              {connections.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.provider}{c.status === 'connected' ? ' · conectado' : ''})
-                </option>
-              ))}
-            </select>
           </div>
 
           {/* Search Input */}

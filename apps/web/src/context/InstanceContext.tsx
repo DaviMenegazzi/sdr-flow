@@ -11,12 +11,14 @@ export interface InstanceItem {
   profilePicUrl?: string;
 }
 
-interface InstanceContextType {
+export interface InstanceContextType {
   activeInstance: string;
   setActiveInstance: (name: string) => void;
   instances: InstanceItem[];
   loading: boolean;
   refreshInstances: () => Promise<void>;
+  currentInstance: InstanceItem | undefined;
+  activeInstanceName: string;
 }
 
 const STORAGE_KEY = 'sdr-flow:active-instance';
@@ -27,6 +29,8 @@ const InstanceContext = createContext<InstanceContextType>({
   instances: [],
   loading: false,
   refreshInstances: async () => {},
+  currentInstance: undefined,
+  activeInstanceName: '',
 });
 
 export const useInstance = () => useContext(InstanceContext);
@@ -69,7 +73,7 @@ export function InstanceProvider({ children }: { children: ReactNode }) {
         setInstances(list);
 
         if (list.length > 0) {
-          const currentValid = list.some(i => i.id === activeInstance);
+          const currentValid = list.some(i => i.id === activeInstance || i.name === activeInstance);
           if (!currentValid || !activeInstance) {
             const firstConnected = list.find(i => i.status === 'connected');
             const fallback = firstConnected?.id || list[0]?.id || '';
@@ -88,6 +92,9 @@ export function InstanceProvider({ children }: { children: ReactNode }) {
     void refreshInstances();
   }, [session?.user.id]);
 
+  const currentInstance = instances.find(i => i.id === activeInstance || i.name === activeInstance);
+  const activeInstanceName = currentInstance?.name || (activeInstance ? activeInstance : '');
+
   return (
     <InstanceContext.Provider
       value={{
@@ -96,6 +103,8 @@ export function InstanceProvider({ children }: { children: ReactNode }) {
         instances,
         loading,
         refreshInstances,
+        currentInstance,
+        activeInstanceName,
       }}
     >
       {children}

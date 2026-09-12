@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { catalog } from '@sdr/flow';
 import type { FlowNode } from '@sdr/shared';
 import { useBuilder } from './store';
+import { useInstance } from '../context/InstanceContext';
 import {
   Users,
   Phone,
@@ -162,8 +163,8 @@ function InstanceTargetPicker({
   typeFilter?: 'all' | 'contacts' | 'groups';
   onSelect: (id: string, name: string) => void;
 }) {
-  const [instances, setInstances] = useState<Array<{ name: string; status: string }>>([]);
-  const [selectedInstance, setSelectedInstance] = useState<string>('');
+  const { activeInstanceName, currentInstance } = useInstance();
+  const selectedInstance = activeInstanceName || currentInstance?.name || '';
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [targets, setTargets] = useState<{
@@ -171,19 +172,6 @@ function InstanceTargetPicker({
     contacts: Array<{ id: string; name: string; jid: string }>;
   }>({ groups: [], contacts: [] });
   const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    fetch('/api/connections/instances')
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data) && data.length > 0) {
-          setInstances(data);
-          const connected = data.find(i => i.status === 'connected') || data[0];
-          if (connected) setSelectedInstance(connected.name);
-        }
-      })
-      .catch(() => {});
-  }, []);
 
   const loadTargets = (refresh = false) => {
     if (!selectedInstance) return;
@@ -268,19 +256,7 @@ function InstanceTargetPicker({
             gap: 8,
           }}
         >
-          {instances.length > 1 && (
-            <select
-              value={selectedInstance}
-              onChange={e => setSelectedInstance(e.target.value)}
-              style={{ fontSize: 11, padding: '4px 6px' }}
-            >
-              {instances.map(inst => (
-                <option key={inst.name} value={inst.name}>
-                  {inst.name} ({inst.status})
-                </option>
-              ))}
-            </select>
-          )}
+
 
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <div style={{ display: 'flex', flex: 1, alignItems: 'center', gap: 6, border: '1px solid var(--color-border)', borderRadius: 6, padding: '4px 8px' }}>

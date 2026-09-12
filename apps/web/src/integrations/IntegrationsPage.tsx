@@ -41,7 +41,7 @@ interface CalendarItem {
 }
 
 export function IntegrationsPage() {
-  const { activeInstance, setActiveInstance, instances, loading: loadingInstances } = useInstance();
+  const { activeInstance, instances, loading: loadingInstances } = useInstance();
 
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [loading, setLoading] = useState(true);
@@ -209,12 +209,12 @@ export function IntegrationsPage() {
               Integrações por Instância
             </h1>
             <p style={{ margin: 0, color: 'var(--color-text-secondary)', fontSize: 13, maxWidth: 650 }}>
-              Cada instância do WhatsApp conecta sua própria agenda Google e ferramentas externas. Selecione a instância abaixo para gerenciar suas conexões.
+              Cada instância do WhatsApp conecta sua própria agenda Google e ferramentas externas. Gerencie as conexões para a instância selecionada no topo.
             </p>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {/* Seletor de Instância Ativa */}
+            {/* Indicador de Instância Ativa */}
             <div
               style={{
                 display: 'flex',
@@ -229,29 +229,10 @@ export function IntegrationsPage() {
             >
               <Radio size={15} color={currentInstanceObj?.status === 'connected' ? '#16a34a' : '#94a3b8'} />
               <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)' }}>Instância:</span>
-              <select
-                value={activeInstance}
-                onChange={e => setActiveInstance(e.target.value)}
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  fontWeight: 700,
-                  fontSize: 13,
-                  color: 'var(--color-text-primary)',
-                  cursor: 'pointer',
-                  outline: 'none',
-                }}
-              >
-                {instances.length === 0 ? (
-                  <option value="">Nenhuma instância encontrada</option>
-                ) : (
-                  instances.map(inst => (
-                    <option key={inst.id} value={inst.name || inst.id}>
-                      {inst.name || inst.id} {inst.phone ? `(${inst.phone})` : ''} {inst.status === 'connected' ? '🟢' : '⚪'}
-                    </option>
-                  ))
-                )}
-              </select>
+              <strong style={{ fontSize: 13, color: 'var(--color-text-primary)' }}>
+                {currentInstanceObj?.name || activeInstance || 'Nenhuma'}
+                {currentInstanceObj?.phone ? ` (${currentInstanceObj.phone})` : ''}
+              </strong>
             </div>
 
             <button
