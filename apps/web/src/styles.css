@@ -66,3 +66,10 @@
   border-bottom-color: var(--color-bg-accent);
   font-weight: 600;
 }
+.auth-page { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: var(--color-bg-secondary); color: var(--color-text-primary); }
+.auth-card { width: min(100%, 420px); padding: 32px; border: 1px solid var(--color-border-secondary); border-radius: 14px; background: var(--color-bg-primary); box-shadow: 0 16px 50px rgba(15,23,42,.08); }
+.auth-card form { display: grid; gap: 16px; margin: 24px 0; }
+.auth-card label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }
+.auth-card input { border: 1px solid var(--color-border-secondary); border-radius: 8px; padding: 11px 12px; background: transparent; color: inherit; }
+.auth-card button { border: 0; border-radius: 8px; padding: 11px; background: #4f46e5; color: white; font-weight: 700; cursor: pointer; }
+.auth-card button:disabled { opacity: .6; cursor: wait; }

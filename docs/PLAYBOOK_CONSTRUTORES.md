@@ -15,6 +15,38 @@ O **SDR Flow** é uma plataforma visual orientada a grafos direcionados para aut
 4. **Proteção Contra Loops Infinitos:** O motor possui limites estritos por execução (máximo de 5 visitas por nó e 50 passos no total).
 5. **Garantia de Término:** Todo ramo do fluxo deve obrigatoriamente convergir para um nó de encerramento (`output.end`) ou suspensão controlada (`flow.wait_reply`).
 
+### ⏱️ 1.1. Janela de Contexto de Sessão e Ciclo de Conversas (Context Window & Inactivity Timeout)
+
+O motor do SDR Flow gerencia automaticamente o **ciclo de vida e a janela de contexto de cada conversa** em nível de motor e banco de dados (sem necessidade de nós adicionais no fluxo visual):
+
+1. **Janela de Inatividade (Padrão: 15 minutos):**
+   - A cada mensagem recebida, o motor afere o tempo decorrido desde a última atividade (`conversations.last_message_at`).
+   - Se o lead ficar mais de **15 minutos** sem responder (configurável via variável de ambiente `SESSION_TIMEOUT_MINUTES`), a conversa anterior é **automaticamente finalizada com `stage = 'CLOSED'`**.
+
+2. **Reset de Estado Volátil do Turno:**
+   - Ao encerrar a sessão expirada, o motor executa `resetVolatileLeadTurnState`:
+     - **O que é limpo:** Estados voláteis de navegação (`conversation_state`), passos temporários de agendamento (`selected_slot_iso`, `proximo_passo`, `desired_date`, `period`), e o array de objeções de turno (`objections = []`).
+     - **O que é PRESERVADO:** Toda a memória cadastral e comercial sólida do lead (`name`, `city`, `interest`, `notes`, `budget`, `timeline`, `custom_fields` perenes).
+
+3. **Início de Nova Conversa e Escopo de Turno Limpo:**
+   - Uma nova conversa é criada com `stage = 'NEW_CONVERSATION'` e `handled_by = 'AI'`.
+   - **Garantia contra Falso Transbordo:** O nó `context.memory` calcula o contexto de turno (`{{lastAssistantQuestion}}`, `{{lastAssistantMessage}}`, `{{recentAssistantMessages}}`) **estritamente sobre as mensagens da conversa atual**.
+   - Se o lead reaparecer após horas dizendo apenas `"boa tarde"`, `{{lastAssistantQuestion}}` estará vazio (`""`). A IA não assumirá que o cliente está respondendo a uma pergunta antiga de 2 horas atrás e não disparará o transbordo para atendente humano.
+
+4. **Histórico Delimitado de Sessão Anterior (Até 10 Mensagens):**
+   - Durante as primeiras 10 mensagens da nova conversa (`messages.length <= 10`), o nó `context.memory` resgata o histórico recente da conversa anterior via banco de dados e formata com separadores de sessão claros em `{{recentMessages}}`:
+     ```
+     [Histórico anterior]
+     [Lead]: Quanto custa o plano ouro?
+     [AI]: O plano ouro sai por R$ 120/mês.
+     --- Nova conversa iniciada ---
+     [Lead]: Olá, boa tarde! E aquele plano que a gente conversou?
+     ```
+   - O LLM ganha total consciência do que foi tratado anteriormente caso o cliente retome o assunto, sem que o motor confunda as sessões ou perguntas ativas.
+
+5. **Ação "Devolver para IA" no Inbox:**
+   - Quando um operador humano clica em "Devolver para IA" no painel do Inbox, o motor reseta a conversa para `stage = 'NEW_CONVERSATION'` e limpa os estados voláteis do lead, garantindo que o bot recomece o atendimento de forma receptiva e natural, sem ecoar o transbordo anterior.
+
 ---
 
 ## 🧩 2. Catálogo Completo dos Construtores (Nós)
@@ -128,9 +160,9 @@ O catálogo atual possui **44 tipos de nó**, divididos em **10 categorias funda
 #### 11. Memória Comercial (`context.memory`)
 - **O que faz:** Carrega os dados persistidos do lead (nome, cidade, plano de interesse, urgência, dependentes) e o histórico das últimas $N$ mensagens da conversa.
 - **Lógica por trás:** Injeta a memória estruturada na variável `{{commercialMemory}}` e as mensagens recentes em `{{recentMessages}}`. Assim, a IA nunca esquece o que o cliente já respondeu minutos ou dias atrás.
-- **Contexto do turno:** também gera `{{latestLeadMessage}}`, `{{lastAssistantMessage}}`,
-  `{{lastAssistantQuestion}}` e `{{recentAssistantMessages}}`. Mensagens internas do sistema são
-  excluídas para não aparecerem como falas da IA.
+- **Contexto do turno:** Gera `{{latestLeadMessage}}`, `{{lastAssistantMessage}}`, `{{lastAssistantQuestion}}` e `{{recentAssistantMessages}}`. Mensagens internas do sistema são excluídas para não aparecerem como falas da IA.
+  - **Escopo Estrito de Sessão:** O contexto de turno é avaliado **estritamente sobre a conversa ativa**. Em uma conversa recém-iniciada (após a janela de inatividade de 15 min), `{{lastAssistantQuestion}}` e `{{lastAssistantMessage}}` iniciam vazios (`""`), impedindo falsas suposições ou transbordos acidentais quando o cliente manda apenas uma saudação.
+- **Histórico Delimitado entre Sessões:** Durante as primeiras 10 mensagens da nova conversa (`messages.length <= 10`), o nó resgata automaticamente mensagens da sessão anterior e as formata em `{{recentMessages}}` separadas por `[Histórico anterior]` e `--- Nova conversa iniciada ---`. Isso dá consciência prévia ao LLM para responder caso o lead retome produtos ou dúvidas anteriores sem perder a fluidez.
 - **Portas de saída:** `next`.
 
 #### 12. Base de Conhecimento RAG (`context.knowledge`)
@@ -175,6 +207,7 @@ O catálogo atual possui **44 tipos de nó**, divididos em **10 categorias funda
   escopo da organização.
 - **Estágios aceitos:** `DISCOVERY`, `QUALIFYING`, `PRICING`, `SCHEDULING`, `CLOSING`, `HANDOFF` e
   `SUPPORT`.
+- **Ciclo de Vida e Reset:** Após o timeout de inatividade (15 min) ou na ação de "Devolver para IA" no Inbox, o motor limpa o `conversation_state` volátil e inicia o próximo ciclo com `stage: 'NEW_CONVERSATION'`, impedindo que a IA fique travada em estados residuais de turnos encerrados.
 - **Portas de saída:** `next`.
 - **Variável gerada:** `{{conversation_state}}`.
 

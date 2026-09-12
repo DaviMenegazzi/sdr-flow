@@ -47,6 +47,9 @@ interface SessionContextType {
   activeRole: MemberRole | null;
   setActiveOrg(id: string): void;
   reload(): Promise<void>;
+  loading: boolean;
+  profile: { role: 'admin'|'client'; status: string; organizationId: string } | null;
+  signOut(): Promise<void>;
 }
 
 const Context = createContext<SessionContextType>({
@@ -56,6 +59,9 @@ const Context = createContext<SessionContextType>({
   activeRole: null,
   setActiveOrg: () => {},
   reload: async () => {},
+  loading: true,
+  profile: null,
+  signOut: async () => {},
 });
 
 export const useSession = () => useContext(Context);
@@ -65,6 +71,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [organizations, setOrganizations] = useState<Org[]>([]);
   const [activeOrg, setActiveOrg] = useState('');
   const [activeRole, setActiveRole] = useState<MemberRole | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState<SessionContextType['profile']>(null);
 
   const reload = async () => {
     if (!supabase || !session) return;
@@ -95,11 +103,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    if (!supabase) return;
-    void supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    if (!supabase) { setLoading(false); return; }
+    void supabase.auth.getSession().then(({ data }) => { setSession(data.session); setLoading(false); });
     const { data } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
     return () => data.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!session) { setProfile(null); return; }
+    setLoading(true);
+    void fetch('/api/me',{headers:{Authorization:`Bearer ${session.access_token}`}}).then(async response => {
+      if (!response.ok) { setProfile(null); return; }
+      const me=await response.json(); setProfile({role:me.role,status:me.status,organizationId:me.organizationId});
+    }).finally(()=>setLoading(false));
+  },[session?.access_token]);
+
+  const signOut=async()=>{setOrganizations([]);setActiveOrg('');setActiveRole(null);setProfile(null);try{localStorage.removeItem('sdr-flow:active-instance')}catch{}await supabase?.auth.signOut();};
 
   useEffect(() => {
     setOrganizations([]);
@@ -123,7 +142,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [activeOrg]);
 
   return (
-    <Context.Provider value={{ session, organizations, activeOrg, activeRole, setActiveOrg, reload }}>
+    <Context.Provider value={{ session, organizations, activeOrg, activeRole, setActiveOrg, reload, loading, profile, signOut }}>
       {children}
     </Context.Provider>
   );

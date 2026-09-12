@@ -1,4 +1,5 @@
 import type { Database, Json } from './database.types.js';
+import { ConversationRepository } from './conversation-repository.js';
 
 export interface ConversationWithLead {
   id: string;
@@ -461,7 +462,7 @@ export class InboxRepository {
     if (typeof this.db.query === 'function' && typeof this.db.from !== 'function') {
       await this.db.query(
         `update public.conversations
-         set handled_by = 'AI', bot_paused = false, updated_at = $3
+         set handled_by = 'AI', bot_paused = false, stage = 'NEW_CONVERSATION', updated_at = $3
          where organization_id = $1 and id = $2`,
         [organizationId, conversationId, now]
       );
@@ -469,7 +470,7 @@ export class InboxRepository {
       await this.db.query(
         `insert into public.audit_events (organization_id, actor_id, action, entity_id, details)
          values ($1, $2, 'conversation.release', $3, $4)`,
-        [organizationId, userId, conversationId, JSON.stringify({ handled_by: 'AI', bot_paused: false })]
+        [organizationId, userId, conversationId, JSON.stringify({ handled_by: 'AI', bot_paused: false, stage: 'NEW_CONVERSATION' })]
       );
     } else {
       const { error } = await this.db
@@ -477,6 +478,7 @@ export class InboxRepository {
         .update({
           handled_by: 'AI',
           bot_paused: false,
+          stage: 'NEW_CONVERSATION',
           updated_at: now,
         })
         .eq('organization_id', organizationId)
@@ -489,13 +491,17 @@ export class InboxRepository {
         actor_id: userId,
         action: 'conversation.release',
         entity_id: conversationId,
-        details: { handled_by: 'AI', bot_paused: false } as Json,
+        details: { handled_by: 'AI', bot_paused: false, stage: 'NEW_CONVERSATION' } as Json,
       });
     }
 
     const conv = await this.getConversation(organizationId, conversationId);
     if (!conv) throw new Error('Conversa não encontrada após release.');
+    if (conv.lead_id) {
+      await new ConversationRepository(this.db).resetVolatileLeadTurnState(organizationId, conv.lead_id, now);
+    }
     return conv;
+
   }
 
   async assign(

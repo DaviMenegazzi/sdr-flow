@@ -3,6 +3,90 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 export type Database = {
   public: {
     Tables: {
+    account_limits: {
+      Row: {
+        organization_id: string;
+        owner_user_id: string;
+        max_agents: number;
+        max_instances: number | null;
+        created_at: string;
+        updated_at: string;
+      };
+      Insert: {
+        organization_id: string;
+        owner_user_id: string;
+        max_agents?: number;
+        max_instances?: number | null;
+        created_at?: string;
+        updated_at?: string;
+      };
+      Update: {
+        organization_id?: string;
+        owner_user_id?: string;
+        max_agents?: number;
+        max_instances?: number | null;
+        created_at?: string;
+        updated_at?: string;
+      };
+      Relationships: [];
+    };
+    ai_agents: {
+      Row: {
+        id: string;
+        organization_id: string;
+        owner_user_id: string;
+        name: string;
+        description: string | null;
+        status: Database['public']['Enums']['agent_status'];
+        provider: string;
+        model: string;
+        system_prompt: string;
+        flow_id: string | null;
+        active_flow_version_id: string | null;
+        tool_policy: Json;
+        model_config: Json;
+        is_default: boolean;
+        created_at: string;
+        updated_at: string;
+      };
+      Insert: {
+        id?: string;
+        organization_id: string;
+        owner_user_id: string;
+        name: string;
+        description?: string | null;
+        status?: Database['public']['Enums']['agent_status'];
+        provider: string;
+        model: string;
+        system_prompt?: string;
+        flow_id?: string | null;
+        active_flow_version_id?: string | null;
+        tool_policy?: Json;
+        model_config?: Json;
+        is_default?: boolean;
+        created_at?: string;
+        updated_at?: string;
+      };
+      Update: {
+        id?: string;
+        organization_id?: string;
+        owner_user_id?: string;
+        name?: string;
+        description?: string | null;
+        status?: Database['public']['Enums']['agent_status'];
+        provider?: string;
+        model?: string;
+        system_prompt?: string;
+        flow_id?: string | null;
+        active_flow_version_id?: string | null;
+        tool_policy?: Json;
+        model_config?: Json;
+        is_default?: boolean;
+        created_at?: string;
+        updated_at?: string;
+      };
+      Relationships: [];
+    };
     api_keys: {
       Row: {
         id: string;
@@ -86,6 +170,8 @@ export type Database = {
         provider_instance_id: string | null;
         created_at: string;
         updated_at: string;
+        owner_user_id: string;
+        agent_id: string;
       };
       Insert: {
         id?: string;
@@ -97,6 +183,8 @@ export type Database = {
         provider_instance_id?: string | null;
         created_at?: string;
         updated_at?: string;
+        owner_user_id: string;
+        agent_id: string;
       };
       Update: {
         id?: string;
@@ -108,6 +196,8 @@ export type Database = {
         provider_instance_id?: string | null;
         created_at?: string;
         updated_at?: string;
+        owner_user_id?: string;
+        agent_id?: string;
       };
       Relationships: [];
     };
@@ -204,6 +294,8 @@ export type Database = {
         status: string;
         score: number | null;
         created_at: string;
+        owner_user_id: string | null;
+        connection_id: string | null;
       };
       Insert: {
         id?: string;
@@ -213,6 +305,8 @@ export type Database = {
         status?: string;
         score?: number | null;
         created_at?: string;
+        owner_user_id?: string | null;
+        connection_id?: string | null;
       };
       Update: {
         id?: string;
@@ -222,6 +316,8 @@ export type Database = {
         status?: string;
         score?: number | null;
         created_at?: string;
+        owner_user_id?: string | null;
+        connection_id?: string | null;
       };
       Relationships: [];
     };
@@ -408,6 +504,8 @@ export type Database = {
         token_count: number;
         created_at: string;
         updated_at: string;
+        owner_user_id: string | null;
+        connection_id: string | null;
       };
       Insert: {
         id?: string;
@@ -420,6 +518,8 @@ export type Database = {
         token_count?: number;
         created_at?: string;
         updated_at?: string;
+        owner_user_id?: string | null;
+        connection_id?: string | null;
       };
       Update: {
         id?: string;
@@ -432,6 +532,8 @@ export type Database = {
         token_count?: number;
         created_at?: string;
         updated_at?: string;
+        owner_user_id?: string | null;
+        connection_id?: string | null;
       };
       Relationships: [];
     };
@@ -447,6 +549,8 @@ export type Database = {
         memory: Json;
         created_at: string;
         updated_at: string;
+        owner_user_id: string | null;
+        connection_id: string | null;
       };
       Insert: {
         id?: string;
@@ -459,6 +563,8 @@ export type Database = {
         memory?: Json;
         created_at?: string;
         updated_at?: string;
+        owner_user_id?: string | null;
+        connection_id?: string | null;
       };
       Update: {
         id?: string;
@@ -471,6 +577,8 @@ export type Database = {
         memory?: Json;
         created_at?: string;
         updated_at?: string;
+        owner_user_id?: string | null;
+        connection_id?: string | null;
       };
       Relationships: [];
     };
@@ -609,6 +717,36 @@ export type Database = {
       };
       Relationships: [];
     };
+    profiles: {
+      Row: {
+        user_id: string;
+        display_name: string | null;
+        role: Database['public']['Enums']['app_role'];
+        status: Database['public']['Enums']['account_status'];
+        default_organization_id: string | null;
+        created_at: string;
+        updated_at: string;
+      };
+      Insert: {
+        user_id: string;
+        display_name?: string | null;
+        role?: Database['public']['Enums']['app_role'];
+        status?: Database['public']['Enums']['account_status'];
+        default_organization_id?: string | null;
+        created_at?: string;
+        updated_at?: string;
+      };
+      Update: {
+        user_id?: string;
+        display_name?: string | null;
+        role?: Database['public']['Enums']['app_role'];
+        status?: Database['public']['Enums']['account_status'];
+        default_organization_id?: string | null;
+        created_at?: string;
+        updated_at?: string;
+      };
+      Relationships: [];
+    };
     };
     Views: Record<never, never>;
     Functions: {
@@ -622,6 +760,9 @@ export type Database = {
       rollup_metrics_daily: { Args: { p_org: string; p_target_date: string; p_flow_version?: string | null }; Returns: Database['public']['Tables']['metrics_daily']['Row'] };
     };
     Enums: {
+      account_status: "invited" | "active" | "suspended" | "disabled";
+      agent_status: "active" | "archived";
+      app_role: "admin" | "client";
       connection_provider: "evolution" | "meta";
       conversation_stage: "NEW_CONVERSATION" | "QUALIFYING" | "COLLECTING_INFORMATION" | "PRESENTING_SOLUTION" | "NEGOTIATING" | "CONVERTED" | "HUMAN_HANDOFF" | "CLOSED";
       member_role: "owner" | "admin" | "agent" | "viewer";

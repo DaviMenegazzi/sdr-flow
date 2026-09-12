@@ -1,4 +1,3 @@
-import { isPhoneNumberMatch } from '@sdr/shared';
 import type { MessagingService } from './types.js';
 
 /**
@@ -11,7 +10,8 @@ import type { MessagingService } from './types.js';
  */
 export function matchesTestPhone(incoming: string | undefined, allowed: string): boolean {
   if (!incoming || (incoming.includes('@') && !/@s\.whatsapp\.net$/.test(incoming))) return false;
-  return isPhoneNumberMatch(incoming, allowed);
+  const normalize=(value:string)=>value.replace(/@s\.whatsapp\.net$/,'').replace(/\D/g,'');
+  return normalize(incoming) === normalize(allowed);
 }
 
 export function restrictTestMessaging(messaging: MessagingService, phone: string, connectionId: string): MessagingService {

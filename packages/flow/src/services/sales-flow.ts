@@ -19,7 +19,6 @@ function propertyValue(record: Record<string, unknown>, key: string): unknown {
   }
   return undefined;
 }
-
 function readPath(root: unknown, path: string): unknown {
   let current = root;
   for (const part of path.split('.')) {
@@ -214,10 +213,30 @@ export function evaluateResponsePolicy(
 
 function textUnits(text: string): string[] {
   const paragraphs = text.replace(/\r\n/g, '\n').split(/\n{2,}/).map(value => value.trim()).filter(Boolean);
-  return paragraphs.flatMap(paragraph => {
+  const rawUnits = paragraphs.flatMap(paragraph => {
     const sentences = paragraph.split(/(?<=[.!?])\s+/).map(value => value.trim()).filter(Boolean);
     return sentences.length > 1 ? sentences : [paragraph];
   });
+
+  const units: string[] = [];
+  for (const unit of rawUnits) {
+    const hasAlphanumeric = /[\p{L}\p{N}]/u.test(unit);
+    if (!hasAlphanumeric) {
+      if (units.length > 0) {
+        units[units.length - 1] = `${units[units.length - 1]} ${unit}`.trim();
+      } else {
+        units.push(unit);
+      }
+    } else {
+      const firstUnit = units[0];
+      if (units.length === 1 && firstUnit && !/[\p{L}\p{N}]/u.test(firstUnit)) {
+        units[0] = `${firstUnit} ${unit}`.trim();
+      } else {
+        units.push(unit);
+      }
+    }
+  }
+  return units.filter(Boolean);
 }
 
 export function splitSmartMessage(text: string, maxBubbles: number, desiredCharacters: number): string[] {
@@ -228,26 +247,46 @@ export function splitSmartMessage(text: string, maxBubbles: number, desiredChara
 
   const desiredCount = Math.min(maxBubbles, Math.max(1, Math.ceil(normalized.length / desiredCharacters)), units.length);
   if (desiredCount === 1) return [normalized];
-  const bubbles: string[] = [];
+  const rawBubbles: string[] = [];
   let current = '';
   for (let index = 0; index < units.length; index++) {
     const unit = units[index];
     if (!unit) continue;
     const unitsRemaining = units.length - index;
-    const bubblesRemaining = desiredCount - bubbles.length;
+    const bubblesRemaining = desiredCount - rawBubbles.length;
     const candidate = current ? `${current} ${unit}` : unit;
     const shouldClose = current && (
       candidate.length > desiredCharacters ||
       unitsRemaining === bubblesRemaining
     );
     if (shouldClose) {
-      bubbles.push(current);
+      rawBubbles.push(current);
       current = unit;
     } else {
       current = candidate;
     }
   }
-  if (current) bubbles.push(current);
+  if (current) rawBubbles.push(current);
+
+  const bubbles: string[] = [];
+  for (const bubble of rawBubbles) {
+    const hasAlphanumeric = /[\p{L}\p{N}]/u.test(bubble);
+    if (!hasAlphanumeric) {
+      if (bubbles.length > 0) {
+        bubbles[bubbles.length - 1] = `${bubbles[bubbles.length - 1]} ${bubble}`.trim();
+      } else {
+        bubbles.push(bubble);
+      }
+    } else {
+      const firstBubble = bubbles[0];
+      if (bubbles.length === 1 && firstBubble && !/[\p{L}\p{N}]/u.test(firstBubble)) {
+        bubbles[0] = `${firstBubble} ${bubble}`.trim();
+      } else {
+        bubbles.push(bubble);
+      }
+    }
+  }
+
   if (bubbles.length <= maxBubbles) return bubbles;
   return [...bubbles.slice(0, maxBubbles - 1), bubbles.slice(maxBubbles - 1).join(' ')];
 }

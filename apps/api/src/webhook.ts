@@ -181,10 +181,19 @@ export async function processInboundWebhook(
     }
 
     const organizationId = connection.organization_id;
+    const { data: assignedAgent } = await db.from('ai_agents').select('id,flow_id,active_flow_version_id,status').eq('organization_id', organizationId).eq('owner_user_id', connection.owner_user_id).eq('id', connection.agent_id).eq('status', 'active').maybeSingle();
+    if (!assignedAgent) {
+      idempotencyGate.release(event.messageId);
+      return { status: 'error', reason: 'assigned_agent_not_found' };
+    }
 
     // 3. Find or create lead and conversation
-    const lead = await convRepo.findOrCreateLead(organizationId, event.phone, event.senderName);
-    const conversation = await convRepo.findOrCreateConversation(organizationId, connectionId, lead.id);
+    const lead = await convRepo.findOrCreateLead(organizationId, connectionId, event.phone, event.senderName);
+    const sessionTimeoutMinutes = Number(process.env.SESSION_TIMEOUT_MINUTES) || 15;
+    const conversation = await convRepo.findOrCreateConversation(organizationId, connectionId, lead.id, null, {
+      sessionTimeoutMinutes,
+      lead,
+    });
 
     // 4. Handle fromMe (Outbound / Human takeover / AI echo)
     if (event.fromMe) {
@@ -267,8 +276,8 @@ export async function processInboundWebhook(
       .select('id, name, published_version_id')
       .eq('organization_id', organizationId)
       .not('published_version_id', 'is', null);
-    flowQuery = options.flowId
-      ? flowQuery.eq('id', options.flowId)
+    flowQuery = assignedAgent.flow_id
+      ? flowQuery.eq('id', assignedAgent.flow_id)
       : flowQuery.order('updated_at', { ascending: false }).limit(1);
     const { data: flow } = await flowQuery.maybeSingle();
 
@@ -282,7 +291,7 @@ export async function processInboundWebhook(
       return { status: 'no_published_flow', organizationId };
     }
 
-    const selectedFlowVersionId = options.flowVersionId || flow.published_version_id;
+    const selectedFlowVersionId = assignedAgent.active_flow_version_id || flow.published_version_id;
     const { data: flowVersion } = await db
       .from('flow_versions')
       .select('*')
@@ -436,6 +445,9 @@ export async function processInboundWebhook(
         },
         getMessages: async (_org, convId, limit) => {
           return convRepo.getMessages(_org, convId, limit);
+        },
+        getLeadRecentMessages: async (_org, leadId, limit) => {
+          return convRepo.getLeadRecentMessages(_org, leadId, limit);
         },
       },
       now: () => new Date(),

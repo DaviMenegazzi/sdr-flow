@@ -4,11 +4,14 @@ import type { AnyDbClient } from './execution-repository.js';
 export class ConversationRepository {
   constructor(private readonly db: AnyDbClient) {}
 
-  async findOrCreateLead(organizationId: string, phone: string, name?: string | null) {
+  async findOrCreateLead(organizationId: string, connectionId: string, phone: string, name?: string | null) {
+    const { data: connection, error: connectionError } = await this.db.from('connections').select('owner_user_id').eq('organization_id', organizationId).eq('id', connectionId).single();
+    if (connectionError || !connection?.owner_user_id) throw connectionError || new Error('Conexão sem proprietário.');
     const { data: existing } = await this.db
       .from('leads')
       .select('*')
       .eq('organization_id', organizationId)
+      .eq('connection_id', connectionId)
       .eq('phone', phone)
       .maybeSingle();
 
@@ -30,6 +33,8 @@ export class ConversationRepository {
       .from('leads')
       .insert({
         organization_id: organizationId,
+        owner_user_id: connection.owner_user_id,
+        connection_id: connectionId,
         phone,
         name: name || null,
         memory: {},
@@ -71,12 +76,113 @@ export class ConversationRepository {
     return updated;
   }
 
+  async resetVolatileLeadTurnState(
+    organizationId: string,
+    leadId: string,
+    timestamp?: string,
+    leadRef?: { memory?: unknown; [key: string]: unknown }
+  ) {
+    try {
+      let memoryObj: Record<string, unknown> | null = null;
+      if (leadRef && leadRef.memory && typeof leadRef.memory === 'object') {
+        memoryObj = leadRef.memory as Record<string, unknown>;
+      } else {
+        const { data: lead } = await this.db
+          .from('leads')
+          .select('memory')
+          .eq('organization_id', organizationId)
+          .eq('id', leadId)
+          .maybeSingle();
+        if (lead && lead.memory && typeof lead.memory === 'object') {
+          memoryObj = lead.memory as Record<string, unknown>;
+        }
+      }
+
+      if (!memoryObj) return;
+
+      const mem = { ...memoryObj };
+      const nowIso = timestamp || new Date().toISOString();
+
+      if (mem.conversation_state && typeof mem.conversation_state === 'object') {
+        mem.conversation_state = {
+          stage: 'NEW_CONVERSATION',
+          updated_at: nowIso,
+          last_action: null,
+          next_expected_input: null,
+        };
+      }
+
+      if (mem.custom_fields && typeof mem.custom_fields === 'object') {
+        const custom = { ...(mem.custom_fields as Record<string, unknown>) };
+        delete custom.proximo_passo;
+        delete custom.selected_slot_iso;
+        delete custom.desired_day;
+        delete custom.desired_date;
+        delete custom.desired_period;
+        delete custom.period;
+        if (custom.conversation_state) {
+          custom.conversation_state = {
+            stage: 'NEW_CONVERSATION',
+            updated_at: nowIso,
+            last_action: null,
+            next_expected_input: null,
+          };
+        }
+        mem.custom_fields = custom;
+      }
+
+      if (mem.attributes && typeof mem.attributes === 'object') {
+        const attrs = { ...(mem.attributes as Record<string, unknown>) };
+        delete attrs.proximo_passo;
+        delete attrs.selected_slot_iso;
+        delete attrs.desired_day;
+        delete attrs.desired_date;
+        delete attrs.desired_period;
+        delete attrs.period;
+        if (attrs.conversation_state) {
+          attrs.conversation_state = {
+            stage: 'NEW_CONVERSATION',
+            updated_at: nowIso,
+            last_action: null,
+            next_expected_input: null,
+          };
+        }
+        mem.attributes = attrs;
+      }
+
+      mem.objections = [];
+
+      if (leadRef) {
+        leadRef.memory = mem;
+      }
+
+      await this.db
+        .from('leads')
+        .update({
+          memory: mem as Json,
+          updated_at: nowIso,
+        })
+        .eq('organization_id', organizationId)
+        .eq('id', leadId);
+    } catch (err) {
+      console.warn('[ConversationRepository] Falha ao resetar estado volátil do lead:', err);
+    }
+  }
+
   async findOrCreateConversation(
     organizationId: string,
     connectionId: string,
     leadId: string,
-    flowVersionId?: string | null
+    flowVersionId?: string | null,
+    options?: {
+      sessionTimeoutMinutes?: number;
+      now?: Date;
+      lead?: { memory?: unknown; [key: string]: unknown };
+    }
   ) {
+    const sessionTimeoutMinutes = options?.sessionTimeoutMinutes ?? 15;
+    const now = options?.now ? options.now.getTime() : Date.now();
+
     // Look for active conversation (not CLOSED, not CONVERTED)
     const { data: existing } = await this.db
       .from('conversations')
@@ -89,7 +195,26 @@ export class ConversationRepository {
       .maybeSingle();
 
     if (existing) {
-      return existing;
+      const lastActivityStr = existing.last_message_at || existing.updated_at || existing.created_at;
+      const lastActivityTime = lastActivityStr ? new Date(lastActivityStr).getTime() : 0;
+      const isExpired = sessionTimeoutMinutes > 0 && lastActivityTime > 0 && (now - lastActivityTime) >= sessionTimeoutMinutes * 60 * 1000;
+
+      if (isExpired) {
+        const nowDateStr = new Date(now).toISOString();
+        await this.db
+          .from('conversations')
+          .update({
+            stage: 'CLOSED',
+            updated_at: nowDateStr,
+            stage_updated_at: nowDateStr,
+          })
+          .eq('id', existing.id)
+          .eq('organization_id', organizationId);
+
+        await this.resetVolatileLeadTurnState(organizationId, leadId, nowDateStr, options?.lead);
+      } else {
+        return existing;
+      }
     }
 
     const { data: created, error } = await this.db
@@ -109,6 +234,7 @@ export class ConversationRepository {
     if (error) throw error;
     return created;
   }
+
 
   async updateConversation(
     organizationId: string,
@@ -203,6 +329,37 @@ export class ConversationRepository {
     rows.reverse();
     return rows;
   }
+
+  async getLeadRecentMessages(
+    organizationId: string,
+    leadId: string,
+    limit = 20
+  ): Promise<Array<{ id: string; conversation_id: string; content: string; sender: string; direction: string; created_at?: string }>> {
+    const { data: convs, error: convErr } = await this.db
+      .from('conversations')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .eq('lead_id', leadId)
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (convErr || !convs || convs.length === 0) return [];
+    const convIds = convs.map((c: any) => c.id);
+
+    const { data, error } = await this.db
+      .from('messages')
+      .select('id, conversation_id, content, sender, direction, created_at')
+      .eq('organization_id', organizationId)
+      .in('conversation_id', convIds)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+    const rows = data || [];
+    rows.reverse();
+    return rows;
+  }
+
 
   async syncDeal(
     organizationId: string,

@@ -35,6 +35,7 @@ import {
   SUPERSEDED_TURN_ERROR,
   type BufferedConversationTurn,
 } from './conversation-turn-queue.js';
+import { authMiddleware, requireRole, uuidParam } from './auth.js';
 
 export interface ApiConfig extends RuntimeConfig {
   supabaseUrl?: string;
@@ -44,6 +45,8 @@ export interface ApiConfig extends RuntimeConfig {
   evolutionServerUrl?: string;
   evolutionApiKey?: string;
   redisUrl?: string;
+  standaloneMode?: boolean;
+  allowedOrigins?: string[];
 }
 export function createApp(config: ApiConfig = {}): Express {
   const app = express();
@@ -65,6 +68,7 @@ export function createApp(config: ApiConfig = {}): Express {
     : undefined;
   app.locals.conversationTurnQueue = turnQueue;
   app.disable('x-powered-by');
+  app.use((req,res,next)=>{const origin=req.get('origin');if(origin&&config.allowedOrigins?.includes(origin)){res.setHeader('Access-Control-Allow-Origin',origin);res.setHeader('Vary','Origin');res.setHeader('Access-Control-Allow-Headers','Authorization, Content-Type, X-Webhook-Secret, X-Hub-Signature-256');res.setHeader('Access-Control-Allow-Methods','GET,POST,PATCH,DELETE,OPTIONS');}if(req.method==='OPTIONS'){res.sendStatus(origin&&config.allowedOrigins?.includes(origin)?204:403);return;}next();});
   app.use(express.json({ limit: '1mb', verify: (req, _res, body) => { (req as typeof req & { rawBody?: Buffer }).rawBody = Buffer.from(body); } }));
   app.use(requestLogger);
   app.get('/api/health', async (_req, res) => {
@@ -87,6 +91,7 @@ export function createApp(config: ApiConfig = {}): Express {
     res.json({
       status: 'ok',
       service: 'api',
+      persistenceConfigured: supabaseConfigured,
       uptimeSeconds: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
       supabase: { configured: supabaseConfigured, connected: supabaseConnected, organizations: orgCount, connections: connectionCount },
@@ -96,6 +101,118 @@ export function createApp(config: ApiConfig = {}): Express {
         heapUsedMb: Math.round(memory.heapUsed / (1024 * 1024)),
       },
     });
+  });
+  const protectedApi = authMiddleware(config);
+  const standaloneAllowed = config.standaloneMode === true || process.env.NODE_ENV === 'test';
+  app.use('/api', (req, res, next) => {
+    const publicPath = /^\/webhooks\/(evolution|meta)\/[0-9a-f-]{36}$/.test(req.path);
+    if (req.path === '/health' || publicPath || standaloneAllowed) { next(); return; }
+    void protectedApi(req, res, next);
+  });
+  app.use('/api', (req, res, next) => {
+    if (!standaloneAllowed && (/^\/settings(?:\/|$)/.test(req.path) || /^\/connections\/instances(?:\/|$)/.test(req.path) || /^\/connections\/evolution(?:\/|$)/.test(req.path) || /^\/flows(?:\/|$)/.test(req.path) || /^\/(knowledge|inbox|integrations)(?:\/|$)/.test(req.path))) {
+      res.status(404).json({ error: 'Recurso não encontrado.' }); return;
+    }
+    next();
+  });
+
+  app.get('/api/me', (req, res) => {
+    const auth = res.locals.auth;
+    if (!auth) { res.status(401).json({ error: 'Autenticação obrigatória.' }); return; }
+    res.json({ userId: auth.userId, email: auth.email, role: auth.appRole, status: auth.profileStatus, organizationId: auth.organizationId });
+  });
+
+  app.get('/api/me/instances', async (_req, res) => {
+    const auth = res.locals.auth!;
+    const { data, error } = await auth.db.from('connections').select('id,name,provider,status,phone,agent_id,created_at').eq('organization_id', auth.organizationId).eq('owner_user_id', auth.userId).order('created_at');
+    if (error) throw error; res.json(data ?? []);
+  });
+  app.get('/api/me/agents', async (_req, res) => {
+    const auth = res.locals.auth!;
+    const [{ data, error }, { data: limits }] = await Promise.all([
+      auth.db.from('ai_agents').select('id,name,description,status,provider,model,system_prompt,tool_policy,model_config,is_default,created_at,updated_at').eq('organization_id', auth.organizationId).eq('owner_user_id', auth.userId).neq('status','archived').order('created_at'),
+      auth.db.from('account_limits').select('max_agents,max_instances').eq('organization_id', auth.organizationId).eq('owner_user_id', auth.userId).maybeSingle(),
+    ]);
+    if (error) throw error; res.json({ agents: data ?? [], limits: limits ?? { max_agents: 2, max_instances: null }, used: data?.length ?? 0 });
+  });
+  app.post('/api/me/agents', async (req, res) => {
+    const auth = res.locals.auth!;
+    const body = z.object({ name: z.string().trim().min(1).max(80), description: z.string().max(500).optional(), provider: z.string().trim().min(1).max(40), model: z.string().trim().min(1).max(120), systemPrompt: z.string().max(20000), toolPolicy: z.record(z.string(), z.unknown()).optional(), modelConfig: z.record(z.string(), z.unknown()).optional() }).strict().safeParse(req.body);
+    if (!body.success) { res.status(400).json({ error: 'Dados do agente inválidos.' }); return; }
+    const { data, error } = await (auth.db as any).rpc('create_agent_for_current_user', { p_name: body.data.name, p_description: body.data.description ?? null, p_provider: body.data.provider, p_model: body.data.model, p_system_prompt: body.data.systemPrompt, p_tool_policy: body.data.toolPolicy ?? {}, p_model_config: body.data.modelConfig ?? {} });
+    if (error) { res.status(error.code === 'P0001' ? 409 : 400).json({ error: error.code === 'P0001' ? 'Limite de agentes atingido.' : 'Não foi possível criar o agente.' }); return; }
+    res.status(201).json(data);
+  });
+  app.get('/api/me/agents/:agentId', async (req, res) => {
+    const auth = res.locals.auth!; const agentId = uuidParam.safeParse(req.params.agentId);
+    if (!agentId.success) { res.status(400).json({ error: 'Identificador inválido.' }); return; }
+    const { data, error } = await auth.db.from('ai_agents').select('*').eq('organization_id', auth.organizationId).eq('owner_user_id', auth.userId).eq('id', agentId.data).neq('status', 'archived').maybeSingle();
+    if (error || !data) { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
+    res.json(data);
+  });
+  app.patch('/api/me/agents/:agentId', async (req, res) => {
+    const auth = res.locals.auth!; const agentId = uuidParam.safeParse(req.params.agentId);
+    const body = z.object({ name: z.string().trim().min(1).max(80), description: z.string().max(500).nullable().optional(), provider: z.string().trim().min(1).max(40), model: z.string().trim().min(1).max(120), systemPrompt: z.string().max(20000), toolPolicy: z.record(z.string(), z.unknown()).optional(), modelConfig: z.record(z.string(), z.unknown()).optional() }).strict().safeParse(req.body);
+    if (!agentId.success || !body.success) { res.status(400).json({ error: 'Dados do agente inválidos.' }); return; }
+    const { data, error } = await (auth.db as any).rpc('update_agent_for_current_user', { p_agent: agentId.data, p_name: body.data.name, p_description: body.data.description ?? null, p_provider: body.data.provider, p_model: body.data.model, p_system_prompt: body.data.systemPrompt, p_tool_policy: body.data.toolPolicy ?? {}, p_model_config: body.data.modelConfig ?? {} });
+    if (error || !data) { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
+    res.json(data);
+  });
+  app.delete('/api/me/agents/:agentId', async (req, res) => {
+    const auth = res.locals.auth!; const agentId = uuidParam.safeParse(req.params.agentId);
+    if (!agentId.success) { res.status(400).json({ error: 'Identificador inválido.' }); return; }
+    const { data, error } = await (auth.db as any).rpc('archive_agent_for_current_user', { p_agent: agentId.data });
+    if (error?.code === '23503') { res.status(409).json({ error: 'Desassocie o agente das instâncias antes de arquivá-lo.' }); return; }
+    if (error || !data) { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
+    res.status(204).end();
+  });
+  app.post('/api/me/instances/:connectionId/assign-agent', async (req, res) => {
+    const auth = res.locals.auth!; const connectionId = uuidParam.safeParse(req.params.connectionId);
+    const body = z.object({ agentId: z.string().uuid() }).strict().safeParse(req.body);
+    if (!connectionId.success || !body.success) { res.status(400).json({ error: 'Dados inválidos.' }); return; }
+    const { data, error } = await (auth.db as any).rpc('assign_agent_to_connection', { p_connection: connectionId.data, p_agent: body.data.agentId });
+    if (error || !data) { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
+    res.json(data);
+  });
+
+  app.get('/api/admin/users', requireRole('admin'), async (_req, res) => {
+    const auth = res.locals.auth!;
+    const { data, error } = await (auth.db as any).rpc('admin_list_accounts');
+    if (error) throw error; res.json(data ?? []);
+  });
+  app.post('/api/admin/users/invite', requireRole('admin'), async (req, res) => {
+    const body = z.object({ email: z.string().email().max(320), displayName: z.string().trim().min(1).max(120).optional() }).strict().safeParse(req.body);
+    if (!body.success) { res.status(400).json({ error: 'Convite inválido.' }); return; }
+    if (!config.supabaseUrl || !config.serviceRoleKey) { res.status(503).json({ error: 'Serviço de autenticação não configurado.' }); return; }
+    const adminDb = serviceDatabase(config.supabaseUrl, config.serviceRoleKey);
+    const redirectTo = config.publicApiUrl ? new URL('/auth/callback', config.publicApiUrl).toString() : undefined;
+    const { data, error } = await adminDb.auth.admin.inviteUserByEmail(body.data.email, { redirectTo, data: { display_name: body.data.displayName } });
+    if (error) { res.status(error.status === 422 ? 409 : 400).json({ error: 'Não foi possível enviar o convite.' }); return; }
+    res.status(201).json({ userId: data.user.id, email: data.user.email });
+  });
+  app.get('/api/admin/users/:userId', requireRole('admin'), async (req, res) => {
+    const auth = res.locals.auth!; const userId = uuidParam.safeParse(req.params.userId);
+    if (!userId.success) { res.status(400).json({ error: 'Identificador inválido.' }); return; }
+    const { data, error } = await (auth.db as any).rpc('admin_list_accounts');
+    const account = !error && Array.isArray(data) ? data.find((item: any) => item.user_id === userId.data) : null;
+    if (!account) { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
+    res.json(account);
+  });
+  app.patch('/api/admin/users/:userId/status', requireRole('admin'), async (req, res) => {
+    const auth = res.locals.auth!; const userId = uuidParam.safeParse(req.params.userId);
+    const body = z.object({ status: z.enum(['active', 'suspended']) }).strict().safeParse(req.body);
+    if (!userId.success || !body.success) { res.status(400).json({ error: 'Dados inválidos.' }); return; }
+    const { data, error } = await (auth.db as any).rpc('admin_update_account_status', { p_user: userId.data, p_status: body.data.status });
+    if (error || !data) { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
+    res.json(data);
+  });
+  app.patch('/api/admin/users/:userId/limits', requireRole('admin'), async (req, res) => {
+    const auth = res.locals.auth!; const userId = uuidParam.safeParse(req.params.userId);
+    const body = z.object({ maxAgents: z.number().int().min(1).max(20), maxInstances: z.number().int().min(0).nullable() }).strict().safeParse(req.body);
+    if (!userId.success || !body.success) { res.status(400).json({ error: 'Dados inválidos.' }); return; }
+    const { data, error } = await (auth.db as any).rpc('admin_update_account_limits', { p_user: userId.data, p_max_agents: body.data.maxAgents, p_max_instances: body.data.maxInstances });
+    if (error || !data) { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
+    res.json(data);
   });
   app.get('/api/debug/inbox-test', async (_req, res) => {
     const steps: Array<{ step: string; ok: boolean; detail?: any }> = [];
@@ -124,13 +241,13 @@ export function createApp(config: ApiConfig = {}): Express {
     // 3. Create connection
     const { data: conn, error: connErr } = await db.from('connections').insert({
       organization_id: orgId, name: 'debug-test', provider: 'evolution', status: 'connected', provider_instance_id: 'debug-test',
-    }).select().single();
+    } as any).select().single();
     steps.push({ step: 'create_connection', ok: !connErr, detail: connErr || { id: conn?.id } });
 
     // 4. Create lead
     const convRepo = new ConversationRepository(db);
     try {
-      const lead = await convRepo.findOrCreateLead(orgId, '5500000000000', 'Debug Test');
+      const lead = await convRepo.findOrCreateLead(orgId, conn!.id, '5500000000000', 'Debug Test');
       steps.push({ step: 'create_lead', ok: true, detail: { id: lead.id } });
 
       // 5. Create conversation
@@ -196,7 +313,7 @@ export function createApp(config: ApiConfig = {}): Express {
           created_at: inst.createdAt || inst.instance?.createdAt || new Date().toISOString(),
           profileName: inst.profileName || inst.instance?.profileName,
           profilePicUrl: inst.profilePicUrl || inst.instance?.profilePicUrl,
-          webhook_url: `/api/webhooks/evolution/instance/${encodeURIComponent(instanceName)}`,
+          webhook_url: null,
         };
       });
       res.json(mapped);
@@ -308,10 +425,10 @@ export function createApp(config: ApiConfig = {}): Express {
       }
 
       // Auto-configure webhook so incoming messages reach our API
-      const webhookPath = `/api/webhooks/evolution/instance/${encodeURIComponent(instanceName)}`;
+      const webhookPath = '';
       const publicUrl = getPublicApiUrl();
       let webhookWarning: string | undefined;
-      if (publicUrl) {
+      if (publicUrl && webhookPath) {
         try {
           await client.setWebhook(instanceName, `${publicUrl}${webhookPath}`);
           logger.info({ instanceName, webhookUrl: `${publicUrl}${webhookPath}` }, 'Webhook configurado automaticamente');
@@ -475,25 +592,13 @@ export function createApp(config: ApiConfig = {}): Express {
       let webhookUrl: string | undefined;
       let webhookError: string | undefined;
 
-      const activeTarget = result.flow.targetInstance || targetInstance;
-      if (activeTarget) {
-        try {
-          const baseUrl = (config.publicApiUrl || process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-          webhookUrl = `${baseUrl}/api/webhooks/evolution/instance/${encodeURIComponent(activeTarget)}`;
-          const client = getEvoClient();
-          await client.setWebhook(activeTarget, webhookUrl);
-          logger.info({ instance: activeTarget, webhookUrl }, 'Webhook da Evolution registrado com sucesso para fluxo publicado');
-        } catch (err) {
-          webhookError = err instanceof Error ? err.message : 'Falha ao registrar webhook no Evolution';
-          logger.warn({ err, instance: activeTarget }, 'Aviso ao registrar webhook da Evolution');
-        }
-      }
+      // Standalone publishing never configures provider webhooks. Canonical webhooks use connection UUIDs.
 
       res.status(201).json({
         ok: true,
         version: result.version,
         flow: result.flow,
-        targetInstance: activeTarget,
+        targetInstance: result.flow.targetInstance || targetInstance,
         webhookUrl,
         webhookError,
       });
@@ -1526,7 +1631,7 @@ export function createApp(config: ApiConfig = {}): Express {
                   provider: 'evolution',
                   status: 'connected',
                   provider_instance_id: instanceName,
-                })
+                } as any)
                 .select()
                 .single();
 
@@ -1541,10 +1646,14 @@ export function createApp(config: ApiConfig = {}): Express {
 
           if (dbConnectionId) {
             connectionId = dbConnectionId;
-            const lead = await convRepo.findOrCreateLead(organizationId, event.phone, event.senderName);
+            const lead = await convRepo.findOrCreateLead(organizationId, dbConnectionId, event.phone, event.senderName);
             leadId = lead.id;
             leadRecord = { id: lead.id, phone: lead.phone, name: lead.name, memory: (lead.memory as Record<string, unknown>) || {} };
-            const conversation = await convRepo.findOrCreateConversation(organizationId, dbConnectionId, lead.id);
+            const sessionTimeoutMinutes = Number(process.env.SESSION_TIMEOUT_MINUTES) || 15;
+            const conversation = await convRepo.findOrCreateConversation(organizationId, dbConnectionId, lead.id, null, {
+              sessionTimeoutMinutes,
+              lead: leadRecord,
+            });
             conversationId = conversation.id;
             convRecord = { id: conversation.id, stage: conversation.stage, bot_paused: conversation.bot_paused, handled_by: conversation.handled_by };
 
@@ -1775,6 +1884,10 @@ export function createApp(config: ApiConfig = {}): Express {
             if (!capturedConvRepo) return [];
             return capturedConvRepo.getMessages(_org, convId, limit);
           },
+          async getLeadRecentMessages(_org, leadId, limit) {
+            if (!capturedConvRepo) return [];
+            return capturedConvRepo.getLeadRecentMessages(_org, leadId, limit);
+          },
           async searchKnowledge(_org, collection, query, limit, threshold) {
             const hits = standaloneStore.searchKnowledge(query, {
               collection: collection === 'default' ? undefined : collection,
@@ -1954,29 +2067,6 @@ export function createApp(config: ApiConfig = {}): Express {
     messagesAlreadySaved: true,
     isCurrent: turn.isCurrent,
     flowSnapshot: turn.metadata?.flowSnapshot as StoredFlow | undefined,
-  });
-
-  const _instancePhoneCache = new Map<string, string>();
-  app.post('/api/webhooks/evolution/instance/:instanceName', async (req, res) => {
-    // Lazy-sync instance phone from webhook sender field (ownerJid)
-    const senderJid: string | undefined = req.body?.sender || req.body?.destination;
-    const instName = req.params.instanceName;
-    if (senderJid && typeof senderJid === 'string' && senderJid.includes('@') && config.supabaseUrl && config.serviceRoleKey) {
-      const senderPhone = senderJid.replace(/@.*$/, '');
-      if (senderPhone && _instancePhoneCache.get(instName) !== senderPhone) {
-        _instancePhoneCache.set(instName, senderPhone);
-        const db = serviceDatabase(config.supabaseUrl, config.serviceRoleKey);
-        await db.from('connections').update({ phone: senderPhone }).eq('provider_instance_id', instName).eq('provider', 'evolution').then(() => {});
-      }
-    }
-
-    const event = parseEvolutionWebhook(req.body);
-    if (!event) {
-      res.status(200).json({ status: 'ignored_non_message' });
-      return;
-    }
-    const result = await processStandaloneEvents(instName, [event]);
-    res.status(result.status === 'error' ? 500 : 200).json(result);
   });
 
   // Webhooks
@@ -2291,6 +2381,19 @@ export function createApp(config: ApiConfig = {}): Express {
         verifyToken: z.string().optional(),
       }),
     ]),
+  });
+
+  app.post('/api/admin/users/:userId/instances', requireRole('admin'), async (req, res) => {
+    const userId = uuidParam.safeParse(req.params.userId); const body = createConnectionSchema.safeParse(req.body);
+    if (!userId.success || !body.success) { res.status(400).json({ error: 'Dados da instância inválidos.' }); return; }
+    if (!config.supabaseUrl || !config.serviceRoleKey) { res.status(503).json({ error: 'Persistência não configurada.' }); return; }
+    const db = serviceDatabase(config.supabaseUrl, config.serviceRoleKey);
+    const { data: profile } = await db.from('profiles').select('default_organization_id,status').eq('user_id', userId.data).maybeSingle();
+    if (!profile?.default_organization_id || profile.status !== 'active') { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
+    const organizationId = profile.default_organization_id;
+    const prepared = await ConnectionManager.prepareConnection(organizationId, body.data.name, body.data.provider, body.data.credentials as any, body.data.phone);
+    const connection = await new ConnectionRepository(db).createConnection(organizationId, { name: body.data.name, provider: body.data.provider, phone: prepared.phone, provider_instance_id: prepared.providerInstanceId, status: prepared.status, credentials: prepared.preparedCredentials }, db);
+    res.status(201).json({ id: connection.id, name: connection.name, provider: connection.provider, status: connection.status });
   });
 
   orgRoutes.get('/connections', checkScope('connections:read'), async (_req, res) => {
@@ -2904,32 +3007,6 @@ export function createApp(config: ApiConfig = {}): Express {
     res.status(500).json({ error: 'Não foi possível concluir a operação.' });
   };
   app.use(errors);
-
-  // Sync Evolution instance phones on startup
-  if (config.supabaseUrl && config.serviceRoleKey) {
-    (async () => {
-      try {
-        const client = getEvoClient();
-        const instances = await client.fetchInstances();
-        const db = serviceDatabase(config.supabaseUrl!, config.serviceRoleKey!);
-        for (const inst of instances) {
-          const name = inst.instance?.instanceName || inst.name || inst.instanceName;
-          const ownerJid: string | undefined = inst.instance?.ownerJid || inst.ownerJid;
-          if (!name || !ownerJid) continue;
-          const phone = ownerJid.replace(/@.*$/, '');
-          if (!phone) continue;
-          await db
-            .from('connections')
-            .update({ phone })
-            .eq('provider_instance_id', name)
-            .eq('provider', 'evolution');
-        }
-        logger.info('Evolution instance phones synced from ownerJid');
-      } catch (err) {
-        logger.warn({ err }, 'Failed to sync Evolution instance phones on startup');
-      }
-    })();
-  }
 
   return app;
 }

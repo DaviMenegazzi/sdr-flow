@@ -13,10 +13,15 @@ import { testDatabase } from './helpers/database.js';
 describe('Phase 7 — Production Readiness, Telemetry, Alerts & Rate Limiting', () => {
   let db: PGlite;
   const orgId = randomUUID();
+  const ownerId = randomUUID();
+  const agentId = randomUUID();
 
   beforeAll(async () => {
     db = await testDatabase();
+    await db.query(`insert into auth.users(id,email) values($1,'alerts@test.local')`, [ownerId]);
     await db.query(`insert into public.organizations(id, name) values($1, 'Alerta Org Test')`, [orgId]);
+    await db.query(`insert into public.organization_members(organization_id,user_id,role) values($1,$2,'owner')`, [orgId, ownerId]);
+    await db.query(`insert into public.ai_agents(id,organization_id,owner_user_id,name,provider,model,system_prompt,is_default) values($1,$2,$3,'Alert Agent','openai','gpt-4.1-mini','',false)`, [agentId, orgId, ownerId]);
   });
 
   afterAll(async () => {
@@ -118,9 +123,9 @@ describe('Phase 7 — Production Readiness, Telemetry, Alerts & Rate Limiting', 
   describe('4. Operational Alerts Monitor (Connection, Backlog & Error Rate)', () => {
     it('detects dropped WhatsApp connections and generates critical alerts', async () => {
       await db.query(
-        `insert into public.connections(organization_id, name, provider, status)
-         values($1, 'WhatsApp Falha Teste', 'evolution', 'error')`,
-        [orgId]
+        `insert into public.connections(organization_id, owner_user_id, agent_id, name, provider, status)
+         values($1, $2, $3, 'WhatsApp Falha Teste', 'evolution', 'error')`,
+        [orgId, ownerId, agentId]
       );
 
       const alerts = await AlertMonitor.checkConnectionHealth(db, orgId);

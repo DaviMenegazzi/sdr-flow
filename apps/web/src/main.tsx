@@ -14,16 +14,20 @@ import {
   BookOpen,
   Plug,
   ChevronRight
+  ,Users
 } from 'lucide-react';
 import { IntegrationsPage } from './integrations/IntegrationsPage';
 import { Builder } from './builder/Builder';
-import { SessionProvider, Settings } from './session';
+import { SessionProvider, Settings, useSession } from './session';
 import { InstanceProvider, useInstance } from './context/InstanceContext';
 import { ConnectionsPage } from './connections/ConnectionsPage';
 import { KnowledgePage } from './knowledge/KnowledgePage';
 import { InboxPage } from './inbox/InboxPage';
 import { DashboardPage } from './metrics/DashboardPage';
 import './styles.css';
+import { AuthCallback, AuthGate, ForgotPasswordPage, LoginPage, NotFoundPage, RegisterPage, ResetPasswordPage } from './auth-pages';
+import { AgentsPage } from './agents/AgentsPage';
+import { AdminPage } from './admin/AdminPage';
 
 function GlobalTopHeader() {
   const { activeInstance, setActiveInstance, instances } = useInstance();
@@ -103,7 +107,7 @@ function GlobalTopHeader() {
               <option value="">Nenhuma instância</option>
             ) : (
               instances.map(inst => (
-                <option key={inst.id} value={inst.name || inst.id}>
+                <option key={inst.id} value={inst.id}>
                   {inst.name || inst.id} {inst.phone ? `(${inst.phone})` : ''} {inst.status === 'connected' ? '🟢' : '⚪'}
                 </option>
               ))
@@ -115,7 +119,8 @@ function GlobalTopHeader() {
   );
 }
 
-function App() {
+function ProtectedApp() {
+  const { signOut } = useSession();
   const [dark, setDark] = useState(() => {
     try {
       return localStorage.getItem('sdr-flow:theme') === 'dark';
@@ -134,9 +139,7 @@ function App() {
   }, [dark]);
 
   return (
-    <SessionProvider>
       <InstanceProvider>
-        <BrowserRouter>
           <div className="app-shell">
             <nav className="app-sidebar" aria-label="Navegação principal">
               <Link className="brand" to="/flows/new" title="SDR Flow">
@@ -151,6 +154,7 @@ function App() {
                   <Radio size={21} />
                   <span>WhatsApp</span>
                 </NavLink>
+                <NavLink to="/agents" aria-label="Agentes" title="Agentes"><Users size={21}/><span>Agentes</span></NavLink>
                 <NavLink to="/integrations" aria-label="Integrações" title="Integrações">
                   <Plug size={21} />
                   <span>Integrações</span>
@@ -183,7 +187,7 @@ function App() {
                 <NavLink to="/settings" title="Configurações" aria-label="Configurações">
                   <Settings2 size={21} />
                 </NavLink>
-                <span className="avatar">SF</span>
+                <button className="avatar" onClick={()=>void signOut()} title="Sair" aria-label="Sair">SF</button>
               </div>
             </nav>
             <main style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', height: '100dvh', overflow: 'hidden' }}>
@@ -193,6 +197,8 @@ function App() {
                   <Route path="/flows/new" element={<Builder />} />
                   <Route path="/flows" element={<Builder />} />
                   <Route path="/connections" element={<ConnectionsPage />} />
+                  <Route path="/agents" element={<AgentsPage />} />
+                  <Route path="/admin" element={<AdminPage />} />
                   <Route path="/integrations" element={<IntegrationsPage />} />
                   <Route path="/knowledge" element={<KnowledgePage />} />
                   <Route path="/inbox" element={<InboxPage />} />
@@ -216,16 +222,16 @@ function App() {
                     }
                   />
                   <Route path="/settings" element={<Settings />} />
-                  <Route path="*" element={<Navigate to="/flows/new" replace />} />
+                  <Route path="*" element={<Navigate to="/404" replace />} />
                 </Routes>
               </div>
             </main>
           </div>
-        </BrowserRouter>
       </InstanceProvider>
-    </SessionProvider>
   );
 }
+
+function App(){return <SessionProvider><BrowserRouter><Routes><Route path="/login" element={<LoginPage/>}/><Route path="/register" element={<RegisterPage/>}/><Route path="/forgot-password" element={<ForgotPasswordPage/>}/><Route path="/reset-password" element={<ResetPasswordPage/>}/><Route path="/auth/callback" element={<AuthCallback/>}/><Route path="/404" element={<NotFoundPage/>}/><Route path="/*" element={<AuthGate><ProtectedApp/></AuthGate>}/></Routes></BrowserRouter></SessionProvider>}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

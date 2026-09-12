@@ -40,7 +40,7 @@ describe('Authenticated publication boundary (Supabase adapter doubles)',() => {
     const result=await request(createApp(config)).post(`/api/organizations/${org}/flows/${flow}/publish`).auth('verified-token',{type:'bearer'}).send(graph);
     expect(result.status).toBe(201); expect(result.body.version).toBe(1);
     expect(userClient).toHaveBeenCalledWith(config.supabaseUrl,config.anonKey,'verified-token');
-    expect(rpc).toHaveBeenCalledWith('publish_flow',{p_org:org,p_flow:flow,p_actor:actor,p_graph:graph});
+    expect(rpc).toHaveBeenCalledWith('publish_flow',{p_org:org,p_flow:flow,p_actor:actor,p_graph:{...graph,loopLimit:5}});
   });
   it('validates every graph before acquiring service privileges',async () => {
     identity(); const privileged=vi.spyOn(database,'serviceDatabase'); const graph=createBlankFlow(); graph.edges=[];

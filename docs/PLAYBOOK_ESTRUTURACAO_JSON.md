@@ -130,7 +130,18 @@ Abaixo estão todos os nós aceitos e como deve ser preenchido o seu respectivo 
 - `input.normalize`: `"config": { "country": "BR" }` (valores: `"BR"` ou `"international"`).
 
 #### D) Contexto (`context.*`)
-- `context.memory`: `"config": { "recentMessages": 10 }` (min: 6, max: 50).
+- `context.memory`:
+  ```json
+  "config": {
+    "recentMessages": 10
+  }
+  ```
+  *(min: 6, max: 50, default: 10).*
+  *Mecânica de Runtime e Janela de Contexto (Context Window):*
+  - `recentMessages`: define a quantidade de mensagens recentes resgatadas da conversa atual.
+  - **Janela de Inatividade de 15 Minutos:** O motor encerra a conversa automaticamente (`stage = 'CLOSED'`) quando o lead fica inativo por 15 minutos ou mais (`SESSION_TIMEOUT_MINUTES`). Ao retornar, uma nova sessão é iniciada com `stage = 'NEW_CONVERSATION'`.
+  - **Injeção Delimitada de Histórico Anterior:** Durante as primeiras 10 mensagens da nova conversa (`messages.length <= 10`), o motor resgata do banco as mensagens da sessão anterior e as formata em `{{recentMessages}}` delimitadas por `[Histórico anterior]` e `--- Nova conversa iniciada ---`. Isso fornece ao LLM consciência de temas tratados no passado (ex: planos ou dúvidas prévias) caso o cliente faça referência a eles.
+  - **Isolamento de Turno:** As variáveis `{{latestLeadMessage}}`, `{{lastAssistantMessage}}`, `{{lastAssistantQuestion}}` e `{{recentAssistantMessages}}` consideram **exclusivamente a conversa ativa**. Logo, após 15 minutos, um simples cumprimento (`"boa tarde"`) não herdará perguntas antigas nem acionará transbordo falso.
 - `context.knowledge`:
   ```json
   "config": {
@@ -165,7 +176,7 @@ Abaixo estão todos os nós aceitos e como deve ser preenchido o seu respectivo 
   ```
   *(Estágios aceitos: `DISCOVERY`, `QUALIFYING`, `PRICING`, `SCHEDULING`, `CLOSING`, `HANDOFF`,
   `SUPPORT`.) O estado é salvo em `lead.memory.conversation_state` e também fica disponível como
-  `{{conversation_state}}`.*
+  `{{conversation_state}}`. **Nota de Ciclo de Vida:** Estados voláteis de navegação, objeções pontuais e slots temporários de agendamento são automaticamente resetados pelo motor ao expirar a janela de 15 minutos ou ao clicar em "Devolver para IA" no Inbox, mantendo intactos os dados cadastrais permanentes do lead.*
 
 #### E) Agente / Inteligência (`agent.*`)
 - `agent.decide`, `agent.classify`, `agent.score`:

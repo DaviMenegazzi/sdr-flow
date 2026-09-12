@@ -269,14 +269,6 @@ export class StandaloneStore {
       ...this.data.settings,
       ...patch,
     };
-    if (patch.openaiApiKey) process.env.OPENAI_API_KEY = patch.openaiApiKey;
-    if (patch.openaiModel) process.env.OPENAI_MODEL = patch.openaiModel;
-    if (patch.evolutionServerUrl) process.env.EVOLUTION_SERVER_URL = patch.evolutionServerUrl;
-    if (patch.evolutionApiKey) process.env.EVOLUTION_API_KEY = patch.evolutionApiKey;
-    if (patch.publicApiUrl) process.env.PUBLIC_API_URL = patch.publicApiUrl;
-    if (patch.googleClientId) process.env.GOOGLE_CLIENT_ID = patch.googleClientId;
-    if (patch.googleClientSecret) process.env.GOOGLE_CLIENT_SECRET = patch.googleClientSecret;
-
     this.persist();
     return this.getSettings();
   }

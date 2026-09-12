@@ -12,7 +12,10 @@ describe('WebSocket Execution Streaming', () => {
   beforeAll(async () => {
     server = createServer();
     wsServer = new ExecutionWebSocketServer();
-    wsServer.attach(server);
+    wsServer.attach(server, {
+      authenticate: async token => token === 'test-jwt' ? { userId: 'user-a' } : null,
+      authorize: async (_userId, scope) => ({ organizationId: scope.flowId ? '00000000-0000-4000-8000-000000000003' : 'org-1' }),
+    });
 
     await new Promise<void>(resolve => {
       server.listen(0, '127.0.0.1', () => {
@@ -67,8 +70,8 @@ describe('WebSocket Execution Streaming', () => {
   });
 
   it('isolates inbox debug events by conversation', async () => {
-    const first = new WebSocket(`ws://127.0.0.1:${port}/ws`);
-    const second = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const first = new WebSocket(`ws://127.0.0.1:${port}/ws?token=test-jwt`);
+    const second = new WebSocket(`ws://127.0.0.1:${port}/ws?token=test-jwt`);
     const firstMessages: any[] = [];
     const secondMessages: any[] = [];
     first.on('message', data => firstMessages.push(JSON.parse(data.toString())));

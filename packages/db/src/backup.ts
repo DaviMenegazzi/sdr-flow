@@ -9,7 +9,10 @@ export interface DatabaseSnapshot {
 
 const PUBLIC_TABLES = [
   'organizations',
+  'profiles',
   'organization_members',
+  'account_limits',
+  'ai_agents',
   'invitations',
   'api_keys',
   'flows',
@@ -75,7 +78,10 @@ export class BackupService {
       // Order of insertion respecting Foreign Keys:
       const orderedTables = [
         'organizations',
+        'profiles',
         'organization_members',
+        'account_limits',
+        'ai_agents',
         'invitations',
         'api_keys',
         'flows',
@@ -95,6 +101,26 @@ export class BackupService {
 
       await db.query('begin');
       try {
+        // Creating auth.users runs the signup provisioning trigger. On a clean
+        // disaster-recovery target, remove only that empty bootstrap tenant so
+        // the original profile, limits and default agent can be restored.
+        const profileRows = snapshot.tables.profiles || [];
+        const snapshotOrganizationIds = (snapshot.tables.organizations || []).map((row) => row.id);
+        for (const profile of profileRows) {
+          const bootstrap = await db.query(
+            `select o.id from public.organizations o join public.profiles p on p.default_organization_id=o.id
+             where p.user_id=$1 and not (o.id=any($2::uuid[]))
+               and not exists(select 1 from public.connections c where c.organization_id=o.id)
+               and not exists(select 1 from public.flows f where f.organization_id=o.id)`,
+            [profile.user_id, snapshotOrganizationIds]
+          );
+          for (const row of bootstrap.rows as Array<{ id: string }>) {
+            await db.query('delete from public.ai_agents where organization_id=$1', [row.id]);
+            await db.query('delete from public.account_limits where organization_id=$1', [row.id]);
+            await db.query('delete from public.profiles where user_id=$1 and default_organization_id=$2', [profile.user_id, row.id]);
+            await db.query('delete from public.organizations where id=$1', [row.id]);
+          }
+        }
         const flowPublishedUpdates: Array<{ id: string; orgId: string; pubId: string }> = [];
 
         for (const table of orderedTables) {

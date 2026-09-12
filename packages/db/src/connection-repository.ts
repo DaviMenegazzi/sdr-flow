@@ -104,6 +104,24 @@ export class ConnectionRepository {
     adminDb?: AnyDbClient
   ): Promise<ConnectionEntity> {
     const client = adminDb || this.db;
+    const { data: owner, error: ownerError } = await client
+      .from('profiles')
+      .select('user_id')
+      .eq('default_organization_id', organizationId)
+      .eq('status', 'active')
+      .order('created_at')
+      .limit(1)
+      .maybeSingle();
+    if (ownerError || !owner) throw ownerError || new Error('Proprietário ativo não encontrado.');
+    const { data: agent, error: agentError } = await client
+      .from('ai_agents')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .eq('owner_user_id', owner.user_id)
+      .eq('is_default', true)
+      .eq('status', 'active')
+      .maybeSingle();
+    if (agentError || !agent) throw agentError || new Error('Agente padrão não encontrado.');
 
     const { data: conn, error: connErr } = await client
       .from('connections')
@@ -114,6 +132,8 @@ export class ConnectionRepository {
         status: input.status || 'disconnected',
         phone: input.phone || null,
         provider_instance_id: input.provider_instance_id || null,
+        owner_user_id: owner.user_id,
+        agent_id: agent.id,
       })
       .select()
       .single();

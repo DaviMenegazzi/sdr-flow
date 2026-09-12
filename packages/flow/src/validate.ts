@@ -36,18 +36,17 @@ export function validateGraph(input: unknown): ValidationResult {
   const visit = (id: string) => { if (reached.has(id)) return; reached.add(id); adjacent(id).forEach(visit); };
   if (triggers[0]) visit(triggers[0].id);
   graph.nodes.filter(node => !reached.has(node.id)).forEach(node => add('unreachable', `${node.label} não está conectado ao gatilho.`, node.id));
-  // Cycles are allowed — the engine limits per-node visits (max 5) and total steps (max 50).
-  // Detect which nodes participate in cycles so the termination check can account for them.
+  // Published flows must terminate. Runtime limits remain a last-resort guard,
+  // not a way to make cyclic definitions valid.
   const nodesInCycles = new Set<string>();
   for (const node of graph.nodes) {
     const reachable = new Set<string>();
     const explore = (id: string) => { if (reachable.has(id)) return; reachable.add(id); adjacent(id).forEach(explore); };
     adjacent(node.id).forEach(explore);
-    if (reachable.has(node.id)) nodesInCycles.add(node.id);
+    if (reachable.has(node.id)) { nodesInCycles.add(node.id); add('cycle', `${node.label} participa de um ciclo.`, node.id); }
   }
   const terminating = new Set([
     ...graph.nodes.filter(node => node.type === 'output.end').map(node => node.id),
-    ...nodesInCycles,
   ]);
   let changed = true;
   while (changed) {

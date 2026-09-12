@@ -126,6 +126,41 @@ export class MemoryService {
       .join('\n');
   }
 
+  public static formatSessionDelimitedMessages(
+    currentMessages: FlowContextMessage[],
+    priorMessages: Array<{ content: string; sender: string; direction: string }> = [],
+    count = 6
+  ): string {
+    if (!priorMessages.length) {
+      return MemoryService.formatRecentMessages(currentMessages, count);
+    }
+
+    const formattedPrior = priorMessages
+      .slice(-count)
+      .map(m => {
+        const sender = m.sender === 'human' ? 'Human'
+          : m.sender === 'system' ? 'System'
+          : m.direction === 'OUTBOUND' || m.sender === 'ai' ? 'AI' : 'Lead';
+        return `[${sender}]: ${m.content}`;
+      })
+      .join('\n');
+
+    const formattedCurrent = currentMessages
+      .map(m => {
+        const sender = m.sender === 'human' ? 'Human'
+          : m.sender === 'system' ? 'System'
+          : m.fromMe ? 'AI' : 'Lead';
+        return `[${sender}]: ${m.text}`;
+      })
+      .join('\n');
+
+    if (!formattedCurrent) {
+      return formattedPrior;
+    }
+
+    return `[Histórico anterior]\n${formattedPrior}\n--- Nova conversa iniciada ---\n${formattedCurrent}`;
+  }
+
   public static getConversationTurnContext(messages: FlowContextMessage[]): ConversationTurnContext {
     const leadMessages = messages.filter(message => !message.fromMe && message.sender !== 'system');
     const assistantMessages = messages.filter(message => (

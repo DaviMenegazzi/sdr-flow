@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
+import { useSession } from '../session';
 
 export interface InstanceItem {
   id: string;
@@ -31,6 +32,7 @@ const InstanceContext = createContext<InstanceContextType>({
 export const useInstance = () => useContext(InstanceContext);
 
 export function InstanceProvider({ children }: { children: ReactNode }) {
+  const { session } = useSession();
   const [activeInstance, setActiveInstanceState] = useState<string>(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) || '';
@@ -59,17 +61,18 @@ export function InstanceProvider({ children }: { children: ReactNode }) {
   const refreshInstances = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/connections/instances');
+      if (!session) { setInstances([]); setActiveInstance(''); return; }
+      const res = await fetch('/api/me/instances',{headers:{Authorization:`Bearer ${session.access_token}`}});
       if (res.ok) {
         const data = await res.json();
         const list: InstanceItem[] = Array.isArray(data) ? data : [];
         setInstances(list);
 
         if (list.length > 0) {
-          const currentValid = list.some(i => i.name === activeInstance || i.id === activeInstance);
+          const currentValid = list.some(i => i.id === activeInstance);
           if (!currentValid || !activeInstance) {
             const firstConnected = list.find(i => i.status === 'connected');
-            const fallback = firstConnected ? (firstConnected.name || firstConnected.id) : (list[0]?.name || list[0]?.id || '');
+            const fallback = firstConnected?.id || list[0]?.id || '';
             if (fallback) setActiveInstance(fallback);
           }
         }
@@ -79,11 +82,11 @@ export function InstanceProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [activeInstance, setActiveInstance]);
+  }, [activeInstance, setActiveInstance, session?.access_token]);
 
   useEffect(() => {
     void refreshInstances();
-  }, []);
+  }, [session?.user.id]);
 
   return (
     <InstanceContext.Provider

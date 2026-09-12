@@ -287,7 +287,26 @@ export const executors: Record<NodeType, NodeExecutor> = {
       }
     }
 
-    const recentMessages = MemoryService.formatRecentMessages(messages, count);
+    let priorMessages: Array<{ content: string; sender: string; direction: string }> = [];
+    if (services.db?.getLeadRecentMessages && ctx.lead?.id && messages.length <= 10) {
+      try {
+        const priorRows = await services.db.getLeadRecentMessages(ctx.organizationId, ctx.lead.id, count * 2);
+        const filteredPrior = priorRows.filter(r => r.conversation_id !== ctx.conversationId && r.sender !== 'system');
+        if (filteredPrior.length > 0) {
+          priorMessages = filteredPrior.slice(-count).map(r => ({
+            content: r.content,
+            sender: r.sender,
+            direction: r.direction,
+          }));
+        }
+      } catch (error) {
+        console.warn('[context.memory] Falha ao carregar o histórico anterior do lead:', error);
+      }
+    }
+
+    const recentMessages = priorMessages.length > 0
+      ? MemoryService.formatSessionDelimitedMessages(messages, priorMessages, count)
+      : MemoryService.formatRecentMessages(messages, count);
     const conversationContext = MemoryService.getConversationTurnContext(messages);
     let summary: string | null = null;
     if (services.db?.getConversationSummary) {

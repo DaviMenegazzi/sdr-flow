@@ -121,6 +121,9 @@ if (!redis) {
           getMessages: async (_o, convId, limit) => {
             return convRepo.getMessages(_o, convId, limit);
           },
+          getLeadRecentMessages: async (_o, leadId, limit) => {
+            return convRepo.getLeadRecentMessages(_o, leadId, limit);
+          },
         },
         now: () => new Date(),
       };

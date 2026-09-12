@@ -1,0 +1,570 @@
+{
+  "schemaVersion": 1,
+  "nodes": [
+    {
+      "id": "start",
+      "type": "trigger.message_received",
+      "label": "Mensagem recebida",
+      "position": {
+        "x": 0,
+        "y": 603
+      },
+      "config": {}
+    },
+    {
+      "id": "test_mode",
+      "type": "guard.test_mode",
+      "label": "Modo teste",
+      "position": {
+        "x": 330,
+        "y": 603
+      },
+      "config": {
+        "enabled": true,
+        "allowedPhones": [
+          "555599940634",
+          "555399923024",
+          "555596555425",
+          "555192058942"
+        ]
+      }
+    },
+    {
+      "id": "end_blocked",
+      "type": "output.end",
+      "label": "Fim (bloqueado)",
+      "position": {
+        "x": 660,
+        "y": 694.25
+      },
+      "config": {}
+    },
+    {
+      "id": "guard_human",
+      "type": "guard.human_takeover",
+      "label": "Humano ativo?",
+      "position": {
+        "x": 660,
+        "y": 469.25
+      },
+      "config": {}
+    },
+    {
+      "id": "buffer",
+      "type": "input.buffer",
+      "label": "Agrupar (5s)",
+      "position": {
+        "x": 990,
+        "y": 275.5
+      },
+      "config": {
+        "windowSeconds": 5
+      }
+    },
+    {
+      "id": "media",
+      "type": "input.media",
+      "label": "Áudio e imagem",
+      "position": {
+        "x": 1320,
+        "y": 275.5
+      },
+      "config": {
+        "transcribeAudio": true,
+        "describeImages": true
+      }
+    },
+    {
+      "id": "memory",
+      "type": "context.memory",
+      "label": "Memória comercial",
+      "position": {
+        "x": 1650,
+        "y": 275.5
+      },
+      "config": {
+        "recentMessages": 15
+      }
+    },
+    {
+      "id": "storage",
+      "type": "context.storage",
+      "label": "Regras Vida Card",
+      "position": {
+        "x": 1980,
+        "y": 275.5
+      },
+      "config": {
+        "content": "{\"brand\":\"Vida Card\",\"tipo\":\"Cartão de benefícios e descontos em saúde. Não é plano de saúde.\",\"regras\":[\"Responder primeiro e diretamente ao que o lead perguntou.\",\"Na primeira resposta da conversa, fazer uma saudação curta, natural e humana.\",\"Não repetir saudação, nome, pergunta ou explicação já dita.\",\"Evitar blocos grandes. Escrever como conversa de WhatsApp, com frases curtas.\",\"Não seguir um padrão fixo de quantidade de parágrafos ou bolhas.\",\"Fazer no máximo uma pergunta por resposta, e somente quando ela for indispensável para avançar o atendimento.\",\"Não terminar toda resposta com pergunta. Se a dúvida ou informação foi respondida, encerre cordialmente sem forçar CTA.\",\"Atuar com venda consultiva sem pressão: entender a necessidade e conduzir apenas quando houver um próximo passo natural.\",\"Se o lead fizer pergunta puramente informativa sobre cobertura, valor ou regras, responda de forma objetiva e acolhedora sem formular pergunta no final.\",\"Nunca afirmar cobertura, procedimento, benefício ou especialidade que não conste expressamente na base oficial (context.knowledge).\",\"Não transformar recusas pontuais de agendamento ('não obrigado') em objeção ao produto; acolha com simpatia e sem insistência.\",\"Não pedir informação que o lead já informou.\",\"Usar emoji com moderação: no máximo 1 por resposta na maioria dos casos, sempre integrado à frase e nunca isolado.\",\"Se irritação ou correção: reconhecer, resolver e não fazer pitch.\",\"Se pedir humano ou houver irritação repetida: handoff.\"],\"beneficios\":\"Nunca afirmar cobertura, benefício, especialidade ou desconto que não conste expressamente na base oficial (context.knowledge) ou regras. Se não houver confirmação na base, esclarecer com transparência que não possui essa confirmação no momento e que pode verificar com a equipe.\",\"venda_consultiva\":{\"objetivo\":\"Esclarecer as dúvidas do lead e apoiar sua decisão sem pressão e sem transformar cada interação em questionário.\",\"regra\":\"Perguntar é exceção útil para quando há agendamento ou escolha em curso; nunca é fechamento padrão de resposta.\",\"quando_conduzir\":[\"Quando faltar dado indispensável para executar ação explicitamente solicitada pelo lead.\",\"Quando o lead pedir ajuda para comparar opções ou escolher um plano.\",\"Quando o lead demonstrar intenção explícita de agendamento.\"],\"quando_nao_conduzir\":[\"Quando o lead fizer apenas uma pergunta informativa pontual (ex: valores, benefícios, existência de serviço).\",\"Quando a resposta já tiver esclarecido a dúvida por completo.\",\"Quando o lead agradecer, recusar agendamento ou encerrar o diálogo.\"]},\"precos\":\"Informar valor direto se a base retornar resultado.\",\"proibido\":[\"consultas gratuitas\",\"consultas ilimitadas\",\"exames ilimitados\",\"clínicas próprias\",\"coparticipação\"]}",
+        "variableName": "regras",
+        "outputPorts": [
+          "next"
+        ]
+      }
+    },
+    {
+      "id": "knowledge",
+      "type": "context.knowledge",
+      "label": "Preços & Catálogo",
+      "position": {
+        "x": 2310,
+        "y": 275.5
+      },
+      "config": {
+        "collection": "pricing",
+        "topK": 5,
+        "threshold": 0.55
+      }
+    },
+    {
+      "id": "extract",
+      "type": "agent.extract",
+      "label": "Extrair dados",
+      "position": {
+        "x": 2640,
+        "y": 275.5
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Leia {{recentMessages}}, {{commercialMemory}} e {{mediaEnrichedText}}.\nAtualize decision.lead_data preservando dados anteriores.\n\nCampos: name, city, interest, urgency, notes, objections, custom_fields\nEm custom_fields quando aplicável: specialty, service, exam, dependents, desired_day, desired_date, desired_period, period, selected_slot_iso\n\nREGRAS CRÍTICAS DE EXTRAÇÃO:\n- Nunca apague dado anterior com vazio/null.\n- Interprete respostas curtas pela última pergunta do atendente.\n- interest = assunto atual resumido (ex: se o lead perguntou sobre odontologia, interest deve ser \"odontologia\").\n- notes = resumo comercial cumulativo, limpo e curto.\n- RECUSAS PONTUAIS VS OBJEÇÕES:\n  * Recusas momentâneas a ofertas ou agendamento (ex: \"não obrigado\", \"agora não\", \"deixa assim\", \"só queria tirar uma dúvida\") NÃO SÃO objeções ao produto. Registre-as apenas em notes (ex: \"Declinou agendamento de consulta no momento\") e NUNCA coloque em objections.\n  * O campo objections é exclusivo para objeções comerciais reais ao serviço/preço (ex: \"achou mensalidade cara\", \"não quer carência\", \"prefere concorrente\").\n- Se identificar desired_period, copie em period.\n- Se lead escolher horário e desired_date existir (YYYY-MM-DD), gere selected_slot_iso (ISO 8601).\n- Não invente dados. Não gere resposta ao lead.\n- Em notes, remova referências a termos de sistema (ex: 'reparo', 'dispositivo com problema intermitente', 'REPARO') que não vieram do lead."
+      }
+    },
+    {
+      "id": "update_lead",
+      "type": "action.update_lead",
+      "label": "Salvar lead",
+      "position": {
+        "x": 2970,
+        "y": 275.5
+      },
+      "config": {
+        "source": "decision.lead_data"
+      }
+    },
+    {
+      "id": "required",
+      "type": "flow.required_fields",
+      "label": "Campos obrigatórios",
+      "position": {
+        "x": 3300,
+        "y": 275.5
+      },
+      "config": {
+        "required": [
+          "interest"
+        ],
+        "optional": [
+          "city",
+          "specialty",
+          "desired_day",
+          "desired_period"
+        ]
+      }
+    },
+    {
+      "id": "next_action",
+      "type": "agent.next_action",
+      "label": "Decidir ação",
+      "position": {
+        "x": 3630,
+        "y": 275.5
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Escolha UMA ação comercial. Você NÃO redige a resposta.\n\nMemória: {{commercialMemory}}\nDados extraídos: {{decision.lead_data}}\nHistórico: {{recentMessages}}\nÚltima mensagem do lead: {{latestLeadMessage}}\nÚltima pergunta do atendente: {{lastAssistantQuestion}}\nCampos faltantes: {{required_fields.missing}}\nBase oficial: {{context.knowledge}}\nRegras: {{regras}}\n\nPRIORIDADE\n- A mensagem mais recente do lead prevalece.\n- Perguntas, preço, benefícios, objeções, correções e pedidos de detalhes devem ser resolvidos ANTES de coletar campos ausentes.\n- Não peça nome, cidade ou outro dado apenas por estar faltando se isso não for necessário para responder a pergunta atual.\n- Confirmações curtas (\"sim\", \"não\", \"ok\", \"pode ser\") devem ser interpretadas pela última pergunta do atendente.\n- Saudação simples sem contexto anterior → SEND_INFORMATION.\n- Pedido de humano → HANDOFF.\n- Irritação ou correção → SEND_INFORMATION.\n- Irritação repetida → HANDOFF.\n- Lead pediu preço e existe na base → SHOW_PRICE.\n- Lead pediu informação, benefício, regra, especialidade ou explicação → SEND_INFORMATION.\n- Lead quer agendar e já há cidade + especialidade/serviço + data suficiente → CHECK_CALENDAR.\n- selected_slot_iso preenchido → CREATE_APPOINTMENT.\n- Só use ASK_MISSING_FIELD quando o dado faltante for realmente necessário para executar o próximo passo solicitado.\n- Se o lead disser \"não obrigado\", \"valeu\", \"era só isso\", \"não quero\", \"deixa\", agradecer ou encerrar educadamente → SEND_INFORMATION com reason \"encerramento natural\".\n- END deve ser usado somente quando realmente não houver mensagem a enviar e nenhuma continuidade necessária.\n\nVENDA CONSULTIVA\n- Responder a dúvida atual é a prioridade.\n- Não transformar toda resposta em pergunta.\n- Só conduza com pergunta quando houver um motivo comercial concreto: informação indispensável, intenção de agendamento, comparação, escolha ou objeção.\n- Se a pergunta for puramente informativa e estiver completamente respondida, não crie uma pergunta só para manter a conversa.\n- Uma pergunta por vez.\n- Nunca fazer interrogatório.\n\nO campo reason é nota interna curta (máx. 15 palavras). Nunca escreva nele a resposta ao lead.",
+        "system": "Escolha a melhor próxima ação de pré-venda. Resolva a intenção atual primeiro. Perguntas consultivas são opcionais e só devem existir quando forem úteis. Agradecimentos e recusas simples devem receber encerramento natural por SEND_INFORMATION.",
+        "allowedActions": [
+          "ASK_MISSING_FIELD",
+          "SHOW_PRICE",
+          "CHECK_CALENDAR",
+          "CREATE_APPOINTMENT",
+          "SEND_INFORMATION",
+          "HANDOFF",
+          "END"
+        ],
+        "currentMessagePriority": true
+      }
+    },
+    {
+      "id": "route",
+      "type": "flow.switch",
+      "label": "Rotear ação",
+      "position": {
+        "x": 3960,
+        "y": 275.5
+      },
+      "config": {
+        "variable": "next_action.action",
+        "cases": [
+          "ASK_MISSING_FIELD",
+          "SHOW_PRICE",
+          "CHECK_CALENDAR",
+          "CREATE_APPOINTMENT",
+          "SEND_INFORMATION",
+          "HANDOFF",
+          "END"
+        ]
+      }
+    },
+    {
+      "id": "availability",
+      "type": "calendar.availability",
+      "label": "Consultar horários",
+      "position": {
+        "x": 4290,
+        "y": 133
+      },
+      "config": {
+        "calendarId": "primary",
+        "date": "{{commercialMemory.custom_fields.desired_date}}",
+        "period": "{{lead.memory.custom_fields.period}}",
+        "durationMinutes": 30,
+        "timezone": "America/Sao_Paulo",
+        "daysAhead": 14
+      }
+    },
+    {
+      "id": "create_event",
+      "type": "calendar.create_event",
+      "label": "Criar agendamento",
+      "position": {
+        "x": 4290,
+        "y": 358
+      },
+      "config": {
+        "calendarId": "primary",
+        "start": "{{commercialMemory.custom_fields.selected_slot_iso}}",
+        "durationMinutes": 30,
+        "timezone": "America/Sao_Paulo",
+        "title": "Vida Card - {{lead.interest}} - {{lead.name}}",
+        "description": "Pré-agendamento via SDR Flow. Confirmar com o lead.",
+        "leadName": "{{lead.name}}",
+        "leadPhone": "{{lead.phone}}"
+      }
+    },
+    {
+      "id": "writer",
+      "type": "agent.decide",
+      "label": "Redigir resposta",
+      "position": {
+        "x": 4620,
+        "y": 10.5
+      },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Redija UMA resposta natural, acolhedora e objetiva ao lead.\n\nAção: {{next_action.action}}\nCampo: {{next_action.field}}\nNota interna (não copiar): {{next_action.reason}}\nMemória: {{commercialMemory}}\nHistórico: {{recentMessages}}\nÚltima mensagem do lead: {{latestLeadMessage}}\nÚltima resposta do atendente: {{lastAssistantMessage}}\nÚltima pergunta do atendente: {{lastAssistantQuestion}}\nPreços e informações oficiais: {{context.knowledge}}\nRegras: {{regras}}\nHorários: {{calendar.slots}}\nPrimeiro livre: {{calendar.first_available}}\nEvento criado: {{calendar.event_id}}\nViolações: {{response_policy.violations}}\n\nTOM E ESTILO\n- Fale como uma pessoa atendendo no WhatsApp: simples, próxima, educada e comercial.\n- Sem pressão, sem respostas longas ou estilo institucional engessado.\n- Responda primeiro. Conduza depois somente quando fizer sentido.\n\nSAUDAÇÃO\n- Se {{lastAssistantMessage}} estiver vazio, esta é a primeira resposta: faça uma saudação breve e já entre no assunto.\n- Exemplos de ritmo: \"Oi! 😊 Claro, te explico.\" / \"Oi! Tudo bem? 😊 O Vida Card...\"\n- Se a conversa já começou, NÃO repita saudação ou cumprimento.\n\nGROUNDING ESTRITO DE BENEFÍCIOS E COBERTURAS\n- Se a base oficial ({{context.knowledge}}) não trouxer evidência clara sobre o benefício, especialidade, serviço ou cobertura perguntada (ex: odontologia), NUNCA afirme ou deduza que o cartão oferece ou tem desconto.\n- Responda com honestidade e transparência que não localizou a confirmação desse item específico no catálogo no momento e que pode verificar com a equipe.\n- NUNCA invente preços, prazos, clínicas ou benefícios não documentados.\n\nPERGUNTAS E CONDUÇÃO (FIM DO HÁBITO DE PERGUNTAR TUDO)\n- NÃO termine toda resposta com pergunta. Perguntar é exceção para conduzir, não regra de fechamento.\n- Se o lead fez uma pergunta informativa (ex: \"quais os benefícios?\", \"tem odontologia?\", \"quanto custa?\"), responda diretamente e finalize de forma amigável SEM formular nova pergunta ao final.\n- Só faça pergunta se:\n  1) O lead pediu ajuda explícita para escolher entre opções;\n  2) O lead manifestou intenção de agendar ou contratar;\n  3) Faltar um dado estritamente necessário para prosseguir.\n- Se o lead disse \"não obrigado\" ou agradeceu, responda cordialmente e encerre sem perguntas (ex: \"Sem problemas! 😊 Se precisar de qualquer coisa, estamos à disposição por aqui.\").\n- NUNCA use \"Posso ajudar em algo mais?\" ou \"Qual dessas áreas é mais importante para você?\" de forma mecânica.\n\nTAMANHO E RITMO DAS MENSAGENS\n- Escreva de 1 a 2 blocos curtos separados por uma linha em branco.\n- Cada bloco deve ter no máximo 1 ou 2 frases breves (ideal de 80 a 130 caracteres por bloco).\n- Máximo de 320 caracteres no total.\n- Sem listas extensas.\n\nEMOJIS\n- No máximo 1 emoji simples por resposta (ex: 😊, 💚, 🩺, 📅).\n- O emoji DEVE ficar integrado dentro da frase ou logo após a pontuação, NUNCA em linha isolada ou separado por quebra de linha.\n- Se o lead demonstrar irritação ou descontentamento, não use emoji.\n\nPOR AÇÃO\n- ASK_MISSING_FIELD: pergunte somente o campo indispensável de forma direta.\n- SHOW_PRICE: informe o valor encontrado na base oficial. Sem pergunta posterior a menos que o lead tenha pedido agendamento.\n- SEND_INFORMATION: responda com base na base oficial. Se a dúvida estiver esclarecida, encerre sem pergunta.\n- Se reason for \"encerramento natural\": responda de forma breve, cordial e encerre sem pergunta.\n- CHECK_CALENDAR: ofereça até 3 horários de forma curta e organizada.\n- CREATE_APPOINTMENT: confirme somente se calendar.event_id existir.\n- Irritação/correção: reconheça, resolva e não faça pitch.\n- Se estiver reescrevendo por violação da política: corrija estritamente as violações apontadas.",
+        "system": "SDR de pré-vendas do Vida Card no WhatsApp. Atendimento humano, transparente e direto. Não termine toda resposta com pergunta. Se não houver confirmação de benefício na base oficial, não invente. Emojis sempre integrados à frase. Máximo 320 caracteres. O Vida Card é cartão de benefícios em saúde, não plano."
+      }
+    },
+    {
+      "id": "policy",
+      "type": "guard.response_policy",
+      "label": "Validar resposta",
+      "position": {
+        "x": 4950,
+        "y": 10.5
+      },
+      "config": {
+        "text": "{{decision.reply}}",
+        "maxCharacters": 360,
+        "knownFields": [
+          "name",
+          "city",
+          "interest",
+          "specialty",
+          "desired_day",
+          "desired_period"
+        ],
+        "blockedTerms": [
+          "consultas gratuitas",
+          "consultas ilimitadas",
+          "exames ilimitados",
+          "clínicas próprias",
+          "coparticipação",
+          "REPARO:",
+          "ASK_MISSING_FIELD",
+          "SHOW_PRICE",
+          "SEND_INFORMATION",
+          "CHECK_CALENDAR",
+          "CREATE_APPOINTMENT",
+          "HANDOFF"
+        ],
+        "requireGroundedPrice": true,
+        "preventSemanticRepetition": true,
+        "similarityThreshold": 0.8
+      }
+    },
+    {
+      "id": "smart",
+      "type": "output.smart_message",
+      "label": "Enviar mensagem",
+      "position": {
+        "x": 5610,
+        "y": 0.5
+      },
+      "config": {
+        "text": "{{response_policy.message}}",
+        "typing": true,
+        "maxBubbles": 3,
+        "maxCharactersPerBubble": 120
+      }
+    },
+    {
+      "id": "smart_fallback",
+      "type": "output.smart_message",
+      "label": "Aviso antes handoff",
+      "position": {
+        "x": 5280,
+        "y": 399.25
+      },
+      "config": {
+        "text": "Vou te encaminhar para a nossa equipe, que consegue seguir contigo por aqui. 😊",
+        "typing": true,
+        "maxBubbles": 1,
+        "maxCharactersPerBubble": 120
+      }
+    },
+    {
+      "id": "handoff",
+      "type": "action.handoff",
+      "label": "Transferir p/ humano",
+      "position": {
+        "x": 5610,
+        "y": 399.25
+      },
+      "config": {
+        "reason": "{{next_action.reason}}"
+      }
+    },
+    {
+      "id": "end",
+      "type": "output.end",
+      "label": "Encerrar fluxo",
+      "position": {
+        "x": 5940,
+        "y": 408
+      },
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e01",
+      "source": "start",
+      "target": "test_mode",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e02",
+      "source": "test_mode",
+      "target": "guard_human",
+      "sourcePort": "pass"
+    },
+    {
+      "id": "e03",
+      "source": "test_mode",
+      "target": "end_blocked",
+      "sourcePort": "blocked"
+    },
+    {
+      "id": "e04",
+      "source": "guard_human",
+      "target": "buffer",
+      "sourcePort": "pass"
+    },
+    {
+      "id": "e05",
+      "source": "guard_human",
+      "target": "end",
+      "sourcePort": "blocked"
+    },
+    {
+      "id": "e06",
+      "source": "buffer",
+      "target": "media",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e07",
+      "source": "media",
+      "target": "memory",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e08",
+      "source": "memory",
+      "target": "storage",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e09",
+      "source": "storage",
+      "target": "knowledge",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e10",
+      "source": "knowledge",
+      "target": "extract",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e11",
+      "source": "extract",
+      "target": "update_lead",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e12",
+      "source": "update_lead",
+      "target": "required",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e13",
+      "source": "required",
+      "target": "next_action",
+      "sourcePort": "complete"
+    },
+    {
+      "id": "e14",
+      "source": "required",
+      "target": "next_action",
+      "sourcePort": "missing"
+    },
+    {
+      "id": "e15",
+      "source": "next_action",
+      "target": "route",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e16",
+      "source": "route",
+      "target": "writer",
+      "sourcePort": "ASK_MISSING_FIELD"
+    },
+    {
+      "id": "e17",
+      "source": "route",
+      "target": "writer",
+      "sourcePort": "SHOW_PRICE"
+    },
+    {
+      "id": "e18",
+      "source": "route",
+      "target": "writer",
+      "sourcePort": "SEND_INFORMATION"
+    },
+    {
+      "id": "e19",
+      "source": "route",
+      "target": "availability",
+      "sourcePort": "CHECK_CALENDAR"
+    },
+    {
+      "id": "e20",
+      "source": "route",
+      "target": "create_event",
+      "sourcePort": "CREATE_APPOINTMENT"
+    },
+    {
+      "id": "e21",
+      "source": "route",
+      "target": "smart_fallback",
+      "sourcePort": "HANDOFF"
+    },
+    {
+      "id": "e22",
+      "source": "route",
+      "target": "end",
+      "sourcePort": "END"
+    },
+    {
+      "id": "e23",
+      "source": "route",
+      "target": "smart_fallback",
+      "sourcePort": "default"
+    },
+    {
+      "id": "e24",
+      "source": "availability",
+      "target": "writer",
+      "sourcePort": "available"
+    },
+    {
+      "id": "e25",
+      "source": "availability",
+      "target": "writer",
+      "sourcePort": "unavailable"
+    },
+    {
+      "id": "e26",
+      "source": "availability",
+      "target": "smart_fallback",
+      "sourcePort": "error"
+    },
+    {
+      "id": "e27",
+      "source": "create_event",
+      "target": "writer",
+      "sourcePort": "created"
+    },
+    {
+      "id": "e28",
+      "source": "create_event",
+      "target": "smart_fallback",
+      "sourcePort": "error"
+    },
+    {
+      "id": "e29",
+      "source": "writer",
+      "target": "policy",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e30",
+      "source": "policy",
+      "target": "smart",
+      "sourcePort": "pass"
+    },
+    {
+      "id": "e31",
+      "source": "policy",
+      "target": "writer",
+      "sourcePort": "rewrite"
+    },
+    {
+      "id": "e32",
+      "source": "policy",
+      "target": "smart_fallback",
+      "sourcePort": "blocked"
+    },
+    {
+      "id": "e33",
+      "source": "smart",
+      "target": "end",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e34",
+      "source": "smart_fallback",
+      "target": "handoff",
+      "sourcePort": "next"
+    },
+    {
+      "id": "e35",
+      "source": "handoff",
+      "target": "end",
+      "sourcePort": "next"
+    }
+  ],
+  "testMode": {
+    "enabled": false,
+    "phone": "555592311146"
+  },
+  "loopLimit": 2
+}
