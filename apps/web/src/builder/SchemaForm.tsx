@@ -3,6 +3,7 @@ import { catalog } from '@sdr/flow';
 import type { FlowNode } from '@sdr/shared';
 import { useBuilder } from './store';
 import { useInstance } from '../context/InstanceContext';
+import { useSession } from '../session';
 import {
   Users,
   Phone,
@@ -164,6 +165,7 @@ function InstanceTargetPicker({
   onSelect: (id: string, name: string) => void;
 }) {
   const { activeInstanceName, currentInstance } = useInstance();
+  const { session } = useSession();
   const selectedInstance = activeInstanceName || currentInstance?.name || '';
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -177,7 +179,7 @@ function InstanceTargetPicker({
     if (!selectedInstance) return;
     setLoading(true);
     const url = `/api/connections/instances/${encodeURIComponent(selectedInstance)}/targets${refresh ? '?refresh=true' : ''}`;
-    fetch(url)
+    fetch(url, session?.access_token ? { headers: { Authorization: `Bearer ${session.access_token}` } } : undefined)
       .then(res => res.json())
       .then(data => {
         setTargets({

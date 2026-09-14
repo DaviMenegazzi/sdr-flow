@@ -76,14 +76,14 @@ begin
   -- Contagens de conversas
   select
     count(*),
-    count(*) filter (where c.created_at::date = p_target_date),
+    count(*) filter (where (c.created_at at time zone 'UTC')::date = p_target_date),
     count(*) filter (where c.stage::text in ('QUALIFIED', 'PRESENTING_SOLUTION', 'NEGOTIATING', 'CONVERTED')),
     count(*) filter (where c.stage::text in ('HANDOFF', 'HUMAN_HANDOFF') or c.handled_by = 'HUMAN')
   into v_total, v_new, v_qual, v_handoff
   from public.conversations c
   where c.organization_id = p_org
     and (p_flow_version is null or c.flow_version_id = p_flow_version)
-    and (c.created_at::date = p_target_date or c.updated_at::date = p_target_date);
+    and ((c.created_at at time zone 'UTC')::date = p_target_date or (c.updated_at at time zone 'UTC')::date = p_target_date);
 
   -- Distribuição por estágios
   select coalesce(jsonb_object_agg(sub.stage::text, sub.cnt), '{}'::jsonb)
@@ -93,7 +93,7 @@ begin
     from public.conversations c
     where c.organization_id = p_org
       and (p_flow_version is null or c.flow_version_id = p_flow_version)
-      and (c.created_at::date = p_target_date or c.updated_at::date = p_target_date)
+      and ((c.created_at at time zone 'UTC')::date = p_target_date or (c.updated_at at time zone 'UTC')::date = p_target_date)
     group by c.stage
   ) sub;
 
@@ -103,7 +103,7 @@ begin
     from public.messages m
     where m.organization_id = p_org
       and m.direction = 'INBOUND'
-      and m.created_at::date = p_target_date
+      and (m.created_at at time zone 'UTC')::date = p_target_date
     group by m.conversation_id
   ),
   first_outbound as (
@@ -128,7 +128,7 @@ begin
   from public.flow_executions e
   where e.organization_id = p_org
     and (p_flow_version is null or e.flow_version_id = p_flow_version)
-    and e.created_at::date = p_target_date;
+    and (e.created_at at time zone 'UTC')::date = p_target_date;
 
   -- Custo de tokens estimado ($0.0015 / 1k in, $0.0020 / 1k out)
   v_cost := round(((v_in_tokens::numeric * 0.0000015) + (v_out_tokens::numeric * 0.0000020)), 4);

@@ -106,6 +106,14 @@ export function createApp(config: ApiConfig = {}): Express {
   app.use('/api/me', protectedApi);
   app.use('/api/admin', protectedApi);
 
+  // The legacy Evolution endpoints are kept for standalone mode only. In the
+  // managed Supabase deployment they must require a real user session; they
+  // proxy directly to the Evolution server and must never be public.
+  if (!config.standaloneMode) {
+    app.use('/api/connections/instances', protectedApi);
+    app.use('/api/connections/evolution', protectedApi);
+  }
+
   app.get('/api/me', (req, res) => {
     const auth = res.locals.auth;
     if (!auth) { res.status(401).json({ error: 'Autenticação obrigatória.' }); return; }
@@ -278,7 +286,7 @@ export function createApp(config: ApiConfig = {}): Express {
   const getEvoClient = (serverUrl?: string, apiKey?: string) => {
     const settings = standaloneStore.getSettings();
     const url = serverUrl?.trim() || settings.evolutionServerUrl || config.evolutionServerUrl || process.env.EVOLUTION_SERVER_URL || 'http://127.0.0.1:8080';
-    const key = apiKey?.trim() || settings.evolutionApiKey || config.evolutionApiKey || process.env.EVOLUTION_API_KEY || 'EvolutionApiSecretKey_2026';
+    const key = apiKey?.trim() || settings.evolutionApiKey || config.evolutionApiKey || process.env.EVOLUTION_API_KEY || '';
     return new EvolutionClient(url, key);
   };
   const getPublicApiUrl = () => {
@@ -2073,6 +2081,17 @@ export function createApp(config: ApiConfig = {}): Express {
     const { data } = await db.from('connections').select('id').eq('id', id).eq('provider', provider).maybeSingle();
     return data ? new ConnectionRepository(db).getConnectionCredentials(id) : null;
   }
+
+  async function handleEvolutionWebhook(connectionId: string, req: express.Request, res: express.Response) {
+    const event = parseEvolutionWebhook(req.body);
+    if (!event) { res.status(400).json({ error: 'Payload de webhook inválido.' }); return; }
+    if (!config.supabaseUrl || !config.serviceRoleKey) { res.status(503).json({ error: 'Supabase não configurado para webhooks.' }); return; }
+    const credentials = await webhookCredentials(connectionId, 'evolution') as EvolutionCredentials | null;
+    if (!secretMatches(req.get('x-webhook-token'), credentials?.webhookToken)) { res.sendStatus(401); return; }
+    const result = await processInboundWebhook(connectionId, event, config, { turnQueue });
+    const failed = result.status === 'error' || result.flowStatus === 'failed';
+    res.status(failed ? 500 : 200).json({ ok: !failed, result });
+  }
   app.get('/api/webhooks/meta/:connectionId', async (req, res) => {
     const id = z.uuid().safeParse(req.params.connectionId);
     if (!id.success) { res.sendStatus(400); return; }
@@ -2080,17 +2099,23 @@ export function createApp(config: ApiConfig = {}): Express {
     if (req.query['hub.mode'] !== 'subscribe' || !secretMatches(String(req.query['hub.verify_token'] || ''), credentials?.verifyToken)) { res.sendStatus(403); return; }
     res.type('text/plain').send(String(req.query['hub.challenge'] || ''));
   });
+  // Evolution instances created before the Supabase migration still point to
+  // /instance/<name>. Resolve that name to the managed connection so existing
+  // webhook registrations continue to work during the cutover.
+  app.post('/api/webhooks/evolution/instance/:instanceName', async (req, res) => {
+    if (!config.supabaseUrl || !config.serviceRoleKey) { res.status(503).json({ error: 'Supabase não configurado para webhooks.' }); return; }
+    const instanceName = String(req.params.instanceName || '').trim();
+    if (!instanceName) { res.status(400).json({ error: 'Nome da instância inválido.' }); return; }
+    const db = serviceDatabase(config.supabaseUrl, config.serviceRoleKey);
+    const { data: connection } = await db.from('connections').select('id').eq('provider', 'evolution').eq('provider_instance_id', instanceName).maybeSingle();
+    if (!connection?.id) { res.sendStatus(404); return; }
+    await handleEvolutionWebhook(connection.id, req, res);
+  });
+
   app.post('/api/webhooks/evolution/:connectionId', async (req, res) => {
     const connectionId = z.uuid().safeParse(req.params.connectionId);
     if (!connectionId.success) { res.status(400).json({ error: 'ID de conexão inválido.' }); return; }
-    const event = parseEvolutionWebhook(req.body);
-    if (!event) { res.status(400).json({ error: 'Payload de webhook inválido.' }); return; }
-    if (!config.supabaseUrl || !config.serviceRoleKey) { res.status(503).json({ error: 'Supabase não configurado para webhooks.' }); return; }
-    const credentials = await webhookCredentials(connectionId.data, 'evolution') as EvolutionCredentials | null;
-    if (!secretMatches(req.get('x-webhook-token'), credentials?.webhookToken)) { res.sendStatus(401); return; }
-    const result = await processInboundWebhook(connectionId.data, event, config, { turnQueue });
-    const failed = result.status === 'error' || result.flowStatus === 'failed';
-    res.status(failed ? 500 : 200).json({ ok: !failed, result });
+    await handleEvolutionWebhook(connectionId.data, req, res);
   });
 
   app.post('/api/webhooks/meta/:connectionId', async (req, res) => {

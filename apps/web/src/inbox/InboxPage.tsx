@@ -377,18 +377,21 @@ export function InboxPage() {
         } catch {}
       }
 
-      // Also load standalone instances to fill gaps
-      try {
-        const res = await fetch('/api/connections/instances');
-        if (res.ok) {
-          const data = await res.json();
-          for (const inst of Array.isArray(data) ? data : []) {
-            if (!seen.has(inst.name)) {
-              merged.push({ id: inst.id, name: inst.name, provider: inst.provider, status: inst.status });
+      // Standalone instances are only available when no Supabase organization
+      // is active. Managed deployments use the scoped organization endpoint.
+      if (isStandalone) {
+        try {
+          const res = await fetch('/api/connections/instances');
+          if (res.ok) {
+            const data = await res.json();
+            for (const inst of Array.isArray(data) ? data : []) {
+              if (!seen.has(inst.name)) {
+                merged.push({ id: inst.id, name: inst.name, provider: inst.provider, status: inst.status });
+              }
             }
           }
-        }
-      } catch {}
+        } catch {}
+      }
 
       setConnections(merged);
       if (activeInstance) {
