@@ -1,6 +1,7 @@
 import { z } from 'zod';
 export * from './enums.js';
 export * from './phone.js';
+export * from './contracts.js';
 
 export const nodeTypes = [
   'trigger.message_received', 'trigger.schedule', 'trigger.manual',

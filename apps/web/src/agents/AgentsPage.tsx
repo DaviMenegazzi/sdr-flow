@@ -1,22 +1,263 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { useSession } from '../session';
+import { Button, Badge, Card, Input } from '../components/ui';
+import { Bot, Sparkles, Plus, AlertCircle, Edit3, Archive, Check } from 'lucide-react';
 
-type Agent = { id:string; name:string; description:string|null; provider:string; model:string; system_prompt:string; is_default:boolean };
-type Instance = { id:string; name:string; agent_id:string|null };
+type Agent = {
+  id: string;
+  name: string;
+  description: string | null;
+  provider: string;
+  model: string;
+  system_prompt: string;
+  is_default: boolean;
+};
+
+type Instance = {
+  id: string;
+  name: string;
+  agent_id: string | null;
+};
 
 export function AgentsPage() {
   const { session } = useSession();
-  const [agents,setAgents]=useState<Agent[]>([]), [instances,setInstances]=useState<Instance[]>([]);
-  const [max,setMax]=useState(2), [name,setName]=useState(''), [editing,setEditing]=useState<Agent|null>(null), [error,setError]=useState('');
-  const headers = session ? { Authorization:`Bearer ${session.access_token}` } : undefined;
-  const load=async()=>{ if(!headers)return; const [a,i]=await Promise.all([fetch('/api/me/agents',{headers}),fetch('/api/me/instances',{headers})]); if(a.ok){const d=await a.json();setAgents(d.agents);setMax(d.limits.max_agents);} if(i.ok)setInstances(await i.json()); };
-  useEffect(()=>{void load()},[session?.access_token]);
-  const submit=async(e:FormEvent)=>{e.preventDefault();if(!headers)return;setError('');const a=editing;const response=await fetch(a?`/api/me/agents/${a.id}`:'/api/me/agents',{method:a?'PATCH':'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({name:a?.name??name,description:a?.description??'',provider:a?.provider??'openai',model:a?.model??'gpt-4.1-mini',systemPrompt:a?.system_prompt??'',toolPolicy:{},modelConfig:{}})});if(!response.ok){setError((await response.json()).error||'Falha ao salvar agente.');return;}setName('');setEditing(null);await load();};
-  const assign=async(instanceId:string,agentId:string)=>{if(!headers)return;setError('');const r=await fetch(`/api/me/instances/${instanceId}/assign-agent`,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({agentId})});if(!r.ok){setError((await r.json()).error||'Falha ao atribuir agente.');return;}await load();};
-  const archive=async(a:Agent)=>{if(!headers||!confirm(`Arquivar o agente “${a.name}”?`))return;const r=await fetch(`/api/me/agents/${a.id}`,{method:'DELETE',headers});if(!r.ok){setError((await r.json()).error||'Falha ao arquivar agente.');return;}await load();};
-  return <div className="page-content"><span className="eyebrow">AGENTES</span><h1>Agentes de IA</h1><p className="muted">{agents.length} de {max} agentes ativos. Cada instância usa exatamente um agente.</p>{error&&<p role="alert">{error}</p>}
-    <div className="info-card">{agents.map(a=><div key={a.id} style={{padding:'12px 0',borderBottom:'1px solid var(--color-border-secondary)'}}><strong>{a.name}</strong>{a.is_default?' · padrão':''}<p>{a.provider} / {a.model}</p><button onClick={()=>setEditing({...a})}>Editar</button>{' '}<button disabled={a.is_default} onClick={()=>void archive(a)}>Arquivar</button></div>)}</div>
-    <form onSubmit={submit} style={{maxWidth:560,display:'grid',gap:10,marginTop:20}}><label>Nome<input required maxLength={80} value={editing?.name??name} onChange={e=>editing?setEditing({...editing,name:e.target.value}):setName(e.target.value)}/></label>{editing&&<><label>Modelo<input required value={editing.model} onChange={e=>setEditing({...editing,model:e.target.value})}/></label><label>Instruções<textarea value={editing.system_prompt} onChange={e=>setEditing({...editing,system_prompt:e.target.value})}/></label></>}<div><button disabled={!editing&&agents.length>=max}>{editing?'Salvar alterações':'Criar agente'}</button>{editing&&<button type="button" onClick={()=>setEditing(null)}>Cancelar</button>}</div></form>
-    <h2 style={{marginTop:32}}>Agente por instância</h2><div className="info-card">{instances.map(i=><label key={i.id} style={{display:'grid',gap:6,marginBottom:12}}>{i.name}<select value={i.agent_id??''} onChange={e=>void assign(i.id,e.target.value)}><option value="" disabled>Selecione</option>{agents.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></label>)}</div>
-  </div>;
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [instances, setInstances] = useState<Instance[]>([]);
+  const [max, setMax] = useState(2);
+  const [name, setName] = useState('');
+  const [editing, setEditing] = useState<Agent | null>(null);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const headers = session ? { Authorization: `Bearer ${session.access_token}` } : undefined;
+
+  const load = async () => {
+    if (!headers) return;
+    const [a, i] = await Promise.all([
+      fetch('/api/me/agents', { headers }),
+      fetch('/api/me/instances', { headers }),
+    ]);
+    if (a.ok) {
+      const d = await a.json();
+      setAgents(d.agents);
+      setMax(d.limits.max_agents);
+    }
+    if (i.ok) setInstances(await i.json());
+  };
+
+  useEffect(() => {
+    void load();
+  }, [session?.access_token]);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!headers) return;
+    setError('');
+    setSaving(true);
+    const a = editing;
+    const response = await fetch(a ? `/api/me/agents/${a.id}` : '/api/me/agents', {
+      method: a ? 'PATCH' : 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: a?.name ?? name,
+        description: a?.description ?? '',
+        provider: a?.provider ?? 'openai',
+        model: a?.model ?? 'gpt-4.1-mini',
+        systemPrompt: a?.system_prompt ?? '',
+        toolPolicy: {},
+        modelConfig: {},
+      }),
+    });
+    setSaving(false);
+    if (!response.ok) {
+      setError((await response.json()).error || 'Falha ao salvar agente.');
+      return;
+    }
+    setName('');
+    setEditing(null);
+    await load();
+  };
+
+  const assign = async (instanceId: string, agentId: string) => {
+    if (!headers) return;
+    setError('');
+    const r = await fetch(`/api/me/instances/${instanceId}/assign-agent`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId }),
+    });
+    if (!r.ok) {
+      setError((await r.json()).error || 'Falha ao atribuir agente.');
+      return;
+    }
+    await load();
+  };
+
+  const archive = async (a: Agent) => {
+    if (!headers || !confirm(`Arquivar o agente “${a.name}”?`)) return;
+    const r = await fetch(`/api/me/agents/${a.id}`, { method: 'DELETE', headers });
+    if (!r.ok) {
+      setError((await r.json()).error || 'Falha ao arquivar agente.');
+      return;
+    }
+    await load();
+  };
+
+  return (
+    <div className="h-full overflow-y-auto p-8 bg-canvas">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+        <div>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-content-muted">
+            AGENTES
+          </span>
+          <h1 className="text-xl font-bold text-content tracking-tight mt-1 mb-1">
+            Agentes de IA
+          </h1>
+          <p className="text-xs text-content-muted m-0">
+            {agents.length} de {max} agentes ativos. Cada instância usa exatamente um agente.
+          </p>
+        </div>
+      </div>
+
+      {error && (
+        <div className="p-3.5 mb-6 rounded-lg bg-danger/10 border border-danger/20 text-danger text-xs flex items-center gap-2" role="alert">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* Agents Cards Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+        {agents.map((a) => (
+          <Card key={a.id} className="p-4 bg-surface border-border flex flex-col justify-between gap-4">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Bot className="w-4 h-4 text-brand" />
+                  <strong className="text-sm font-semibold text-content">{a.name}</strong>
+                </div>
+                {a.is_default && (
+                  <Badge variant="accent" size="sm">
+                    Padrão
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-content-muted m-0 font-mono">
+                {a.provider} / {a.model}
+              </p>
+              {a.system_prompt && (
+                <p className="text-xs text-content-muted mt-2 line-clamp-2 italic">
+                  "{a.system_prompt}"
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 pt-3 border-t border-border/60">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEditing({ ...a })}
+                className="flex-1"
+              >
+                <Edit3 className="w-3.5 h-3.5" /> Editar
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                disabled={a.is_default}
+                onClick={() => void archive(a)}
+                title={a.is_default ? 'Não é possível arquivar o agente padrão' : 'Arquivar agente'}
+              >
+                <Archive className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Create or Edit Form */}
+      <Card className="p-6 bg-surface border-border max-w-xl mb-8">
+        <h2 className="text-base font-semibold text-content m-0 mb-4">
+          {editing ? `Editar Agente: ${editing.name}` : 'Criar Novo Agente'}
+        </h2>
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <Input
+            label="Nome do Agente"
+            required
+            maxLength={80}
+            value={editing?.name ?? name}
+            onChange={(e) =>
+              editing ? setEditing({ ...editing, name: e.target.value }) : setName(e.target.value)
+            }
+            placeholder="Ex: SDR Vendas Vida Card"
+          />
+
+          {editing && (
+            <>
+              <Input
+                label="Modelo"
+                required
+                value={editing.model}
+                onChange={(e) => setEditing({ ...editing, model: e.target.value })}
+                placeholder="Ex: gpt-4.1-mini"
+              />
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-content">Instruções (System Prompt)</label>
+                <textarea
+                  className="w-full bg-surface text-content border border-border rounded-lg text-xs p-3 outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand min-h-[100px]"
+                  value={editing.system_prompt}
+                  onChange={(e) => setEditing({ ...editing, system_prompt: e.target.value })}
+                  placeholder="Instruções de personalidade e comportamento..."
+                />
+              </div>
+            </>
+          )}
+
+          <div className="flex items-center gap-2 mt-2">
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              loading={saving}
+              disabled={!editing && agents.length >= max}
+            >
+              {editing ? 'Salvar alterações' : 'Criar agente'}
+            </Button>
+            {editing && (
+              <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(null)}>
+                Cancelar
+              </Button>
+            )}
+          </div>
+        </form>
+      </Card>
+
+      {/* Instance Assignment */}
+      <Card className="p-6 bg-surface border-border max-w-xl">
+        <h2 className="text-base font-semibold text-content m-0 mb-1">Agente por instância</h2>
+        <p className="text-xs text-content-muted mb-4">Selecione qual agente processará as mensagens de cada instância de WhatsApp conectada.</p>
+        <div className="flex flex-col gap-3">
+          {instances.map((i) => (
+            <div key={i.id} className="flex flex-col gap-1.5 p-3 rounded-lg bg-surface-muted/40 border border-border">
+              <span className="text-xs font-semibold text-content">{i.name}</span>
+              <select
+                className="w-full text-xs py-1.5 px-2.5 bg-surface border border-border rounded-lg text-content focus:outline-none focus:ring-1 focus:ring-brand"
+                value={i.agent_id ?? ''}
+                onChange={(e) => void assign(i.id, e.target.value)}
+              >
+                <option value="" disabled>
+                  Selecione um agente
+                </option>
+                {agents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} {a.is_default ? '(Padrão)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
 }

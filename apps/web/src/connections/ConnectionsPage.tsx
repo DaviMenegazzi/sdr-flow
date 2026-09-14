@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useSession } from '../session';
 import type { FlowGraph } from '@sdr/shared';
 import { PlaygroundModal } from '../builder/PlaygroundModal';
+import { Button, Badge, Card, Input } from '../components/ui';
 import {
   Radio,
   QrCode,
@@ -354,545 +355,506 @@ export function ConnectionsPage() {
   }
 
   return (
-    <div className="page-content">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+    <div className="h-full overflow-y-auto p-8 bg-canvas">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div>
-          <span className="eyebrow">TRANSPORTE & MENSAGERIA</span>
-          <h1>Conexões de WhatsApp</h1>
-          <p className="muted">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-content-muted">
+            TRANSPORTE & MENSAGERIA
+          </span>
+          <h1 className="text-xl font-bold text-content tracking-tight mt-1 mb-1">
+            Conexões de WhatsApp
+          </h1>
+          <p className="text-xs text-content-muted m-0">
             Conecte números via Evolution API (QR Code ao vivo) ou Meta Cloud API oficial com isolamento por organização.
           </p>
         </div>
         {!wizardOpen && (
-          <button className="primary" onClick={startWizard} style={{ gap: 6 }}>
-            <Plus size={16} /> Nova Conexão
-          </button>
+          <Button variant="primary" size="sm" onClick={startWizard}>
+            <Plus className="w-4 h-4" /> Nova Conexão
+          </Button>
         )}
       </div>
 
       {message && (
-        <div className="runtime-note" style={{ marginBottom: 20 }}>
-          {message}
+        <div className="p-3.5 mb-6 rounded-lg bg-brand/10 border border-brand/20 text-brand text-xs flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+          <span>{message}</span>
         </div>
       )}
 
       {wizardOpen ? (
-        <div style={{ border: '1px solid var(--color-border-secondary)', borderRadius: 12, padding: 30, background: 'var(--color-bg-primary)', marginBottom: 40 }}>
+        <Card className="p-6 bg-surface border-border mb-8 max-w-2xl">
           {/* Steps Breadcrumb */}
-          <div style={{ display: 'flex', gap: 16, marginBottom: 28, borderBottom: '1px solid var(--color-border-secondary)', paddingBottom: 16 }}>
+          <div className="flex items-center gap-2 pb-4 mb-6 border-b border-border overflow-x-auto">
             {[
               { step: 1, label: '1. Identificação & Provedor' },
               { step: 2, label: '2. Credenciais' },
               { step: 3, label: provider === 'evolution' ? '3. Escanear QR Code' : '3. Validação' },
               { step: 4, label: '4. Conclusão' },
             ].map((s) => (
-              <span
+              <Badge
                 key={s.step}
-                style={{
-                  fontSize: 12,
-                  fontWeight: wizardStep === s.step ? 700 : 500,
-                  color: wizardStep === s.step ? 'var(--color-bg-accent)' : 'var(--color-text-secondary)',
-                }}
+                variant={wizardStep === s.step ? 'accent' : 'outline'}
+                size="sm"
               >
                 {s.label}
-              </span>
+              </Badge>
             ))}
           </div>
 
           {/* Wizard Step 1: Name and Provider */}
           {wizardStep === 1 && (
-            <div style={{ maxWidth: 540 }}>
-              <h2>Identificação da Conexão</h2>
-              <p className="muted">Defina um nome de referência e escolha o canal de transporte oficial ou Baileys.</p>
+            <div className="flex flex-col gap-4">
+              <div>
+                <h2 className="text-base font-semibold text-content m-0">Identificação da Conexão</h2>
+                <p className="text-xs text-content-muted mt-1 mb-0">Defina um nome de referência e escolha o canal de transporte oficial ou Baileys.</p>
+              </div>
 
-              <label style={{ marginBottom: 18 }}>
-                Nome amigável da conexão
-                <input
-                  required
-                  placeholder="Ex: WhatsApp Comercial Matriz"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </label>
+              <Input
+                label="Nome amigável da conexão"
+                required
+                placeholder="Ex: WhatsApp Comercial Matriz"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
 
-              <label style={{ marginBottom: 18 }}>
-                Provedor de Conexão
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 8 }}>
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-content">Provedor de Conexão</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div
                     onClick={() => setProvider('evolution')}
-                    style={{
-                      border: provider === 'evolution' ? '2px solid var(--color-bg-accent)' : '1px solid var(--color-border-secondary)',
-                      borderRadius: 10,
-                      padding: 16,
-                      cursor: 'pointer',
-                      background: provider === 'evolution' ? 'var(--color-bg-light)' : 'var(--color-bg-primary)',
-                    }}
+                    className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${
+                      provider === 'evolution'
+                        ? 'border-brand bg-brand/5 shadow-xs'
+                        : 'border-border bg-surface hover:border-border-hover'
+                    }`}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, marginBottom: 6 }}>
-                      <QrCode size={18} color="var(--color-bg-accent)" /> Evolution API
+                    <div className="flex items-center gap-2 font-semibold text-xs text-content mb-1.5">
+                      <QrCode className="w-4 h-4 text-brand" /> Evolution API
                     </div>
-                    <p className="muted" style={{ margin: 0, fontSize: 11 }}>
+                    <p className="text-[11px] text-content-muted m-0">
                       Conexão via QR Code ao vivo (Baileys). Ideal para números de teste e operações flexíveis.
                     </p>
                   </div>
 
                   <div
                     onClick={() => setProvider('meta')}
-                    style={{
-                      border: provider === 'meta' ? '2px solid var(--color-bg-accent)' : '1px solid var(--color-border-secondary)',
-                      borderRadius: 10,
-                      padding: 16,
-                      cursor: 'pointer',
-                      background: provider === 'meta' ? 'var(--color-bg-light)' : 'var(--color-bg-primary)',
-                    }}
+                    className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${
+                      provider === 'meta'
+                        ? 'border-brand bg-brand/5 shadow-xs'
+                        : 'border-border bg-surface hover:border-border-hover'
+                    }`}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, marginBottom: 6 }}>
-                      <ShieldCheck size={18} color="#16a34a" /> Meta Cloud API
+                    <div className="flex items-center gap-2 font-semibold text-xs text-content mb-1.5">
+                      <ShieldCheck className="w-4 h-4 text-emerald-500" /> Meta Cloud API
                     </div>
-                    <p className="muted" style={{ margin: 0, fontSize: 11 }}>
+                    <p className="text-[11px] text-content-muted m-0">
                       API Oficial do WhatsApp Business, com autenticação e templates aprovados pela Meta.
                     </p>
                   </div>
                 </div>
-              </label>
+              </div>
 
-              <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
-                <button
-                  className="primary"
+              <div className="flex items-center gap-2.5 mt-4">
+                <Button
+                  variant="primary"
+                  size="sm"
                   disabled={!name.trim()}
                   onClick={() => setWizardStep(2)}
-                  style={{ gap: 6 }}
                 >
-                  Próximo <ArrowRight size={15} />
-                </button>
-                <button onClick={() => setWizardOpen(false)}>Cancelar</button>
+                  Próximo <ArrowRight className="w-3.5 h-3.5" />
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setWizardOpen(false)}>
+                  Cancelar
+                </Button>
               </div>
             </div>
           )}
 
           {/* Wizard Step 2: Credentials */}
           {wizardStep === 2 && (
-            <div style={{ maxWidth: 540 }}>
-              <h2>Configurar Credenciais — {provider === 'evolution' ? 'Evolution API' : 'Meta Cloud API'}</h2>
-              <p className="muted">
-                {provider === 'evolution'
-                  ? 'Informe o endpoint e a API key do seu container Evolution.'
-                  : 'Informe os identificadores do aplicativo Meta for Developers e o Access Token permanente.'}
-              </p>
+            <div className="flex flex-col gap-4">
+              <div>
+                <h2 className="text-base font-semibold text-content m-0">Configurar Credenciais — {provider === 'evolution' ? 'Evolution API' : 'Meta Cloud API'}</h2>
+                <p className="text-xs text-content-muted mt-1 mb-0">
+                  {provider === 'evolution'
+                    ? 'Informe o endpoint e a API key do seu container Evolution.'
+                    : 'Informe os identificadores do aplicativo Meta for Developers e o Access Token permanente.'}
+                </p>
+              </div>
 
               {provider === 'evolution' ? (
                 <>
-                  <label style={{ marginBottom: 14 }}>
-                    URL do Servidor Evolution
-                    <input
-                      required
-                      placeholder="http://localhost:8080 ou https://evolution.seudominio.com"
-                      value={evolutionUrl}
-                      onChange={(e) => setEvolutionUrl(e.target.value)}
-                    />
-                  </label>
-                  <label style={{ marginBottom: 14 }}>
-                    API Key da Evolution
-                    <input
-                      type="password"
-                      required
-                      placeholder="Sua chave de autenticação apikey"
-                      value={evolutionApiKey}
-                      onChange={(e) => setEvolutionApiKey(e.target.value)}
-                    />
-                  </label>
-                  <label style={{ marginBottom: 14 }}>
-                    Número de telefone (opcional - para pareamento)
-                    <input
-                      placeholder="Ex: 5511999999999"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                    />
-                  </label>
+                  <Input
+                    label="URL do Servidor Evolution"
+                    required
+                    placeholder="http://localhost:8080 ou https://evolution.seudominio.com"
+                    value={evolutionUrl}
+                    onChange={(e) => setEvolutionUrl(e.target.value)}
+                  />
+                  <Input
+                    label="API Key da Evolution"
+                    type="password"
+                    required
+                    placeholder="Sua chave de autenticação apikey"
+                    value={evolutionApiKey}
+                    onChange={(e) => setEvolutionApiKey(e.target.value)}
+                  />
+                  <Input
+                    label="Número de telefone (opcional - para pareamento)"
+                    placeholder="Ex: 5511999999999"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                  />
                 </>
               ) : (
                 <>
-                  <label style={{ marginBottom: 14 }}>
-                    Phone Number ID
-                    <input
-                      required
-                      placeholder="Ex: 109876543210987"
-                      value={metaPhoneNumberId}
-                      onChange={(e) => setMetaPhoneNumberId(e.target.value)}
-                    />
-                  </label>
-                  <label style={{ marginBottom: 14 }}>
-                    WABA ID (WhatsApp Business Account ID)
-                    <input
-                      required
-                      placeholder="Ex: 987654321098765"
-                      value={metaWabaId}
-                      onChange={(e) => setMetaWabaId(e.target.value)}
-                    />
-                  </label>
-                  <label style={{ marginBottom: 14 }}>
-                    Token de Acesso do Sistema (System User Token)
-                    <input
-                      type="password"
-                      required
-                      placeholder="EAAB..."
-                      value={metaAccessToken}
-                      onChange={(e) => setMetaAccessToken(e.target.value)}
-                    />
-                  </label>
-                  <label style={{ marginBottom: 14 }}>
-                    App Secret (validação dos webhooks)
-                    <input type="password" required value={metaAppSecret} onChange={e => setMetaAppSecret(e.target.value)} autoComplete="off" />
-                  </label>
-                  <label style={{ marginBottom: 14 }}>
-                    Token de verificação do webhook
-                    <input required value={metaVerifyToken} onChange={e => setMetaVerifyToken(e.target.value)} autoComplete="off" placeholder="Crie um token com pelo menos 16 caracteres" />
-                  </label>
-                  <p className="muted">Use este mesmo token ao cadastrar a URL do webhook no painel da Meta.</p>
+                  <Input
+                    label="Phone Number ID"
+                    required
+                    placeholder="Ex: 109876543210987"
+                    value={metaPhoneNumberId}
+                    onChange={(e) => setMetaPhoneNumberId(e.target.value)}
+                  />
+                  <Input
+                    label="WABA ID (WhatsApp Business Account ID)"
+                    required
+                    placeholder="Ex: 987654321098765"
+                    value={metaWabaId}
+                    onChange={(e) => setMetaWabaId(e.target.value)}
+                  />
+                  <Input
+                    label="Token de Acesso do Sistema (System User Token)"
+                    type="password"
+                    required
+                    placeholder="EAAB..."
+                    value={metaAccessToken}
+                    onChange={(e) => setMetaAccessToken(e.target.value)}
+                  />
+                  <Input
+                    label="App Secret (validação dos webhooks)"
+                    type="password"
+                    required
+                    value={metaAppSecret}
+                    onChange={e => setMetaAppSecret(e.target.value)}
+                    autoComplete="off"
+                  />
+                  <Input
+                    label="Token de verificação do webhook"
+                    required
+                    value={metaVerifyToken}
+                    onChange={e => setMetaVerifyToken(e.target.value)}
+                    autoComplete="off"
+                    placeholder="Crie um token com pelo menos 16 caracteres"
+                    helperText="Use este mesmo token ao cadastrar a URL do webhook no painel da Meta."
+                  />
                 </>
               )}
 
-              <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
-                <button
-                  className="primary"
+              <div className="flex items-center gap-2.5 mt-4">
+                <Button
+                  variant="primary"
+                  size="sm"
                   disabled={
                     busy ||
                     (provider === 'evolution' && (!evolutionUrl || !evolutionApiKey)) ||
                     (provider === 'meta' && (!metaPhoneNumberId || !metaWabaId || !metaAccessToken || !metaAppSecret || metaVerifyToken.length < 16))
                   }
+                  loading={busy}
                   onClick={handleCreateConnection}
                 >
-                  {busy ? 'Validando & Conectando...' : provider === 'evolution' ? 'Criar Instância & Gerar QR' : 'Validar na Meta & Conectar'}
-                </button>
-                <button onClick={() => setWizardStep(1)}>Voltar</button>
+                  {provider === 'evolution' ? 'Criar Instância & Gerar QR' : 'Validar na Meta & Conectar'}
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => setWizardStep(1)}>
+                  Voltar
+                </Button>
               </div>
             </div>
           )}
 
           {/* Wizard Step 3: Live QR for Evolution */}
           {wizardStep === 3 && (
-            <div style={{ maxWidth: 500, textAlign: 'center' }}>
-              <h2>Escanear QR Code no Celular</h2>
-              <p className="muted">
-                Abra o WhatsApp &gt; Dispositivos Conectados &gt; Conectar um aparelho e aponte a câmera para o código abaixo:
-              </p>
+            <div className="flex flex-col items-center text-center gap-4">
+              <div>
+                <h2 className="text-base font-semibold text-content m-0">Escanear QR Code no Celular</h2>
+                <p className="text-xs text-content-muted mt-1 mb-0">
+                  Abra o WhatsApp &gt; Dispositivos Conectados &gt; Conectar um aparelho e aponte a câmera para o código abaixo:
+                </p>
+              </div>
 
               {qrBase64 ? (
-                <div style={{ margin: '20px auto', padding: 16, background: '#fff', border: '1px solid var(--color-border-secondary)', borderRadius: 12, display: 'inline-block' }}>
+                <div className="p-4 bg-white dark:bg-zinc-900 border border-border rounded-xl inline-block shadow-sm">
                   <img
                     src={qrBase64.startsWith('data:') ? qrBase64 : `data:image/png;base64,${qrBase64}`}
                     alt="WhatsApp QR Code"
-                    style={{ width: 240, height: 240, display: 'block' }}
+                    className="w-60 h-60 block mx-auto"
                   />
                 </div>
               ) : (
-                <div style={{ padding: 40, background: 'var(--color-bg-secondary)', borderRadius: 12, margin: '20px auto' }}>
-                  <RefreshCw size={28} className="spin" style={{ margin: '0 auto 12px', display: 'block' }} />
-                  <p className="muted">Aguardando geração do QR Code real na Evolution...</p>
+                <div className="p-10 bg-surface-muted rounded-xl flex flex-col items-center gap-3">
+                  <RefreshCw className="w-7 h-7 text-brand animate-spin" />
+                  <p className="text-xs text-content-muted m-0">Aguardando geração do QR Code real na Evolution...</p>
                 </div>
               )}
 
-              <div style={{ display: 'flex', justifyContent: 'center', gap: 10, marginTop: 20 }}>
-                <button onClick={() => createdConnectionId && void fetchLiveQr(createdConnectionId)} style={{ gap: 6 }}>
-                  <RefreshCw size={14} /> Atualizar QR Code
-                </button>
-                <button onClick={() => setWizardStep(4)}>Já conectei</button>
+              <div className="flex items-center gap-2.5 mt-2">
+                <Button variant="outline" size="sm" onClick={() => createdConnectionId && void fetchLiveQr(createdConnectionId)}>
+                  <RefreshCw className="w-3.5 h-3.5" /> Atualizar QR Code
+                </Button>
+                <Button variant="primary" size="sm" onClick={() => setWizardStep(4)}>
+                  Já conectei
+                </Button>
               </div>
             </div>
           )}
 
           {/* Wizard Step 4: Completion */}
           {wizardStep === 4 && (
-            <div style={{ maxWidth: 500, textAlign: 'center', margin: '0 auto' }}>
-              <CheckCircle2 size={48} color="#16a34a" style={{ margin: '0 auto 16px', display: 'block' }} />
-              <h2>Conexão Estabelecida com Sucesso!</h2>
-              <p className="muted">
+            <div className="flex flex-col items-center text-center gap-3 py-4">
+              <CheckCircle2 className="w-12 h-12 text-emerald-500" />
+              <h2 className="text-base font-semibold text-content m-0">Conexão Estabelecida com Sucesso!</h2>
+              <p className="text-xs text-content-muted max-w-sm m-0">
                 O canal de WhatsApp está ativo, autenticado e pronto para receber e enviar mensagens pelo fluxo.
               </p>
 
               {phone && (
-                <div className="info-card" style={{ marginTop: 20, textAlign: 'left' }}>
-                  <strong>Número Vinculado:</strong>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--color-text-primary)', marginTop: 4 }}>
+                <Card className="p-3.5 bg-surface-muted/50 border-border text-left w-full max-w-xs mt-2">
+                  <span className="text-[11px] text-content-muted block">Número Vinculado:</span>
+                  <div className="text-sm font-semibold text-content mt-0.5">
                     +{phone}
                   </div>
-                </div>
+                </Card>
               )}
 
-              <button
-                className="primary"
+              <Button
+                variant="primary"
+                size="sm"
+                className="mt-4"
                 onClick={() => {
                   setWizardOpen(false);
                   void loadConnections();
                 }}
-                style={{ marginTop: 20 }}
               >
                 Concluir e Ver Conexões
-              </button>
+              </Button>
             </div>
           )}
-        </div>
+        </Card>
       ) : null}
 
       {/* Existing Connections Table */}
-      <h2>Canais Ativos na Organização</h2>
+      <h2 className="text-base font-semibold text-content mb-3">Canais Ativos na Organização</h2>
       {loading ? (
-        <p className="muted">Carregando conexões...</p>
+        <p className="text-xs text-content-muted">Carregando conexões...</p>
       ) : connections.length === 0 ? (
-        <div className="info-card" style={{ marginTop: 16 }}>
-          <p>Nenhuma conexão cadastrada nesta organização. Clique em “Nova Conexão” para integrar seu WhatsApp.</p>
-        </div>
+        <Card className="p-4 bg-surface border-border">
+          <p className="text-xs text-content-muted m-0">Nenhuma conexão cadastrada nesta organização. Clique em “Nova Conexão” para integrar seu WhatsApp.</p>
+        </Card>
       ) : (
-        <div style={{ border: '1px solid var(--color-border-secondary)', borderRadius: 10, overflow: 'hidden', marginTop: 16 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead>
-              <tr style={{ background: 'var(--color-bg-secondary)', textAlign: 'left' }}>
-                <th style={{ padding: '12px 16px' }}>Nome</th>
-                <th style={{ padding: '12px 16px' }}>Provedor</th>
-                <th style={{ padding: '12px 16px' }}>Número</th>
-                <th style={{ padding: '12px 16px' }}>Status</th>
-                <th style={{ padding: '12px 16px' }}>Webhook de Entrada</th>
-                <th style={{ padding: '12px 16px', textAlign: 'right' }}>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {connections.map((conn) => (
-                <tr key={conn.id} style={{ borderTop: '1px solid var(--color-border-secondary)' }}>
-                  <td style={{ padding: '12px 16px', fontWeight: 600 }}>{conn.name}</td>
-                  <td style={{ padding: '12px 16px' }}>
-                    <span className="badge" style={{ textTransform: 'uppercase' }}>
-                      {conn.provider === 'meta' ? 'Meta Cloud' : 'Evolution'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '12px 16px', fontFamily: 'monospace' }}>
-                    {conn.phone ? `+${conn.phone}` : <span className="muted">Não identificado</span>}
-                  </td>
-                  <td style={{ padding: '12px 16px' }}>
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        padding: '3px 8px',
-                        borderRadius: 6,
-                        fontSize: 11,
-                        background:
-                          conn.status === 'connected'
-                            ? '#16a34a1a'
-                            : conn.status === 'connecting'
-                            ? '#ca8a041a'
-                            : '#64748b1a',
-                        color:
-                          conn.status === 'connected'
-                            ? '#16a34a'
-                            : conn.status === 'connecting'
-                            ? '#ca8a04'
-                            : '#64748b',
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: '50%',
-                          background:
-                            conn.status === 'connected'
-                              ? '#16a34a'
-                              : conn.status === 'connecting'
-                              ? '#ca8a04'
-                              : '#64748b',
-                        }}
-                      />
-                      {conn.status === 'connected'
-                        ? 'Conectado'
-                        : conn.status === 'connecting'
-                        ? 'Aguardando QR'
-                        : conn.status === 'error'
-                        ? 'Erro'
-                        : 'Desconectado'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '12px 16px' }}>
-                    <button
-                      onClick={() => copyWebhook(conn.webhook_url || '', conn.id)}
-                      style={{ padding: '4px 8px', fontSize: 11, minHeight: 24, gap: 5 }}
-                      title="Copiar URL de webhook"
-                    >
-                      {copiedId === conn.id ? <Check size={12} color="#16a34a" /> : <Copy size={12} />}
-                      <span>{copiedId === conn.id ? 'Copiado!' : 'Copiar URL'}</span>
-                    </button>
-                  </td>
-                  <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                      {conn.provider === 'evolution' && conn.status !== 'connected' && (
-                        <button
-                          onClick={() => setActiveQrModal(conn.name || conn.id)}
-                          style={{ padding: '4px 8px', minHeight: 26, fontSize: 11, gap: 4 }}
-                        >
-                          <QrCode size={13} /> QR Code
-                        </button>
-                      )}
-                      <button
-                        onClick={() => void handleVerify(conn.id)}
-                        style={{ padding: '4px 8px', minHeight: 26, fontSize: 11, gap: 4 }}
-                        title="Verificar integridade da conexão"
-                      >
-                        <RefreshCw size={13} /> Sincronizar
-                      </button>
-                      <button
-                        className="danger"
-                        onClick={() => void handleDelete(conn.id)}
-                        style={{ padding: '4px 8px', minHeight: 26, fontSize: 11 }}
-                        title="Remover conexão"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </td>
+        <Card className="p-0 bg-surface border-border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left border-collapse">
+              <thead>
+                <tr className="bg-surface-muted/50 border-b border-border text-content-muted">
+                  <th className="py-2.5 px-4 font-medium">Nome</th>
+                  <th className="py-2.5 px-4 font-medium">Provedor</th>
+                  <th className="py-2.5 px-4 font-medium">Número</th>
+                  <th className="py-2.5 px-4 font-medium">Status</th>
+                  <th className="py-2.5 px-4 font-medium">Webhook de Entrada</th>
+                  <th className="py-2.5 px-4 font-medium text-right">Ações</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-border/60">
+                {connections.map((conn) => (
+                  <tr key={conn.id} className="hover:bg-surface-muted/40 transition-colors">
+                    <td className="py-3 px-4 font-semibold text-content">{conn.name}</td>
+                    <td className="py-3 px-4">
+                      <Badge variant="outline" size="sm" className="uppercase font-semibold">
+                        {conn.provider === 'meta' ? 'Meta Cloud' : 'Evolution'}
+                      </Badge>
+                    </td>
+                    <td className="py-3 px-4 font-mono text-content">
+                      {conn.phone ? `+${conn.phone}` : <span className="text-content-muted">Não identificado</span>}
+                    </td>
+                    <td className="py-3 px-4">
+                      {conn.status === 'connected' ? (
+                        <Badge variant="success" size="sm" className="gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          Conectado
+                        </Badge>
+                      ) : conn.status === 'connecting' ? (
+                        <Badge variant="warning" size="sm" className="gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                          Aguardando QR
+                        </Badge>
+                      ) : conn.status === 'error' ? (
+                        <Badge variant="danger" size="sm" className="gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                          Erro
+                        </Badge>
+                      ) : (
+                        <Badge variant="default" size="sm" className="gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-zinc-400" />
+                          Desconectado
+                        </Badge>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => copyWebhook(conn.webhook_url || '', conn.id)}
+                        title="Copiar URL de webhook"
+                      >
+                        {copiedId === conn.id ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedId === conn.id ? 'Copiado!' : 'Copiar URL'}</span>
+                      </Button>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {conn.provider === 'evolution' && conn.status !== 'connected' && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setActiveQrModal(conn.name || conn.id)}
+                          >
+                            <QrCode className="w-3.5 h-3.5" /> QR Code
+                          </Button>
+                        )}
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => void handleVerify(conn.id)}
+                          title="Verificar integridade da conexão"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" /> Sincronizar
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => void handleDelete(conn.id)}
+                          title="Remover conexão"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
 
       {/* FLUXOS ATIVOS & AUTOMAÇÕES */}
-      <div style={{ marginTop: 40, borderTop: '1px solid var(--color-border-secondary)', paddingTop: 24 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+      <div className="mt-10 pt-6 border-t border-border">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
           <div>
-            <h2 style={{ margin: 0, fontSize: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Radio size={18} color="#16a34a" /> Fluxos Ativos & Automações do WhatsApp
+            <h2 className="text-base font-semibold text-content m-0 flex items-center gap-2">
+              <Radio className="w-4 h-4 text-emerald-500" /> Fluxos Ativos & Automações do WhatsApp
             </h2>
-            <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+            <p className="text-xs text-content-muted mt-1 mb-0">
               Veja qual fluxo da inteligência artificial está vinculado e operando em cada número.
             </p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button
+          <div className="flex items-center gap-2">
+            <Button
               type="button"
-              className="secondary"
+              variant="secondary"
+              size="sm"
               onClick={() => void loadActiveFlows()}
-              disabled={loadingActive}
-              style={{ fontSize: 12, gap: 6, display: 'inline-flex', alignItems: 'center', padding: '6px 10px' }}
+              loading={loadingActive}
               title="Recarregar fluxos ativos"
             >
-              <RefreshCw size={13} className={loadingActive ? 'animate-spin' : ''} /> {loadingActive ? 'Atualizando…' : 'Atualizar'}
-            </button>
-            <Link to="/flows/new" className="button primary" style={{ fontSize: 13, gap: 6, display: 'inline-flex', alignItems: 'center' }}>
-              <Workflow size={14} /> Abrir no Construtor
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingActive ? 'animate-spin' : ''}`} />
+              {loadingActive ? 'Atualizando…' : 'Atualizar'}
+            </Button>
+            <Link to="/flows/new">
+              <Button variant="primary" size="sm">
+                <Workflow className="w-3.5 h-3.5" /> Abrir no Construtor
+              </Button>
             </Link>
           </div>
         </div>
 
         {Object.keys(activeFlows).length === 0 ? (
-          <div className="info-card" style={{ padding: 18 }}>
-            <p style={{ margin: 0 }}>
+          <Card className="p-4 bg-surface border-border">
+            <p className="text-xs text-content-muted m-0">
               Nenhum fluxo publicado e vinculado às instâncias ainda. No <strong>Construtor de Fluxos</strong>, selecione a instância desejada e clique em <strong>Publicar</strong>.
             </p>
-          </div>
+          </Card>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {Object.entries(activeFlows).map(([instName, binding]) => {
               const flow = binding.flow;
               const isTest = Boolean(flow?.graph?.testMode?.enabled);
               const testPhone = flow?.graph?.testMode?.phone || '';
               return (
-                <div
+                <Card
                   key={instName}
-                  style={{
-                    border: isTest ? '1px solid #eab308' : '1px solid #16a34a',
-                    background: isTest ? 'rgba(234, 179, 8, 0.04)' : 'rgba(22, 163, 74, 0.04)',
-                    borderRadius: 10,
-                    padding: 16,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                  }}
+                  className={`p-4 bg-surface flex flex-col justify-between border ${
+                    isTest ? 'border-amber-500/40 bg-amber-500/5' : 'border-emerald-500/40 bg-emerald-500/5'
+                  }`}
                 >
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
-                        Instância: <strong style={{ color: 'var(--color-text-primary)' }}>{instName}</strong>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-content-muted uppercase">
+                        Instância: <strong className="text-content">{instName}</strong>
                       </span>
-                      <span
-                        className="badge"
-                        style={{
-                          background: isTest ? '#ca8a0422' : '#16a34a22',
-                          color: isTest ? '#b45309' : '#16a34a',
-                          border: isTest ? '1px solid #ca8a04' : '1px solid #16a34a',
-                          fontSize: 11,
-                          fontWeight: 700,
-                        }}
+                      <Badge
+                        variant={isTest ? 'warning' : 'success'}
+                        size="sm"
+                        className="font-bold"
                       >
-                        {isTest ? '⚠️ MODO TESTE ATIVO' : '🟢 MODO PRODUÇÃO'}
-                      </span>
+                        {isTest ? '⚠️ MODO TESTE' : '🟢 PRODUÇÃO'}
+                      </Badge>
                     </div>
 
-                    <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>{flow?.name || 'Fluxo SDR'}</h3>
-                    <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 12 }}>
-                      Versão: <strong>v{flow?.publishedVersion || 1}</strong> · Publicado em: {flow?.publishedAt ? new Date(flow.publishedAt).toLocaleString('pt-BR') : 'Hoje'}
+                    <h3 className="text-sm font-bold text-content mt-1 mb-1">{flow?.name || 'Fluxo SDR'}</h3>
+                    <div className="text-[11px] text-content-muted mb-3">
+                      Versão: <strong className="text-content">v{flow?.publishedVersion || 1}</strong> · Publicado em: {flow?.publishedAt ? new Date(flow.publishedAt).toLocaleString('pt-BR') : 'Hoje'}
                     </div>
 
                     {isTest ? (
-                      <div
-                        style={{
-                          padding: '10px 12px',
-                          background: 'rgba(234, 179, 8, 0.12)',
-                          border: '1px solid #eab308',
-                          borderRadius: 6,
-                          fontSize: 12,
-                          color: '#854d0e',
-                          marginBottom: 14,
-                        }}
-                      >
-                        <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
-                          <ShieldAlert size={14} /> Proteção de Teste Ativa
+                      <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-700 dark:text-amber-300 mb-3 flex flex-col gap-1">
+                        <div className="font-semibold flex items-center gap-1.5">
+                          <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" /> Proteção de Teste Ativa
                         </div>
-                        <div>Responde <strong>APENAS</strong> ao número autorizado:</div>
-                        <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, marginTop: 2 }}>{testPhone || '(não configurado)'}</div>
-                        <div style={{ fontSize: 11, marginTop: 4, opacity: 0.9 }}>
+                        <div className="text-[11px]">Responde <strong>APENAS</strong> ao número autorizado:</div>
+                        <div className="font-mono font-bold text-xs">{testPhone || '(não configurado)'}</div>
+                        <div className="text-[10px] opacity-80">
                           Nenhum outro contato receberá mensagens da IA.
                         </div>
                       </div>
                     ) : (
-                      <div
-                        style={{
-                          padding: '10px 12px',
-                          background: 'rgba(22, 163, 74, 0.08)',
-                          border: '1px solid #16a34a',
-                          borderRadius: 6,
-                          fontSize: 12,
-                          color: '#15803d',
-                          marginBottom: 14,
-                        }}
-                      >
-                        <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
-                          <CheckCircle2 size={14} /> Atendimento Público Liberado
+                      <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-xs text-emerald-700 dark:text-emerald-300 mb-3 flex flex-col gap-1">
+                        <div className="font-semibold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" /> Atendimento Público Liberado
                         </div>
-                        <div>A IA responderá a todos os contatos que enviarem mensagens nesta instância.</div>
+                        <div className="text-[11px]">A IA responderá a todos os contatos que enviarem mensagens nesta instância.</div>
                       </div>
                     )}
                   </div>
 
-                  <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-                    <button
+                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border/50">
+                    <Button
                       type="button"
-                      className="primary"
+                      variant="primary"
+                      size="sm"
+                      className="flex-1"
                       onClick={() => setSimulatingFlow({ id: flow?.id || binding.flowId, name: flow?.name || 'Fluxo SDR', graph: flow?.graph })}
-                      style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'center', padding: '6px 12px' }}
                       title="Abrir o simulador com IA para testar conversas deste fluxo sem enviar WhatsApp"
                     >
-                      <Play size={14} /> Testar no Playground (Simulador)
-                    </button>
-                    <Link
-                      to={`/flows/new?id=${encodeURIComponent(flow?.id || binding.flowId)}`}
-                      className="button"
-                      style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px' }}
-                    >
-                      <Workflow size={14} /> Editar no Construtor
+                      <Play className="w-3.5 h-3.5" /> Playground
+                    </Button>
+                    <Link to={`/flows/new?id=${encodeURIComponent(flow?.id || binding.flowId)}`}>
+                      <Button variant="outline" size="sm">
+                        <Workflow className="w-3.5 h-3.5" /> Editar
+                      </Button>
                     </Link>
                   </div>
-                </div>
+                </Card>
               );
             })}
           </div>
@@ -909,45 +871,36 @@ export function ConnectionsPage() {
         />
       )}
 
-
-            {/* QR Modal for existing connection */}
+      {/* QR Modal for existing connection */}
       {activeQrModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: '#00000080',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 100,
-          }}
-        >
-          <div style={{ background: 'var(--color-bg-primary)', padding: 30, borderRadius: 12, maxWidth: 420, width: '90%', textAlign: 'center' }}>
-            <h2>Escanear QR Code</h2>
-            <p className="muted">Abra o WhatsApp &gt; Dispositivos Conectados &gt; Conectar um aparelho e aponte a câmera.</p>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <Card className="p-6 bg-surface border-border max-w-sm w-full text-center flex flex-col items-center gap-4 shadow-xl">
+            <div>
+              <h2 className="text-base font-semibold text-content m-0">Escanear QR Code</h2>
+              <p className="text-xs text-content-muted mt-1 mb-0">Abra o WhatsApp &gt; Dispositivos Conectados &gt; Conectar um aparelho e aponte a câmera.</p>
+            </div>
             {qrBase64 ? (
-              <div style={{ margin: '20px auto', padding: 16, background: '#fff', border: '1px solid var(--color-border-secondary)', borderRadius: 12, display: 'inline-block' }}>
+              <div className="p-3 bg-white dark:bg-zinc-900 border border-border rounded-xl shadow-xs">
                 <img
                   src={qrBase64.startsWith('data:') ? qrBase64 : `data:image/png;base64,${qrBase64}`}
                   alt="QR Code"
-                  style={{ width: 220, height: 220, display: 'block' }}
+                  className="w-52 h-52 block"
                 />
               </div>
             ) : qrError ? (
-              <div style={{ margin: '20px 0', padding: 12, background: '#fee2e2', color: '#b91c1c', borderRadius: 8, fontSize: 13 }}>
+              <div className="p-3 bg-danger/10 text-danger border border-danger/20 rounded-lg text-xs w-full">
                 {qrError}
               </div>
             ) : (
-              <div style={{ padding: 30, margin: '20px 0' }}>
-                <RefreshCw size={24} className="spin" style={{ margin: '0 auto 10px', display: 'block', animation: 'spin 1s linear infinite' }} />
-                <p className="muted">Aguardando QR Code da Evolution API...</p>
+              <div className="py-8 flex flex-col items-center gap-2">
+                <RefreshCw className="w-6 h-6 text-brand animate-spin" />
+                <p className="text-xs text-content-muted m-0">Aguardando QR Code da Evolution API...</p>
               </div>
             )}
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-              <button className="primary" onClick={() => setActiveQrModal(null)}>Fechar</button>
-            </div>
-          </div>
+            <Button variant="primary" size="sm" onClick={() => setActiveQrModal(null)}>
+              Fechar
+            </Button>
+          </Card>
         </div>
       )}
     </div>

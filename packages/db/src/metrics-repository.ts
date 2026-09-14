@@ -1,4 +1,17 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from './database.types.js';
+
+/** Minimal shape of a raw SQL client (PGlite in tests) — distinguished from the Supabase JS
+ * client at runtime by the presence of `.query` and absence of `.from` (see rollupDaily,
+ * getDashboardMetrics below, matching the existing pattern for this repository). */
+interface RawSqlClient {
+  query<T = any>(text: string, params?: unknown[]): Promise<{ rows: T[] }>;
+}
+export type MetricsDbClient = SupabaseClient<Database> | RawSqlClient;
+
+function isRawSqlClient(db: MetricsDbClient): db is RawSqlClient {
+  return typeof (db as RawSqlClient).query === 'function' && typeof (db as SupabaseClient<Database>).from !== 'function';
+}
 
 export interface DashboardMetrics {
   totalConversations: number;
@@ -48,8 +61,18 @@ const STAGE_LABELS: Record<string, string> = {
   CLOSED: 'Encerrado',
 };
 
+/** get_dashboard_metrics computes everything except the display label, added here client-side. */
+function enrichFunnelLabels(
+  metrics: Omit<DashboardMetrics, 'funnel'> & { funnel: Array<{ stage: string; count: number; percentage: number }> }
+): DashboardMetrics {
+  return {
+    ...metrics,
+    funnel: metrics.funnel.map(entry => ({ ...entry, label: STAGE_LABELS[entry.stage] || entry.stage })),
+  };
+}
+
 export class MetricsRepository {
-  constructor(private readonly db: any) {}
+  constructor(private readonly db: MetricsDbClient) {}
 
   async rollupDaily(
     organizationId: string,
@@ -58,7 +81,7 @@ export class MetricsRepository {
   ): Promise<Database['public']['Tables']['metrics_daily']['Row']> {
     const dateStr = targetDate || new Date().toISOString().split('T')[0] || '';
 
-    if (typeof this.db.query === 'function' && typeof this.db.from !== 'function') {
+    if (isRawSqlClient(this.db)) {
       const res = await this.db.query(
         `select * from public.rollup_metrics_daily($1, $2::date, $3)`,
         [organizationId, dateStr, flowVersionId || null]
@@ -76,230 +99,38 @@ export class MetricsRepository {
     return data;
   }
 
+  /**
+   * Fase 4 (docs/OPTIMIZATION_IMPLEMENTATION_PLAN.md 10.3-10.4): both the PGlite/test path and
+   * the Supabase path call the exact same public.get_dashboard_metrics RPC — one
+   * implementation, not two that can silently drift (10.5.11). Aggregation happens entirely in
+   * Postgres; no conversation rows are ever pulled into Node to be summed here. startDate/
+   * endDate are required (the route always supplies them, defaulting itself when absent) and
+   * are genuinely used — the pre-Fase-4 hardcoded 4.2 / ignored-dates fallback is gone.
+   */
   async getDashboardMetrics(
     organizationId: string,
-    _options: { startDate?: string; endDate?: string } = {}
+    options: { startDate: string; endDate: string }
   ): Promise<DashboardMetrics> {
-    if (typeof this.db.query === 'function' && typeof this.db.from !== 'function') {
-      // 1. Total de conversas e distribuição de estágios
-      const convStatsRes = await this.db.query(
-        `select
-          count(*)::int as total,
-          count(*) filter (where stage::text in ('QUALIFIED', 'PRESENTING_SOLUTION', 'NEGOTIATING', 'CONVERTED'))::int as qualified,
-          count(*) filter (where stage::text in ('HANDOFF', 'HUMAN_HANDOFF') or handled_by = 'HUMAN')::int as handoff
-         from public.conversations
-         where organization_id = $1`,
-        [organizationId]
+    if (isRawSqlClient(this.db)) {
+      const res = await this.db.query(
+        `select public.get_dashboard_metrics($1, $2::date, $3::date) as metrics`,
+        [organizationId, options.startDate, options.endDate]
       );
-      const totalConversations = convStatsRes.rows[0]?.total || 0;
-      const qualifiedConversations = convStatsRes.rows[0]?.qualified || 0;
-      const handoffConversations = convStatsRes.rows[0]?.handoff || 0;
-      const qualificationRate = totalConversations > 0 ? Math.round((qualifiedConversations / totalConversations) * 1000) / 10 : 0;
-
-      // 2. Distribuição de estágios para o funil
-      const stageRows = await this.db.query(
-        `select stage, count(*)::int as cnt
-         from public.conversations
-         where organization_id = $1
-         group by stage`,
-        [organizationId]
-      );
-      const stageCounts = new Map<string, number>(stageRows.rows.map((r: any) => [r.stage, r.cnt]));
-
-      const canonicalStages = [
-        'NEW_CONVERSATION',
-        'QUALIFYING',
-        'COLLECTING_INFORMATION',
-        'PRESENTING_SOLUTION',
-        'NEGOTIATING',
-        'CONVERTED',
-        'HUMAN_HANDOFF',
-        'CLOSED',
-      ];
-      const funnel = canonicalStages.map(st => {
-        const count = stageCounts.get(st) || 0;
-        const percentage = totalConversations > 0 ? Math.round((count / totalConversations) * 1000) / 10 : 0;
-        return {
-          stage: st,
-          label: STAGE_LABELS[st] || st,
-          count,
-          percentage,
-        };
-      });
-
-      // 3. Tempo médio de primeira resposta (FRT)
-      const frtRes = await this.db.query(
-        `with first_inbound as (
-           select m.conversation_id, min(m.created_at) as in_time
-           from public.messages m
-           where m.organization_id = $1 and m.direction = 'INBOUND'
-           group by m.conversation_id
-         ),
-         first_outbound as (
-           select m.conversation_id, min(m.created_at) as out_time
-           from public.messages m
-           join first_inbound fi on fi.conversation_id = m.conversation_id
-           where m.organization_id = $1 and m.direction = 'OUTBOUND' and m.created_at > fi.in_time
-           group by m.conversation_id
-         )
-         select coalesce(avg(extract(epoch from (fo.out_time - fi.in_time))), 0)::float as avg_sec
-         from first_inbound fi
-         join first_outbound fo on fo.conversation_id = fi.conversation_id`,
-        [organizationId]
-      );
-      const avgFirstResponseTimeSec = Math.round((frtRes.rows[0]?.avg_sec || 0) * 10) / 10;
-
-      // 4. Tokens e custos de execuções
-      const tokensRes = await this.db.query(
-        `select
-           coalesce(sum(input_tokens), 0)::int as in_tokens,
-           coalesce(sum(output_tokens), 0)::int as out_tokens
-         from public.flow_executions
-         where organization_id = $1`,
-        [organizationId]
-      );
-      const inTokens = tokensRes.rows[0]?.in_tokens || 0;
-      const outTokens = tokensRes.rows[0]?.out_tokens || 0;
-      const totalTokens = inTokens + outTokens;
-      const totalEstimatedCost = Math.round(((inTokens * 0.0000015) + (outTokens * 0.0000020)) * 10000) / 10000;
-      const costPerQualifiedLead = qualifiedConversations > 0 ? Math.round((totalEstimatedCost / qualifiedConversations) * 1000) / 1000 : 0;
-
-      // 5. Comparação entre versões de fluxo
-      const flowCompRes = await this.db.query(
-        `select
-           fv.id as flow_version_id,
-           f.name as flow_name,
-           fv.version,
-           count(c.id)::int as conversations_count,
-           count(c.id) filter (where c.stage::text in ('QUALIFIED', 'PRESENTING_SOLUTION', 'NEGOTIATING', 'CONVERTED'))::int as qualified_count,
-           coalesce(sum(e.input_tokens + e.output_tokens), 0)::int as total_tokens
-         from public.flow_versions fv
-         join public.flows f on f.id = fv.flow_id
-         left join public.conversations c on c.flow_version_id = fv.id and c.organization_id = $1
-         left join public.flow_executions e on e.flow_version_id = fv.id and e.organization_id = $1
-         where fv.organization_id = $1
-         group by fv.id, f.name, fv.version
-         order by f.name asc, fv.version desc`,
-        [organizationId]
-      );
-      const flowComparison = flowCompRes.rows.map((row: any) => {
-        const convCount = row.conversations_count || 0;
-        const qualCount = row.qualified_count || 0;
-        const qRate = convCount > 0 ? Math.round((qualCount / convCount) * 1000) / 10 : 0;
-        return {
-          flowVersionId: row.flow_version_id,
-          flowName: row.flow_name,
-          version: row.version,
-          conversationsCount: convCount,
-          qualifiedCount: qualCount,
-          qualificationRate: qRate,
-          avgResponseTimeSec: avgFirstResponseTimeSec,
-          totalTokens: row.total_tokens || 0,
-          totalCost: Math.round(((row.total_tokens || 0) * 0.0000017) * 10000) / 10000,
-        };
-      });
-
-      // 6. Tendência diária (de metrics_daily ou dos últimos 7 dias de conversas)
-      const dailyRows = await this.db.query(
-        `select
-           metric_date::text as date,
-           total_conversations as conversations,
-           qualified_conversations as qualified,
-           handoff_conversations as handoff,
-           (total_input_tokens + total_output_tokens) as tokens,
-           estimated_token_cost::float as cost
-         from public.metrics_daily
-         where organization_id = $1
-         order by metric_date asc
-         limit 30`,
-        [organizationId]
-      );
-
-      let dailyTrends = dailyRows.rows.map((r: any) => ({
-        date: r.date,
-        conversations: r.conversations || 0,
-        qualified: r.qualified || 0,
-        handoff: r.handoff || 0,
-        tokens: r.tokens || 0,
-        cost: r.cost || 0,
-      }));
-
-      // Se não houver dados em metrics_daily, gera série com o dia atual
-      if (dailyTrends.length === 0) {
-        const todayStr = new Date().toISOString().split('T')[0] || '';
-        dailyTrends = [{
-          date: todayStr,
-          conversations: totalConversations,
-          qualified: qualifiedConversations,
-          handoff: handoffConversations,
-          tokens: totalTokens,
-          cost: totalEstimatedCost,
-        }];
-      }
-
-      return {
-        totalConversations,
-        newConversations: totalConversations,
-        qualifiedConversations,
-        qualificationRate,
-        handoffConversations,
-        avgFirstResponseTimeSec,
-        totalTokens,
-        totalEstimatedCost,
-        costPerQualifiedLead,
-        funnel,
-        flowComparison,
-        dailyTrends,
-      };
+      return enrichFunnelLabels(res.rows[0].metrics);
     }
 
-    // Supabase query builder fallback
-    const { data: convs } = await this.db
-      .from('conversations')
-      .select('id, stage, handled_by, created_at')
-      .eq('organization_id', organizationId);
-
-    const totalConversations = convs?.length || 0;
-    const qualifiedConversations = (convs || []).filter((c: any) => ['QUALIFIED', 'CONVERTED'].includes(c.stage)).length;
-    const handoffConversations = (convs || []).filter((c: any) => c.stage === 'HANDOFF' || c.handled_by === 'HUMAN').length;
-    const qualificationRate = totalConversations > 0 ? Math.round((qualifiedConversations / totalConversations) * 1000) / 10 : 0;
-
-    const funnel = ['NEW_CONVERSATION', 'ENGAGED', 'QUALIFIED', 'HANDOFF', 'CONVERTED', 'CLOSED'].map(st => {
-      const count = (convs || []).filter((c: any) => c.stage === st).length;
-      return {
-        stage: st,
-        label: STAGE_LABELS[st] || st,
-        count,
-        percentage: totalConversations > 0 ? Math.round((count / totalConversations) * 1000) / 10 : 0,
-      };
+    const { data, error } = await this.db.rpc('get_dashboard_metrics', {
+      p_organization_id: organizationId,
+      p_start_date: options.startDate,
+      p_end_date: options.endDate,
     });
-
-    return {
-      totalConversations,
-      newConversations: totalConversations,
-      qualifiedConversations,
-      qualificationRate,
-      handoffConversations,
-      avgFirstResponseTimeSec: 4.2,
-      totalTokens: 0,
-      totalEstimatedCost: 0,
-      costPerQualifiedLead: 0,
-      funnel,
-      flowComparison: [],
-      dailyTrends: [{
-        date: new Date().toISOString().split('T')[0] || '',
-        conversations: totalConversations,
-        qualified: qualifiedConversations,
-        handoff: handoffConversations,
-        tokens: 0,
-        cost: 0,
-      }],
-    };
+    if (error) throw error;
+    return enrichFunnelLabels(data as Omit<DashboardMetrics, 'funnel'> & { funnel: Array<{ stage: string; count: number; percentage: number }> });
   }
 
   async exportLeadsCsv(organizationId: string): Promise<string> {
     let rows: any[] = [];
-    if (typeof this.db.query === 'function' && typeof this.db.from !== 'function') {
+    if (isRawSqlClient(this.db)) {
       const res = await this.db.query(
         `select l.*, c.stage as current_stage
          from public.leads l
@@ -353,7 +184,7 @@ export class MetricsRepository {
 
   async exportConversationsCsv(organizationId: string): Promise<string> {
     let rows: any[] = [];
-    if (typeof this.db.query === 'function' && typeof this.db.from !== 'function') {
+    if (isRawSqlClient(this.db)) {
       const res = await this.db.query(
         `select 
            c.*,

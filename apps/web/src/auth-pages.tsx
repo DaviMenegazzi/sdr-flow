@@ -1,29 +1,303 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Navigate, Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase, useSession } from './session';
+import { Button, Input } from './components/ui';
 
 export function AuthGate({ children, admin = false }: { children: ReactNode; admin?: boolean }) {
   const { session, loading, profile } = useSession();
   const location = useLocation();
-  if (loading) return <div className="auth-page">Carregando…</div>;
+  if (loading) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-canvas text-content-muted text-sm">
+        Carregando…
+      </div>
+    );
+  }
   if (!session) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   if (!profile || profile.status !== 'active' || (admin && profile.role !== 'admin')) return <Navigate to="/404" replace />;
   return <>{children}</>;
 }
 
-function AuthCard({ title, children }: { title: string; children: ReactNode }) { return <main className="auth-page"><section className="auth-card"><h1>{title}</h1>{children}</section></main>; }
-
-export function LoginPage() {
-  const { session } = useSession(); const navigate = useNavigate(); const location = useLocation();
-  const [email,setEmail]=useState(''); const [password,setPassword]=useState(''); const [error,setError]=useState(''); const [busy,setBusy]=useState(false);
-  if (session) return <Navigate to="/dashboard" replace />;
-  const submit=async(e:FormEvent)=>{e.preventDefault();if(!supabase){setError('Serviço de autenticação não configurado no cliente.');return;}setBusy(true);setError('');const result=await supabase.auth.signInWithPassword({email,password});setBusy(false);if(result?.error){setError(result.error.message==='Invalid login credentials'?'E-mail ou senha inválidos.':result.error.message);return;}const from=(location.state as {from?:string}|null)?.from;const dest=from&&from.startsWith('/')&&!from.startsWith('//')&&from!=='/'&&from!=='/login'&&from!=='/404'?from:'/dashboard';navigate(dest,{replace:true});};
-  return <AuthCard title="Entrar no SDR Flow"><form onSubmit={submit}><label>E-mail<input type="email" autoComplete="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label><label>Senha<input type="password" autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)}/></label>{error&&<p role="alert">{error}</p>}<button disabled={busy}>{busy?'Entrando…':'Entrar'}</button></form><p><Link to="/forgot-password">Esqueci minha senha</Link> · <Link to="/register">Criar conta</Link></p></AuthCard>;
+function AuthCard({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <main className="min-h-screen w-full flex items-center justify-center bg-canvas p-4">
+      <div className="w-full max-w-md bg-surface border border-border rounded-2xl p-8 shadow-xl flex flex-col gap-6">
+        <div className="flex flex-col items-center text-center gap-2">
+          <div className="w-10 h-10 rounded-xl bg-brand/10 border border-brand/20 flex items-center justify-center text-brand font-bold text-base shadow-xs">
+            SDR
+          </div>
+          <h1 className="text-xl font-bold text-content tracking-tight m-0">{title}</h1>
+        </div>
+        {children}
+      </div>
+    </main>
+  );
 }
 
-export function RegisterPage(){const [name,setName]=useState('');const[email,setEmail]=useState('');const[password,setPassword]=useState('');const[confirm,setConfirm]=useState('');const[message,setMessage]=useState('');const submit=async(e:FormEvent)=>{e.preventDefault();if(password!==confirm){setMessage('As senhas não coincidem.');return;}const {error}=await supabase!.auth.signUp({email,password,options:{data:{display_name:name},emailRedirectTo:`${location.origin}/auth/callback`}});setMessage(error?'Não foi possível concluir o cadastro.':'Cadastro recebido. Verifique seu e-mail para confirmar a conta.');};return <AuthCard title="Criar conta"><form onSubmit={submit}><label>Nome<input required maxLength={120} value={name} onChange={e=>setName(e.target.value)}/></label><label>E-mail<input type="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label><label>Senha<input type="password" minLength={8} required value={password} onChange={e=>setPassword(e.target.value)}/></label><label>Confirmar senha<input type="password" minLength={8} required value={confirm} onChange={e=>setConfirm(e.target.value)}/></label><button>Cadastrar</button></form>{message&&<p role="status">{message}</p>}<Link to="/login">Voltar ao login</Link></AuthCard>}
+export function LoginPage() {
+  const { session } = useSession();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
-export function ForgotPasswordPage(){const[email,setEmail]=useState('');const[done,setDone]=useState(false);const submit=async(e:FormEvent)=>{e.preventDefault();await supabase?.auth.resetPasswordForEmail(email,{redirectTo:`${location.origin}/reset-password`});setDone(true);};return <AuthCard title="Recuperar senha">{done?<p>Se a conta existir, enviaremos as instruções por e-mail.</p>:<form onSubmit={submit}><label>E-mail<input type="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label><button>Enviar instruções</button></form>}<Link to="/login">Voltar</Link></AuthCard>}
-export function ResetPasswordPage(){const[password,setPassword]=useState('');const[message,setMessage]=useState('');const submit=async(e:FormEvent)=>{e.preventDefault();const{error}=await supabase!.auth.updateUser({password});setMessage(error?'Não foi possível atualizar a senha.':'Senha atualizada. Você já pode entrar.');};return <AuthCard title="Definir nova senha"><form onSubmit={submit}><label>Nova senha<input type="password" minLength={8} required value={password} onChange={e=>setPassword(e.target.value)}/></label><button>Atualizar senha</button></form>{message&&<p role="status">{message}</p>}</AuthCard>}
-export function AuthCallback(){const navigate=useNavigate();useEffect(()=>{const timer=setTimeout(()=>navigate('/dashboard',{replace:true}),500);return()=>clearTimeout(timer)},[navigate]);return <AuthCard title="Confirmando conta"><p>Aguarde…</p></AuthCard>}
-export function NotFoundPage(){return <AuthCard title="Página não encontrada"><p>A conta ou o recurso solicitado não está disponível.</p><p><Link to="/dashboard">Ir para o painel</Link> · <Link to="/login">Voltar ao login</Link></p></AuthCard>}
+  if (session) return <Navigate to="/dashboard" replace />;
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!supabase) {
+      setError('Serviço de autenticação não configurado no cliente.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    const result = await supabase.auth.signInWithPassword({ email, password });
+    setBusy(false);
+    if (result?.error) {
+      setError(result.error.message === 'Invalid login credentials' ? 'E-mail ou senha inválidos.' : result.error.message);
+      return;
+    }
+    const from = (location.state as { from?: string } | null)?.from;
+    const dest = from && from.startsWith('/') && !from.startsWith('//') && from !== '/' && from !== '/login' && from !== '/404' ? from : '/dashboard';
+    navigate(dest, { replace: true });
+  };
+
+  return (
+    <AuthCard title="Entrar no SDR Flow">
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        <Input
+          label="E-mail"
+          type="email"
+          autoComplete="email"
+          required
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          placeholder="seu@email.com"
+        />
+        <Input
+          label="Senha"
+          type="password"
+          autoComplete="current-password"
+          required
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          placeholder="••••••••"
+        />
+        {error && (
+          <div className="p-3 bg-danger/10 border border-danger/20 text-danger text-xs rounded-lg" role="alert">
+            {error}
+          </div>
+        )}
+        <Button type="submit" variant="primary" loading={busy} className="w-full mt-1">
+          {busy ? 'Entrando…' : 'Entrar'}
+        </Button>
+      </form>
+      <div className="flex items-center justify-center gap-3 text-xs text-content-muted pt-2 border-t border-border/60">
+        <Link to="/forgot-password" className="text-brand hover:underline">
+          Esqueci minha senha
+        </Link>
+        <span>•</span>
+        <Link to="/register" className="text-brand hover:underline">
+          Criar conta
+        </Link>
+      </div>
+    </AuthCard>
+  );
+}
+
+export function RegisterPage() {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (password !== confirm) {
+      setMessage('As senhas não coincidem.');
+      return;
+    }
+    setBusy(true);
+    const { error } = await supabase!.auth.signUp({
+      email,
+      password,
+      options: { data: { display_name: name }, emailRedirectTo: `${location.origin}/auth/callback` },
+    });
+    setBusy(false);
+    setMessage(error ? 'Não foi possível concluir o cadastro.' : 'Cadastro recebido. Verifique seu e-mail para confirmar a conta.');
+  };
+
+  return (
+    <AuthCard title="Criar conta">
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        <Input
+          label="Nome"
+          required
+          maxLength={120}
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="Seu nome completo"
+        />
+        <Input
+          label="E-mail"
+          type="email"
+          required
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          placeholder="seu@email.com"
+        />
+        <Input
+          label="Senha"
+          type="password"
+          minLength={8}
+          required
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          placeholder="No mínimo 8 caracteres"
+        />
+        <Input
+          label="Confirmar senha"
+          type="password"
+          minLength={8}
+          required
+          value={confirm}
+          onChange={e => setConfirm(e.target.value)}
+          placeholder="Repita a senha"
+        />
+        {message && (
+          <div className="p-3 bg-brand/10 border border-brand/20 text-brand text-xs rounded-lg" role="status">
+            {message}
+          </div>
+        )}
+        <Button type="submit" variant="primary" loading={busy} className="w-full mt-1">
+          Cadastrar
+        </Button>
+      </form>
+      <div className="text-center text-xs text-content-muted pt-2 border-t border-border/60">
+        <Link to="/login" className="text-brand hover:underline">
+          Voltar ao login
+        </Link>
+      </div>
+    </AuthCard>
+  );
+}
+
+export function ForgotPasswordPage() {
+  const [email, setEmail] = useState('');
+  const [done, setDone] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    await supabase?.auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/reset-password` });
+    setBusy(false);
+    setDone(true);
+  };
+
+  return (
+    <AuthCard title="Recuperar senha">
+      {done ? (
+        <div className="flex flex-col gap-4 text-center">
+          <p className="text-xs text-content-muted m-0">Se a conta existir, enviaremos as instruções por e-mail.</p>
+          <Link to="/login" className="text-xs text-brand hover:underline">
+            Voltar ao login
+          </Link>
+        </div>
+      ) : (
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <Input
+            label="E-mail"
+            type="email"
+            required
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            placeholder="seu@email.com"
+          />
+          <Button type="submit" variant="primary" loading={busy} className="w-full">
+            Enviar instruções
+          </Button>
+          <div className="text-center text-xs text-content-muted pt-2 border-t border-border/60">
+            <Link to="/login" className="text-brand hover:underline">
+              Voltar ao login
+            </Link>
+          </div>
+        </form>
+      )}
+    </AuthCard>
+  );
+}
+
+export function ResetPasswordPage() {
+  const [password, setPassword] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    const { error } = await supabase!.auth.updateUser({ password });
+    setBusy(false);
+    setMessage(error ? 'Não foi possível atualizar a senha.' : 'Senha atualizada. Você já pode entrar.');
+  };
+
+  return (
+    <AuthCard title="Definir nova senha">
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        <Input
+          label="Nova senha"
+          type="password"
+          minLength={8}
+          required
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          placeholder="No mínimo 8 caracteres"
+        />
+        {message && (
+          <div className="p-3 bg-brand/10 border border-brand/20 text-brand text-xs rounded-lg" role="status">
+            {message}
+          </div>
+        )}
+        <Button type="submit" variant="primary" loading={busy} className="w-full">
+          Atualizar senha
+        </Button>
+      </form>
+    </AuthCard>
+  );
+}
+
+export function AuthCallback() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    const timer = setTimeout(() => navigate('/dashboard', { replace: true }), 500);
+    return () => clearTimeout(timer);
+  }, [navigate]);
+  return (
+    <AuthCard title="Confirmando conta">
+      <p className="text-xs text-content-muted text-center m-0">Aguarde um momento…</p>
+    </AuthCard>
+  );
+}
+
+export function NotFoundPage() {
+  return (
+    <AuthCard title="Página não encontrada">
+      <div className="flex flex-col items-center text-center gap-4">
+        <p className="text-xs text-content-muted m-0">A conta ou o recurso solicitado não está disponível.</p>
+        <div className="flex items-center gap-3 text-xs">
+          <Link to="/dashboard" className="text-brand hover:underline font-medium">
+            Ir para o painel
+          </Link>
+          <span className="text-content-muted">•</span>
+          <Link to="/login" className="text-brand hover:underline font-medium">
+            Voltar ao login
+          </Link>
+        </div>
+      </div>
+    </AuthCard>
+  );
+}

@@ -4,46 +4,19 @@ import type { AnyDbClient } from './execution-repository.js';
 export class ConversationRepository {
   constructor(private readonly db: AnyDbClient) {}
 
+  // Atomic upsert via the find_or_create_lead RPC (see
+  // supabase/migrations/202609141001_inbound_events.sql): closes the select-then-insert race
+  // that let two concurrent webhook deliveries for a brand-new lead both miss the SELECT and
+  // both attempt an INSERT, with the loser throwing an unhandled unique-violation.
   async findOrCreateLead(organizationId: string, connectionId: string, phone: string, name?: string | null) {
-    const { data: connection, error: connectionError } = await this.db.from('connections').select('owner_user_id').eq('organization_id', organizationId).eq('id', connectionId).single();
-    if (connectionError || !connection?.owner_user_id) throw connectionError || new Error('Conexão sem proprietário.');
-    const { data: existing } = await this.db
-      .from('leads')
-      .select('*')
-      .eq('organization_id', organizationId)
-      .eq('connection_id', connectionId)
-      .eq('phone', phone)
-      .maybeSingle();
-
-    if (existing) {
-      if (name && !existing.name) {
-        const { data: updated } = await this.db
-          .from('leads')
-          .update({ name, updated_at: new Date().toISOString() })
-          .eq('id', existing.id)
-          .eq('organization_id', organizationId)
-          .select()
-          .single();
-        return updated || existing;
-      }
-      return existing;
-    }
-
-    const { data: created, error } = await this.db
-      .from('leads')
-      .insert({
-        organization_id: organizationId,
-        owner_user_id: connection.owner_user_id,
-        connection_id: connectionId,
-        phone,
-        name: name || null,
-        memory: {},
-      })
-      .select()
-      .single();
-
+    const { data, error } = await this.db.rpc('find_or_create_lead', {
+      p_organization_id: organizationId,
+      p_connection_id: connectionId,
+      p_phone: phone,
+      p_name: name || null,
+    });
     if (error) throw error;
-    return created;
+    return Array.isArray(data) ? data[0] : data;
   }
 
   async updateLead(
@@ -213,7 +186,7 @@ export class ConversationRepository {
 
         await this.resetVolatileLeadTurnState(organizationId, leadId, nowDateStr, options?.lead);
       } else {
-        return existing;
+        return { ...existing, created: false };
       }
     }
 
@@ -232,7 +205,10 @@ export class ConversationRepository {
       .single();
 
     if (error) throw error;
-    return created;
+    // `created` lets callers (turn-processor) emit inbox:conversation.created only once, instead
+    // of guessing from timestamps — the prior CLOSED-and-superseded branch above also inserts a
+    // fresh row, so this is a genuinely new conversation either way.
+    return { ...created, created: true };
   }
 
 
@@ -266,6 +242,10 @@ export class ConversationRepository {
     return updated;
   }
 
+  // Idempotent by provider_message_id via the save_inbound_message RPC (see
+  // supabase/migrations/202609141001_inbound_events.sql): a retried delivery for the same
+  // message returns the existing row instead of throwing on the unique-constraint violation,
+  // and conversations.last_message_at only ever advances, atomically with the insert.
   async saveMessage(input: {
     organizationId: string;
     connectionId: string;
@@ -275,40 +255,21 @@ export class ConversationRepository {
     content: string;
     messageType?: string;
     providerMessageId?: string | null;
-  }) {
-    const { data, error } = await this.db
-      .from('messages')
-      .insert({
-        organization_id: input.organizationId,
-        connection_id: input.connectionId,
-        conversation_id: input.conversationId,
-        direction: input.direction,
-        sender: input.sender,
-        content: input.content,
-        message_type: input.messageType || 'text',
-        provider_message_id: input.providerMessageId || null,
-      })
-      .select()
-      .single();
-
+  }): Promise<{ id: string; created_at: string; created: boolean }> {
+    const { data, error } = await this.db.rpc('save_inbound_message', {
+      p_organization_id: input.organizationId,
+      p_connection_id: input.connectionId,
+      p_conversation_id: input.conversationId,
+      p_direction: input.direction,
+      p_sender: input.sender,
+      p_content: input.content,
+      p_message_type: input.messageType || 'text',
+      p_provider_message_id: input.providerMessageId || null,
+    });
     if (error) throw error;
-
-    // Keep conversations.last_message_at in sync so the Inbox list sorts
-    // and previews correctly. This was previously never updated after the
-    // conversation's creation, so every conversation appeared frozen at
-    // whatever time it first started regardless of how many messages
-    // followed. Best-effort: the message itself is already saved, so a
-    // failure here shouldn't fail the whole call.
-    const { error: touchError } = await this.db
-      .from('conversations')
-      .update({ last_message_at: data.created_at, updated_at: data.created_at })
-      .eq('id', input.conversationId)
-      .eq('organization_id', input.organizationId);
-    if (touchError) {
-      console.warn('[ConversationRepository] Falha ao atualizar last_message_at:', touchError);
-    }
-
-    return data;
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new Error('save_inbound_message retornou vazio.');
+    return { id: row.id, created_at: row.created_at, created: row.is_new };
   }
 
   async getMessages(

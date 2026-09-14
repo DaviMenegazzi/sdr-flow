@@ -1,19 +1,35 @@
-import { normalizePhoneDigits, type FlowContext } from '@sdr/shared';
-import { executeFlow, HandoffService, type FlowServices } from '@sdr/flow';
-import { createRuntimeProviders } from '@sdr/flow/server';
-import { ConnectionRepository, ConversationRepository, ExecutionRepository, serviceDatabase } from '@sdr/db';
-import { wsServer } from './ws.js';
-import { conversationDebugRegistry, type DebugFlowSnapshot } from './debug-session.js';
-import { bufferWindowSeconds, SUPERSEDED_TURN_ERROR, type ConversationTurnQueue } from './conversation-turn-queue.js';
+import { normalizePhoneDigits } from '@sdr/shared';
+import { HandoffService } from '@sdr/flow';
+import { ConversationRepository, serviceDatabase } from '@sdr/db';
+import {
+  resolveAndEnqueueTurn,
+  resolveTurnFlow,
+  processTurn,
+  markInboundEventStatus,
+  acceptInboundEvent as acceptInboundEventRpc,
+  DirectPostgresTraceSink,
+  type RedisTurnBuffer,
+  type ExecutionEventPublisher,
+  type DebugRegistry,
+} from '@sdr/runtime';
 import type { ApiConfig } from './app.js';
 
+// The API's webhook path is now intentionally thin (docs/OPTIMIZATION_IMPLEMENTATION_PLAN.md
+// 8.5): authenticate, normalize, durably accept the event, resolve which flow/version applies,
+// hand off to the turn buffer, respond. All lead/conversation/message/flow-execution work for a
+// genuine inbound (non-echo) message happens in packages/runtime's turn-processor — either in
+// apps/worker (production) or, inline and synchronously, in this same process when no worker is
+// configured (dev only — see createApp's TURN_PROCESSING_MODE gate in app.ts). Only the
+// fromMe echo/human-takeover check stays here: it never goes through the turn buffer.
+
 export interface InboundWebhookOptions {
-  turnQueue?: ConversationTurnQueue;
-  bypassQueue?: boolean;
-  messagesAlreadySaved?: boolean;
-  isCurrent?: () => Promise<boolean>;
-  flowId?: string;
-  flowVersionId?: string;
+  provider: 'evolution' | 'meta';
+  /** Producer-only handle on the canonical queue (no handler attached in this process). */
+  turnBuffer?: Pick<RedisTurnBuffer, 'enqueue'>;
+  /** Dev-only: process the turn inline, in this request, when no turnBuffer is configured. Never true in production — see app.ts. */
+  inlineFallback: boolean;
+  eventPublisher: ExecutionEventPublisher;
+  debugRegistry: DebugRegistry;
 }
 
 export interface InboundMessageEvent {
@@ -26,43 +42,6 @@ export interface InboundMessageEvent {
   fromMe: boolean;
   senderName?: string;
 }
-
-export class IdempotencyGate {
-  private processed = new Set<string>();
-  private inFlight = new Set<string>();
-
-  acquire(messageId: string): boolean {
-    if (!messageId) return true;
-    if (this.processed.has(messageId) || this.inFlight.has(messageId)) {
-      return false;
-    }
-    this.inFlight.add(messageId);
-    return true;
-  }
-
-  complete(messageId: string) {
-    if (!messageId) return;
-    this.inFlight.delete(messageId);
-    this.processed.add(messageId);
-    // Keep max 5000 items in set
-    if (this.processed.size > 5000) {
-      const first = this.processed.values().next().value;
-      if (first) this.processed.delete(first);
-    }
-  }
-
-  release(messageId: string) {
-    if (!messageId) return;
-    this.inFlight.delete(messageId);
-  }
-
-  clear() {
-    this.processed.clear();
-    this.inFlight.clear();
-  }
-}
-
-export const idempotencyGate = new IdempotencyGate();
 
 export function parseEvolutionWebhook(payload: any): InboundMessageEvent | null {
   if (!payload || typeof payload !== 'object') return null;
@@ -147,56 +126,46 @@ export function parseMetaWebhook(payload: any): InboundMessageEvent | null {
 
 export async function processInboundWebhook(
   connectionId: string,
-  eventInput: InboundMessageEvent | InboundMessageEvent[],
+  event: InboundMessageEvent,
   config: ApiConfig,
-  options: InboundWebhookOptions = {},
+  options: InboundWebhookOptions,
 ): Promise<Record<string, unknown>> {
-  const events = Array.isArray(eventInput) ? eventInput : [eventInput];
-  const event = events[events.length - 1];
-  if (!event) return { status: 'ignored', reason: 'empty_turn' };
-  // 1. Idempotency check
-  if (!options.bypassQueue && event.messageId && !idempotencyGate.acquire(event.messageId)) {
-    return { status: 'ignored', reason: 'duplicate_message_id', messageId: event.messageId };
+  if (!config.supabaseUrl || !config.serviceRoleKey) {
+    return { status: 'error', error: 'Supabase não configurado para processar webhooks.' };
   }
+  const db = serviceDatabase(config.supabaseUrl, config.serviceRoleKey);
+
+  // 1. Durable acceptance + idempotency — the very first thing that happens with this event,
+  // before any Redis interaction (7.4.4). Replaces the old in-memory IdempotencyGate.
+  let accepted: Awaited<ReturnType<typeof acceptInboundEventRpc>>;
+  try {
+    accepted = await acceptInboundEventRpc(db, connectionId, options.provider, event.messageId || null, `${connectionId}:${event.phone}`, {
+      remoteJid: event.remoteJid,
+      phone: event.phone,
+      textContent: event.textContent,
+      messageType: event.messageType,
+      mediaUrl: event.mediaUrl ?? null,
+      fromMe: event.fromMe,
+      senderName: event.senderName ?? null,
+    });
+  } catch (err: any) {
+    return { status: 'error', reason: 'event_not_persisted', error: err?.message || String(err) };
+  }
+  if (!accepted.isNew && accepted.status === 'processed') {
+    return { status: 'ignored', reason: 'duplicate_processed', eventId: accepted.eventId };
+  }
+  const organizationId = accepted.organizationId;
+  await markInboundEventStatus(db, organizationId, accepted.eventId, 'processing');
 
   try {
-    if (!config.supabaseUrl || !config.serviceRoleKey) {
-      throw new Error('Supabase não configurado para processar webhooks.');
-    }
-
-    const db = serviceDatabase(config.supabaseUrl, config.serviceRoleKey);
-    const convRepo = new ConversationRepository(db);
-    const execRepo = new ExecutionRepository(db);
-
-    // 2. Fetch connection and organization
-    const { data: connection, error: connErr } = await db
-      .from('connections')
-      .select('*')
-      .eq('id', connectionId)
-      .single();
-
-    if (connErr || !connection) {
-      idempotencyGate.release(event.messageId);
-      return { status: 'error', reason: 'connection_not_found' };
-    }
-
-    const organizationId = connection.organization_id;
-    const { data: assignedAgent } = await db.from('ai_agents').select('id,flow_id,active_flow_version_id,status').eq('organization_id', organizationId).eq('owner_user_id', connection.owner_user_id).eq('id', connection.agent_id).eq('status', 'active').maybeSingle();
-    if (!assignedAgent) {
-      idempotencyGate.release(event.messageId);
-      return { status: 'error', reason: 'assigned_agent_not_found' };
-    }
-
-    // 3. Find or create lead and conversation
-    const lead = await convRepo.findOrCreateLead(organizationId, connectionId, event.phone, event.senderName);
-    const sessionTimeoutMinutes = Number(process.env.SESSION_TIMEOUT_MINUTES) || 15;
-    const conversation = await convRepo.findOrCreateConversation(organizationId, connectionId, lead.id, null, {
-      sessionTimeoutMinutes,
-      lead,
-    });
-
-    // 4. Handle fromMe (Outbound / Human takeover / AI echo)
+    // 2. fromMe (outbound echo / human takeover) is never buffered or queued — it needs to be
+    // fast and never waits on the turn buffer.
     if (event.fromMe) {
+      const convRepo = new ConversationRepository(db);
+      const lead = await convRepo.findOrCreateLead(organizationId, connectionId, event.phone, event.senderName);
+      const sessionTimeoutMinutes = Number(process.env.SESSION_TIMEOUT_MINUTES) || 15;
+      const conversation = await convRepo.findOrCreateConversation(organizationId, connectionId, lead.id, null, { sessionTimeoutMinutes, lead });
+
       const recent = await db
         .from('messages')
         .select('*')
@@ -206,354 +175,73 @@ export async function processInboundWebhook(
         .limit(3);
 
       const check = HandoffService.checkOutboundFromMe(
-        (recent.data || []).map(m => ({
-          id: m.provider_message_id || m.id,
-          text: m.content,
-          fromMe: m.direction === 'OUTBOUND',
-        })),
+        (recent.data || []).map(m => ({ id: m.provider_message_id || m.id, text: m.content, fromMe: m.direction === 'OUTBOUND' })),
         event.textContent,
-        event.messageId
+        event.messageId,
       );
 
       if (check.isAiEcho) {
-        idempotencyGate.complete(event.messageId);
+        await markInboundEventStatus(db, organizationId, accepted.eventId, 'processed');
         return { status: 'ai_echo_ignored', conversationId: conversation.id };
       }
 
       if (check.isHumanTakeover) {
         await convRepo.saveMessage({
-          organizationId,
-          connectionId,
-          conversationId: conversation.id,
-          direction: 'OUTBOUND',
-          sender: 'human',
-          content: event.textContent,
-          messageType: event.messageType,
-          providerMessageId: event.messageId,
+          organizationId, connectionId, conversationId: conversation.id,
+          direction: 'OUTBOUND', sender: 'human', content: event.textContent,
+          messageType: event.messageType, providerMessageId: event.messageId,
         });
-
-        await convRepo.updateConversation(organizationId, conversation.id, {
-          bot_paused: true,
-          handled_by: 'HUMAN',
-          stage: 'HUMAN_HANDOFF',
-        });
-
-        idempotencyGate.complete(event.messageId);
+        await convRepo.updateConversation(organizationId, conversation.id, { bot_paused: true, handled_by: 'HUMAN', stage: 'HUMAN_HANDOFF' });
+        await markInboundEventStatus(db, organizationId, accepted.eventId, 'processed');
         return { status: 'human_takeover_recorded', conversationId: conversation.id };
       }
+
+      // A genuine outbound message from a human agent — nothing further to do here.
+      await markInboundEventStatus(db, organizationId, accepted.eventId, 'processed');
+      return { status: 'outbound_logged', conversationId: conversation.id };
     }
 
-    // 5. Save incoming message. Buffered jobs reuse the messages already persisted
-    // by the HTTP request that acknowledged each provider event.
-    if (!options.messagesAlreadySaved) {
-      for (const incoming of events) {
-        await convRepo.saveMessage({
-          organizationId,
-          connectionId,
-          conversationId: conversation.id,
-          direction: 'INBOUND',
-          sender: 'lead',
-          content: incoming.textContent,
-          messageType: incoming.messageType,
-          providerMessageId: incoming.messageId,
-        });
+    // 3. Resolve which flow/version applies and how long to debounce — configuration-level
+    // lookups, no LLM, cheap enough to run in the response path (8.5).
+    const resolution = await resolveTurnFlow(db, connectionId);
+    if (resolution.status !== 'resolved') {
+      await markInboundEventStatus(db, organizationId, accepted.eventId, 'failed', resolution.status);
+      return { status: resolution.status, organizationId };
+    }
+
+    // 4. Hand off to the worker via the canonical queue, or — dev only, no worker configured —
+    // run the exact same turn processor inline, synchronously, in this process.
+    if (options.turnBuffer) {
+      const enqueueResult = await resolveAndEnqueueTurn({ db, buffer: options.turnBuffer }, { connectionId, eventId: accepted.eventId, phone: event.phone });
+      if (enqueueResult.status !== 'queued') {
+        await markInboundEventStatus(db, organizationId, accepted.eventId, 'failed', enqueueResult.status);
+        return { status: enqueueResult.status, organizationId };
       }
+      return { status: 'queued', organizationId, generation: enqueueResult.generation, delayMs: enqueueResult.delayMs };
     }
 
-    if (conversation.bot_paused) {
-      conversationDebugRegistry.failArmed(organizationId, conversation.id, {
-        severity: 'error',
-        code: 'bot_paused',
-        message: 'A mensagem chegou, mas a IA está pausada nesta conversa.',
-      });
-      idempotencyGate.complete(event.messageId);
-      return { status: 'logged_bot_paused', conversationId: conversation.id };
+    if (!options.inlineFallback) {
+      await markInboundEventStatus(db, organizationId, accepted.eventId, 'failed', 'no_turn_processing_available');
+      return { status: 'error', reason: 'no_turn_processing_available' };
     }
 
-    // 6. Find published flow for this organization
-    let flowQuery = db
-      .from('flows')
-      .select('id, name, published_version_id')
-      .eq('organization_id', organizationId)
-      .not('published_version_id', 'is', null);
-    flowQuery = assignedAgent.flow_id
-      ? flowQuery.eq('id', assignedAgent.flow_id)
-      : flowQuery.order('updated_at', { ascending: false }).limit(1);
-    const { data: flow } = await flowQuery.maybeSingle();
-
-    if (!flow?.published_version_id) {
-      conversationDebugRegistry.failArmed(organizationId, conversation.id, {
-        severity: 'error',
-        code: 'no_published_flow',
-        message: 'A mensagem chegou, mas não existe um fluxo publicado para esta organização.',
-      });
-      idempotencyGate.complete(event.messageId);
-      return { status: 'no_published_flow', organizationId };
-    }
-
-    const selectedFlowVersionId = assignedAgent.active_flow_version_id || flow.published_version_id;
-    const { data: flowVersion } = await db
-      .from('flow_versions')
-      .select('*')
-      .eq('organization_id', organizationId)
-      .eq('flow_id', flow.id)
-      .eq('id', selectedFlowVersionId)
-      .single();
-
-    if (!flowVersion?.graph) {
-      conversationDebugRegistry.failArmed(organizationId, conversation.id, {
-        severity: 'error',
-        code: 'invalid_flow_version',
-        message: 'A versão publicada do fluxo não pôde ser carregada.',
-      });
-      idempotencyGate.complete(event.messageId);
-      return { status: 'invalid_flow_version', versionId: selectedFlowVersionId };
-    }
-
-    const flowGraph = flowVersion.graph as any;
-    const windowSeconds = bufferWindowSeconds(flowGraph);
-    if (options.turnQueue && !options.bypassQueue && windowSeconds > 0 && !event.fromMe) {
-      try {
-        const queued = await options.turnQueue.enqueue({
-          kind: 'published',
-          target: connectionId,
-          conversationKey: `${organizationId}:${conversation.id}`,
-          windowSeconds,
-          event,
-          metadata: { flowId: flow.id, flowVersionId: flowVersion.id },
-        });
-        idempotencyGate.complete(event.messageId);
-        return {
-          status: 'queued',
-          conversationId: conversation.id,
-          generation: queued.generation,
-          delayMs: queued.delayMs,
-        };
-      } catch {
-        console.warn('[processInboundWebhook] Redis indisponível — processando sem buffer');
-      }
-    }
-
-    // 7. Initialize FlowContext & Execution
-    const execution = await execRepo.createExecution({
-      organizationId,
-      conversationId: conversation.id,
-      flowVersionId: flowVersion.id,
-      status: 'running',
-    });
-    const debugFlow: DebugFlowSnapshot = {
-      id: flow.id,
-      name: flow.name || 'Fluxo publicado',
-      version: `v${flowVersion.version}`,
-      nodes: (flowGraph.nodes || []).map((node: any) => ({ id: node.id, type: node.type, label: node.label || node.type })),
-      graph: flowGraph,
-    };
-    conversationDebugRegistry.claim({
-      organizationId,
-      conversationId: conversation.id,
-      executionId: execution.id,
-      flow: debugFlow,
-    });
-    const emitExecutionEvent = (event: Parameters<typeof wsServer.broadcast>[0]) => {
-      wsServer.broadcast(conversationDebugRegistry.record({ ...event, conversationId: conversation.id }));
-    };
-
-    const flowCtx: FlowContext = {
-      organizationId,
-      connectionId,
-      leadId: lead.id,
-      conversationId: conversation.id,
-      executionId: execution.id,
-      flowVersionId: flowVersion.id,
-      lead: {
-        id: lead.id,
-        phone: lead.phone,
-        name: lead.name,
-        city: lead.city,
-        interest: lead.interest,
-        urgency: lead.urgency,
-        memory: (lead.memory as Record<string, unknown>) || {},
+    const result = await processTurn(
+      // Built lazily, per call, from the db this function already created — never at app
+      // startup (createApp must stay free of eager privileged-client construction; see
+      // tests/api-auth.test.ts "rejects ... before touching the privileged client").
+      { db, runtimeConfig: config, eventPublisher: options.eventPublisher, debugRegistry: options.debugRegistry, traceSink: new DirectPostgresTraceSink(db) },
+      {
+        organizationId,
+        connectionId,
+        flowId: resolution.flowId,
+        flowVersionId: resolution.flowVersionId,
+        inboundEventIds: [accepted.eventId],
+        isCurrent: async () => true,
       },
-      conversation: {
-        id: conversation.id,
-        stage: conversation.stage,
-        bot_paused: conversation.bot_paused,
-        handled_by: conversation.handled_by as any,
-      },
-      messages: events.map((incoming, index) => ({
-        id: incoming.messageId || `${execution.id}-${index}`,
-        text: incoming.textContent,
-        fromMe: false,
-        type: incoming.messageType,
-        mediaUrl: incoming.mediaUrl,
-      })),
-      variables: {
-        remoteJid: event.remoteJid,
-        isGroup: Boolean(event.remoteJid?.endsWith('@g.us') || (event as any).isGroup),
-        groupId: event.remoteJid?.endsWith('@g.us') ? event.remoteJid : undefined,
-        senderPhone: event.phone,
-      },
-      tokens: { input: 0, output: 0 },
-    };
-
-    // Services for execution
-    const runtimeProviders = createRuntimeProviders(config, id => new ConnectionRepository(db).resolveMessagingConnection(connection.organization_id, id));
-    const assertCurrent = async () => {
-      if (options.isCurrent && !(await options.isCurrent())) throw new Error(SUPERSEDED_TURN_ERROR);
-    };
-    const guardedCalendar = runtimeProviders.calendar
-      ? {
-          async getCalendarName(...args: Parameters<NonNullable<FlowServices['calendar']>['getCalendarName']>) { await assertCurrent(); return runtimeProviders.calendar!.getCalendarName(...args); },
-          async listEvents(...args: Parameters<NonNullable<FlowServices['calendar']>['listEvents']>) { await assertCurrent(); return runtimeProviders.calendar!.listEvents(...args); },
-          async createEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['createEvent']>) { await assertCurrent(); return runtimeProviders.calendar!.createEvent(...args); },
-          async updateEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['updateEvent']>) { await assertCurrent(); return runtimeProviders.calendar!.updateEvent(...args); },
-          async cancelEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['cancelEvent']>) { await assertCurrent(); return runtimeProviders.calendar!.cancelEvent(...args); },
-        }
-      : undefined;
-    const services: FlowServices = {
-      ...runtimeProviders,
-      messaging: {
-        async sendText(...args) { await assertCurrent(); return runtimeProviders.messaging.sendText(...args); },
-        async sendMedia(...args) { await assertCurrent(); return runtimeProviders.messaging.sendMedia(...args); },
-        async sendTemplate(...args) { await assertCurrent(); return runtimeProviders.messaging.sendTemplate(...args); },
-      },
-      calendar: guardedCalendar,
-      fetch: async (...args) => { await assertCurrent(); return globalThis.fetch(...args); },
-      db: {
-        updateLead: async (_org, leadId, patch) => {
-          await convRepo.updateLead(_org, leadId, patch);
-        },
-        updateConversation: async (_org, convId, patch) => {
-          await convRepo.updateConversation(_org, convId, patch);
-        },
-        saveMessage: async (_org, cId, convId, msg) => {
-          const res = await convRepo.saveMessage({
-            organizationId: _org,
-            connectionId: cId,
-            conversationId: convId,
-            direction: msg.direction,
-            sender: msg.sender,
-            content: msg.content,
-            messageType: msg.messageType,
-            providerMessageId: msg.providerMessageId,
-          });
-          return { id: res.id };
-        },
-        syncDeal: async (_org, leadId, deal) => {
-          const res = await convRepo.syncDeal(_org, leadId, deal);
-          return { id: res.id };
-        },
-        getMessages: async (_org, convId, limit) => {
-          return convRepo.getMessages(_org, convId, limit);
-        },
-        getLeadRecentMessages: async (_org, leadId, limit) => {
-          return convRepo.getLeadRecentMessages(_org, leadId, limit);
-        },
-      },
-      now: () => new Date(),
-    };
-
-    // Execute flow with WebSocket hooks
-    emitExecutionEvent({
-      type: 'execution:started',
-      executionId: execution.id,
-      organizationId,
-      flowId: flow.id,
-      timestamp: new Date().toISOString(),
-      payload: { conversationId: conversation.id },
-    });
-
-    const result = await executeFlow(flowVersion.graph as any, flowCtx, services, {
-      hooks: {
-        onStepStart: async step => {
-          emitExecutionEvent({
-            type: 'step:start',
-            executionId: execution.id,
-            organizationId,
-            flowId: flow.id,
-            timestamp: new Date().toISOString(),
-            payload: step,
-          });
-        },
-        onStepComplete: async step => {
-          await execRepo.recordStep({
-            organizationId,
-            executionId: execution.id,
-            nodeId: step.nodeId,
-            sequence: step.sequence,
-            input: step.input,
-            output: step.output,
-            durationMs: step.durationMs,
-            error: step.error,
-          });
-
-          emitExecutionEvent({
-            type: 'step:complete',
-            executionId: execution.id,
-            organizationId,
-            flowId: flow.id,
-            timestamp: new Date().toISOString(),
-            payload: step,
-          });
-        },
-        onStepError: async step => {
-          emitExecutionEvent({
-            type: 'step:failed',
-            executionId: execution.id,
-            organizationId,
-            flowId: flow.id,
-            timestamp: new Date().toISOString(),
-            payload: step,
-          });
-        },
-      },
-    });
-
-    // Finalize execution in DB
-    await execRepo.updateExecution(execution.id, organizationId, {
-      status: result.status,
-      inputTokens: result.tokens.input,
-      outputTokens: result.tokens.output,
-      resumeNodeId: result.resumeNodeId,
-      finishedAt: result.status !== 'waiting' ? new Date().toISOString() : null,
-    });
-
-    if (result.status === 'failed' && result.error === SUPERSEDED_TURN_ERROR) {
-      conversationDebugRegistry.supersede(execution.id);
-      return { status: 'superseded', executionId: execution.id, conversationId: conversation.id };
-    }
-
-    const debugIssues = [];
-    const sentMessage = result.steps.some(step => step.nodeType.startsWith('output.') && Boolean((step.output as any)?.sent));
-    if (result.status !== 'failed' && !sentMessage) {
-      const lastStep = result.steps[result.steps.length - 1];
-      debugIssues.push({
-        severity: 'warning' as const,
-        code: 'no_message_sent',
-        message: 'O fluxo terminou sem enviar uma mensagem. Verifique as portas de saída do último bloco.',
-        nodeId: lastStep?.nodeId,
-      });
-    }
-
-    emitExecutionEvent({
-      type: 'execution:completed',
-      executionId: execution.id,
-      organizationId,
-      flowId: flow.id,
-      timestamp: new Date().toISOString(),
-      payload: { status: result.status, steps: result.steps.length },
-    });
-    conversationDebugRegistry.finish(execution.id, result, debugIssues);
-
-    idempotencyGate.complete(event.messageId);
-    return {
-      status: 'executed',
-      executionId: execution.id,
-      flowStatus: result.status,
-      stepsCount: result.steps.length,
-    };
+    );
+    return { ...result, organizationId };
   } catch (err: any) {
-    idempotencyGate.release(event.messageId);
+    await markInboundEventStatus(db, organizationId, accepted.eventId, 'failed', err?.message || String(err));
     return { status: 'error', error: err?.message || String(err) };
   }
 }

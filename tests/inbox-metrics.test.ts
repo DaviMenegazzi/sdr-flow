@@ -349,7 +349,8 @@ describe('Phase 6 — Live Inbox, Metrics Dashboard, Daily Rollup & CSV Export',
 
     it('provides comprehensive dashboard metrics with funnel and flow comparison', async () => {
       const metricsRepo = new database.MetricsRepository(db);
-      const dashboard = await metricsRepo.getDashboardMetrics(orgA);
+      const today = new Date().toISOString().split('T')[0]!;
+      const dashboard = await metricsRepo.getDashboardMetrics(orgA, { startDate: today, endDate: today });
 
       expect(dashboard.totalConversations).toBe(2);
       expect(dashboard.funnel.length).toBe(8); // 8 canonical stages

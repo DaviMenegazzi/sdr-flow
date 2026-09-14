@@ -14,8 +14,9 @@ import {
   serviceDatabase,
   type EvolutionCredentials,
   type MetaCredentials,
+  type ConversationWithLead,
 } from '@sdr/db';
-import { saveFlowSchema, memberRoleSchema, type FlowGraph, normalizeConversationStage, isPhoneNumberMatch, type FlowContext } from '@sdr/shared';
+import { saveFlowSchema, memberRoleSchema, type FlowGraph, normalizeConversationStage, isPhoneNumberMatch, type FlowContext, type FlowExecutionEvent, queueNames } from '@sdr/shared';
 import { catalog, validateGraph, replayFlow, runPlayground, executeFlow, MockLLMProvider, GoogleCalendarClient, type FlowServices } from '@sdr/flow';
 import { parseEvolutionWebhook, parseMetaWebhook, processInboundWebhook } from './webhook.js';
 import { ConnectionManager } from './whatsapp/connection-manager.js';
@@ -28,7 +29,18 @@ import { createCalendarProvider, OpenAIProvider, type RuntimeConfig } from '@sdr
 import { secretMatches, verifyMetaSignature } from './whatsapp/webhook-auth.js';
 import { standaloneStore, type StoredFlow, type ExternalIntegration } from './storage.js';
 import { wsServer } from './ws.js';
-import { conversationDebugRegistry, type DebugFlowSnapshot } from './debug-session.js';
+import {
+  RedisTurnBuffer,
+  RedisExecutionEventPublisher,
+  RedisExecutionEventSubscriber,
+  InMemoryExecutionEventBus,
+  RedisDebugRegistry,
+  InMemoryDebugRegistry,
+  publishRealtimeEvent,
+  type DebugRegistry,
+  type ExecutionEventPublisher,
+  type DebugFlowSnapshot,
+} from '@sdr/runtime';
 import {
   bufferWindowSeconds,
   ConversationTurnQueue,
@@ -50,23 +62,108 @@ export interface ApiConfig extends RuntimeConfig {
 }
 export function createApp(config: ApiConfig = {}): Express {
   const app = express();
+
+  // Turn processing mode gate (docs/OPTIMIZATION_IMPLEMENTATION_PLAN.md 8.5/8.9/8.10):
+  // published-flow execution now belongs to apps/worker, consuming the canonical queue
+  // (queueNames.turns) — this process must never instantiate a BullMQ Worker for it. 'api'
+  // mode (inline, synchronous, no debounce) exists only for local dev without a separate
+  // worker process and is refused outright in production.
+  const isProduction = process.env.NODE_ENV === 'production';
+  const requestedTurnMode = process.env.TURN_PROCESSING_MODE || (config.redisUrl ? 'worker' : 'api');
+  if (requestedTurnMode !== 'api' && requestedTurnMode !== 'worker') {
+    throw new Error(`TURN_PROCESSING_MODE inválido: "${requestedTurnMode}". Use "api" ou "worker".`);
+  }
+  if (isProduction && requestedTurnMode !== 'worker') {
+    throw new Error('Em produção, TURN_PROCESSING_MODE deve ser "worker" — execução inline na API está desabilitada.');
+  }
+  if (requestedTurnMode === 'worker' && !config.redisUrl) {
+    throw new Error('TURN_PROCESSING_MODE=worker requer REDIS_URL configurado.');
+  }
+  const turnProcessingMode = requestedTurnMode as 'api' | 'worker';
+
+  // Producer-only handle on the canonical queue: enqueue() only, no handler/Worker attached.
+  const turnBuffer = turnProcessingMode === 'worker' ? new RedisTurnBuffer(config.redisUrl!, queueNames.turns) : undefined;
+
+  // Execution events (live step view, WebSocket) and the debug-session registry both need to
+  // be shared state once flow execution can happen in a different process (the worker) than
+  // the one serving HTTP/WebSocket (this API) — see 8.6. Falls back to in-memory, same-process
+  // wiring when Redis isn't configured (dev/tests), never as a silent production substitute
+  // (the mode gate above already refuses to boot that way).
+  const inMemoryEventBus = config.redisUrl ? undefined : new InMemoryExecutionEventBus();
+  const eventPublisher: ExecutionEventPublisher = config.redisUrl ? new RedisExecutionEventPublisher(config.redisUrl) : inMemoryEventBus!;
+  const debugRegistry: DebugRegistry = config.redisUrl ? new RedisDebugRegistry(config.redisUrl) : new InMemoryDebugRegistry();
+  // Fase 5 (11.1): fire-and-forget publish of inbox:*/system:* realtime events onto the same
+  // bus as execution events — a publish failure must never fail the REST action that triggered
+  // it (sending a message, taking over a conversation), same non-blocking contract as 8.6.
+  const emitInboxEvent = async (input: Parameters<typeof publishRealtimeEvent>[1]) => {
+    try {
+      await publishRealtimeEvent(eventPublisher, input);
+    } catch (err) {
+      logger.warn({ err }, 'Falha ao publicar evento de tempo real do inbox (não bloqueante)');
+    }
+  };
+  // Payload carries exactly the fields InboxPage's reducer needs to patch its local state
+  // without a REST re-fetch per event (11.1: "payload mínimo e validado").
+  const conversationUpdatedEvent = (organizationId: string, conv: ConversationWithLead): Parameters<typeof publishRealtimeEvent>[1] => ({
+    type: 'inbox:conversation.updated',
+    organizationId,
+    connectionId: conv.connection_id,
+    conversationId: conv.id,
+    payload: {
+      id: conv.id,
+      stage: conv.stage,
+      bot_paused: conv.bot_paused,
+      handled_by: conv.handled_by,
+      assigned_user_id: conv.assigned_user_id,
+      last_message_at: conv.last_message_at,
+    },
+  });
+  const messageCreatedEvent = (
+    organizationId: string,
+    message: { id: string; conversation_id: string; connection_id: string; sender: string; direction: string; content: string; created_at: string }
+  ): Parameters<typeof publishRealtimeEvent>[1] => ({
+    type: 'inbox:message.created',
+    organizationId,
+    connectionId: message.connection_id,
+    conversationId: message.conversation_id,
+    payload: {
+      id: message.id,
+      conversationId: message.conversation_id,
+      sender: message.sender,
+      direction: message.direction,
+      content: message.content,
+      created_at: message.created_at,
+    },
+  });
+  let closeEventSubscriber: (() => Promise<void>) | undefined;
+  if (config.redisUrl) {
+    const subscriber = new RedisExecutionEventSubscriber(config.redisUrl);
+    void subscriber.subscribe(event => wsServer.broadcast(event));
+    closeEventSubscriber = () => subscriber.close();
+  } else {
+    void inMemoryEventBus!.subscribe(event => wsServer.broadcast(event));
+  }
+
+  // Standalone mode's own debounce queue, entirely separate from the canonical sdr-turns queue
+  // above. It is the one remaining case where this process may instantiate a BullMQ Worker —
+  // scoped to config.standaloneMode, which production always has false (see apps/api/src/main.ts),
+  // so this never runs alongside a real multi-tenant deployment.
   let processStandaloneBufferedTurn: ((turn: BufferedConversationTurn) => Promise<{ status: string; [key: string]: unknown }>) | undefined;
-  const turnQueue = config.redisUrl
+  const turnQueue = config.redisUrl && config.standaloneMode
     ? new ConversationTurnQueue(config.redisUrl, async turn => {
-        if (turn.kind === 'published') {
-          return processInboundWebhook(turn.target, turn.events, config, {
-            bypassQueue: true,
-            messagesAlreadySaved: true,
-            isCurrent: turn.isCurrent,
-            flowId: typeof turn.metadata?.flowId === 'string' ? turn.metadata.flowId : undefined,
-            flowVersionId: typeof turn.metadata?.flowVersionId === 'string' ? turn.metadata.flowVersionId : undefined,
-          }) as Promise<{ status: string; [key: string]: unknown }>;
-        }
         if (processStandaloneBufferedTurn) return processStandaloneBufferedTurn(turn);
         return { status: 'error', error: 'standalone_turn_handler_not_ready' };
       })
     : undefined;
   app.locals.conversationTurnQueue = turnQueue;
+  app.locals.closeRuntime = async () => {
+    await Promise.all([
+      turnBuffer?.close(),
+      eventPublisher.close(),
+      debugRegistry instanceof RedisDebugRegistry ? debugRegistry.close() : Promise.resolve(),
+      closeEventSubscriber?.(),
+    ]);
+  };
   app.disable('x-powered-by');
   app.use((req,res,next)=>{const origin=req.get('origin');if(origin&&config.allowedOrigins?.includes(origin)){res.setHeader('Access-Control-Allow-Origin',origin);res.setHeader('Vary','Origin');res.setHeader('Access-Control-Allow-Headers','Authorization, Content-Type, X-Webhook-Secret, X-Hub-Signature-256');res.setHeader('Access-Control-Allow-Methods','GET,POST,PATCH,DELETE,OPTIONS');}if(req.method==='OPTIONS'){res.sendStatus(origin&&config.allowedOrigins?.includes(origin)?204:403);return;}next();});
   app.use(express.json({ limit: '1mb', verify: (req, _res, body) => { (req as typeof req & { rawBody?: Buffer }).rawBody = Buffer.from(body); } }));
@@ -852,7 +949,7 @@ export function createApp(config: ApiConfig = {}): Express {
     if (!flow) {
       return { status: 409, body: { error: 'Nenhum fluxo publicado está ativo para a instância desta conversa.' } };
     }
-    const session = conversationDebugRegistry.arm({
+    const session = await debugRegistry.arm({
       organizationId,
       conversationId,
       connectionId: conversation.connection_id,
@@ -935,7 +1032,7 @@ export function createApp(config: ApiConfig = {}): Express {
       const ctx = await getInboxContext(req.query.organizationId as string);
       if (!ctx) { res.status(404).json({ error: 'Supabase não conectado.' }); return; }
       const convId = z.string().uuid().parse(req.params.id);
-      res.json({ session: conversationDebugRegistry.get(ctx.orgId, convId) });
+      res.json({ session: await debugRegistry.get(ctx.orgId, convId) });
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Falha ao consultar debug.' });
     }
@@ -958,7 +1055,7 @@ export function createApp(config: ApiConfig = {}): Express {
       const ctx = await getInboxContext(req.query.organizationId as string);
       if (!ctx) { res.status(404).json({ error: 'Supabase não conectado.' }); return; }
       const convId = z.string().uuid().parse(req.params.id);
-      res.json({ session: conversationDebugRegistry.cancel(ctx.orgId, convId) });
+      res.json({ session: await debugRegistry.cancel(ctx.orgId, convId) });
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Falha ao encerrar debug.' });
     }
@@ -973,6 +1070,7 @@ export function createApp(config: ApiConfig = {}): Express {
       }
       const convId = z.string().uuid().parse(req.params.id);
       const updated = await ctx.inboxRepo.takeover(ctx.orgId, convId, 'agent_operator');
+      await emitInboxEvent(conversationUpdatedEvent(ctx.orgId, updated));
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Falha no takeover.' });
@@ -988,6 +1086,7 @@ export function createApp(config: ApiConfig = {}): Express {
       }
       const convId = z.string().uuid().parse(req.params.id);
       const updated = await ctx.inboxRepo.release(ctx.orgId, convId, 'agent_operator');
+      await emitInboxEvent(conversationUpdatedEvent(ctx.orgId, updated));
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Falha no release.' });
@@ -1004,6 +1103,7 @@ export function createApp(config: ApiConfig = {}): Express {
       const convId = z.string().uuid().parse(req.params.id);
       const stage = normalizeConversationStage(req.body.stage);
       const updated = await ctx.inboxRepo.updateStage(ctx.orgId, convId, stage as any, 'agent_operator');
+      await emitInboxEvent(conversationUpdatedEvent(ctx.orgId, updated));
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Falha ao atualizar estágio.' });
@@ -1038,6 +1138,7 @@ export function createApp(config: ApiConfig = {}): Express {
         content,
         actorId: 'agent_operator',
       });
+      await emitInboxEvent(messageCreatedEvent(ctx.orgId, msg));
 
       // 2. Dispara a mensagem no WhatsApp via Evolution API
       try {
@@ -1691,7 +1792,7 @@ export function createApp(config: ApiConfig = {}): Express {
       // 2. Check for active flow
       const activeFlow = options.flowSnapshot || standaloneStore.getActiveFlowForInstance(instanceName);
       if (!activeFlow) {
-        conversationDebugRegistry.failArmed(organizationId, conversationId, {
+        await debugRegistry.failArmed(organizationId, conversationId, {
           severity: 'error',
           code: 'no_active_flow',
           message: `A mensagem chegou, mas não há fluxo ativo para a instância "${instanceName}".`,
@@ -1706,7 +1807,7 @@ export function createApp(config: ApiConfig = {}): Express {
         const authorized = testMode.phone || '';
         const match = isPhoneNumberMatch(event.phone, authorized);
         if (!match) {
-          conversationDebugRegistry.failArmed(organizationId, conversationId, {
+          await debugRegistry.failArmed(organizationId, conversationId, {
             severity: 'error',
             code: 'blocked_by_test_mode',
             message: `A mensagem foi bloqueada pelo modo teste, autorizado apenas para ${authorized}.`,
@@ -1757,9 +1858,9 @@ export function createApp(config: ApiConfig = {}): Express {
         nodes: activeFlow.graph.nodes.map(node => ({ id: node.id, type: node.type, label: node.label || node.type })),
         graph: activeFlow.graph,
       };
-      conversationDebugRegistry.claim({ organizationId, conversationId, executionId, flow: debugFlow });
-      const emitExecutionEvent = (event: Parameters<typeof wsServer.broadcast>[0]) => {
-        wsServer.broadcast(conversationDebugRegistry.record({ ...event, conversationId }));
+      await debugRegistry.claim({ organizationId, conversationId, executionId, flow: debugFlow });
+      const emitExecutionEvent = async (event: FlowExecutionEvent) => {
+        wsServer.broadcast(await debugRegistry.record({ ...event, conversationId }));
       };
       const flowCtx: FlowContext = {
         organizationId,
@@ -1910,7 +2011,7 @@ export function createApp(config: ApiConfig = {}): Express {
         now: () => new Date(),
       };
 
-      emitExecutionEvent({
+      await emitExecutionEvent({
         type: 'execution:started',
         executionId,
         organizationId,
@@ -1922,7 +2023,7 @@ export function createApp(config: ApiConfig = {}): Express {
       const result = await executeFlow(activeFlow.graph, flowCtx, services, {
         hooks: {
           onStepStart: async step => {
-            emitExecutionEvent({
+            await emitExecutionEvent({
               type: 'step:start',
               executionId,
               organizationId,
@@ -1932,7 +2033,7 @@ export function createApp(config: ApiConfig = {}): Express {
             });
           },
           onStepComplete: async step => {
-            emitExecutionEvent({
+            await emitExecutionEvent({
               type: 'step:complete',
               executionId,
               organizationId,
@@ -1942,7 +2043,7 @@ export function createApp(config: ApiConfig = {}): Express {
             });
           },
           onStepError: async step => {
-            emitExecutionEvent({
+            await emitExecutionEvent({
               type: 'step:failed',
               executionId,
               organizationId,
@@ -1959,7 +2060,7 @@ export function createApp(config: ApiConfig = {}): Express {
       const debugIssues: Array<{ severity: 'warning' | 'error'; code: string; message: string; nodeId?: string }> = [];
 
       if (result.status === 'failed' && result.error === SUPERSEDED_TURN_ERROR) {
-        conversationDebugRegistry.supersede(executionId);
+        await debugRegistry.supersede(executionId);
         logger.info({ instanceName, conversationId, executionId }, 'Execução substituída por mensagens mais recentes antes do envio');
         return { status: 'superseded', executionId, conversationId };
       }
@@ -1971,7 +2072,7 @@ export function createApp(config: ApiConfig = {}): Express {
           'Falha na execução do fluxo — mensagem não foi enviada de volta ao WhatsApp'
         );
         if (failedStep) {
-          emitExecutionEvent({
+          await emitExecutionEvent({
             type: 'step:failed',
             executionId,
             organizationId,
@@ -2019,7 +2120,7 @@ export function createApp(config: ApiConfig = {}): Express {
             'Fluxo terminou sem enviar mensagem — provável porta sem conexão (ex: guard.response_policy → rewrite/blocked)'
           );
           if (lastStep) {
-            emitExecutionEvent({
+            await emitExecutionEvent({
               type: 'step:failed',
               executionId,
               organizationId,
@@ -2050,7 +2151,7 @@ export function createApp(config: ApiConfig = {}): Express {
         }
       }
 
-      emitExecutionEvent({
+      await emitExecutionEvent({
         type: 'execution:completed',
         executionId,
         organizationId,
@@ -2058,7 +2159,7 @@ export function createApp(config: ApiConfig = {}): Express {
         timestamp: new Date().toISOString(),
         payload: { status: result.status, steps: result.steps.length, tokens: result.tokens },
       });
-      conversationDebugRegistry.finish(executionId, result, debugIssues);
+      await debugRegistry.finish(executionId, result, debugIssues);
 
       return { ok: true, executionId, status: result.status };
     } catch (err) {
@@ -2082,15 +2183,31 @@ export function createApp(config: ApiConfig = {}): Express {
     return data ? new ConnectionRepository(db).getConnectionCredentials(id) : null;
   }
 
+  // Response codes per docs/OPTIMIZATION_IMPLEMENTATION_PLAN.md 7.4.5: 503 only when the event
+  // itself could not be persisted (Postgres unavailable); 202 once a new event is durably
+  // accepted and queued/executed; 200 for an idempotent duplicate; 500 for a downstream
+  // business-logic failure (the event was still persisted successfully).
+  function webhookStatusCode(result: Record<string, unknown>): number {
+    if (result.status === 'error' && result.reason === 'event_not_persisted') return 503;
+    if (result.status === 'error' || result.flowStatus === 'failed') return 500;
+    if (result.status === 'queued' || result.status === 'executed') return 202;
+    return 200;
+  }
+
   async function handleEvolutionWebhook(connectionId: string, req: express.Request, res: express.Response) {
     const event = parseEvolutionWebhook(req.body);
     if (!event) { res.status(400).json({ error: 'Payload de webhook inválido.' }); return; }
     if (!config.supabaseUrl || !config.serviceRoleKey) { res.status(503).json({ error: 'Supabase não configurado para webhooks.' }); return; }
     const credentials = await webhookCredentials(connectionId, 'evolution') as EvolutionCredentials | null;
     if (!secretMatches(req.get('x-webhook-token'), credentials?.webhookToken)) { res.sendStatus(401); return; }
-    const result = await processInboundWebhook(connectionId, event, config, { turnQueue });
-    const failed = result.status === 'error' || result.flowStatus === 'failed';
-    res.status(failed ? 500 : 200).json({ ok: !failed, result });
+    const result = await processInboundWebhook(connectionId, event, config, {
+      provider: 'evolution',
+      turnBuffer,
+      inlineFallback: turnProcessingMode === 'api',
+      eventPublisher,
+      debugRegistry,
+    });
+    res.status(webhookStatusCode(result)).json({ ok: webhookStatusCode(result) < 400, result });
   }
   app.get('/api/webhooks/meta/:connectionId', async (req, res) => {
     const id = z.uuid().safeParse(req.params.connectionId);
@@ -2126,9 +2243,14 @@ export function createApp(config: ApiConfig = {}): Express {
     if (!verifyMetaSignature((req as typeof req & { rawBody?: Buffer }).rawBody || Buffer.alloc(0), req.get('x-hub-signature-256'), credentials?.appSecret)) { res.sendStatus(401); return; }
     const event = parseMetaWebhook(req.body);
     if (!event) { res.status(200).json({ ok: true, result: { status: 'ignored', reason: 'non_message_event' } }); return; }
-    const result = await processInboundWebhook(connectionId.data, event, config, { turnQueue });
-    const failed = result.status === 'error' || result.flowStatus === 'failed';
-    res.status(failed ? 500 : 200).json({ ok: !failed, result });
+    const result = await processInboundWebhook(connectionId.data, event, config, {
+      provider: 'meta',
+      turnBuffer,
+      inlineFallback: turnProcessingMode === 'api',
+      eventPublisher,
+      debugRegistry,
+    });
+    res.status(webhookStatusCode(result)).json({ ok: webhookStatusCode(result) < 400, result });
   });
 
   // Accept invitation (authenticated user joins organization using token)
@@ -2631,6 +2753,16 @@ export function createApp(config: ApiConfig = {}): Express {
     const execRepo = res.locals.executions as ExecutionRepository;
     const execution = await execRepo.getExecution(executionId, res.locals.organizationId as string);
     if (!execution) { res.status(404).json({ error: 'Execução não encontrada.' }); return; }
+    // Fase 3 (9.3): a batch writer assíncrona pode ainda não ter persistido todos os passos —
+    // nunca tratar um trace pending como completo para fins de replay.
+    if ((execution as any).trace_status === 'pending') {
+      res.status(409).json({ error: 'O trace desta execução ainda está sendo gravado. Tente novamente em instantes.' });
+      return;
+    }
+    if ((execution as any).trace_status === 'failed') {
+      res.status(409).json({ error: 'O trace desta execução não pôde ser confirmado como completo e não é seguro para replay.' });
+      return;
+    }
     const steps = await execRepo.getExecutionSteps(executionId, res.locals.organizationId as string);
 
     const { data: flowVersion, error } = await (res.locals.db as any)
@@ -2890,7 +3022,7 @@ export function createApp(config: ApiConfig = {}): Express {
   orgRoutes.get('/inbox/conversations/:id/debug', async (req, res) => {
     const orgId = res.locals.organizationId as string;
     const convId = z.string().uuid().parse(req.params.id);
-    res.json({ session: conversationDebugRegistry.get(orgId, convId) });
+    res.json({ session: await debugRegistry.get(orgId, convId) });
   });
 
   orgRoutes.post('/inbox/conversations/:id/debug', async (req, res) => {
@@ -2903,7 +3035,7 @@ export function createApp(config: ApiConfig = {}): Express {
   orgRoutes.delete('/inbox/conversations/:id/debug', async (req, res) => {
     const orgId = res.locals.organizationId as string;
     const convId = z.string().uuid().parse(req.params.id);
-    res.json({ session: conversationDebugRegistry.cancel(orgId, convId) });
+    res.json({ session: await debugRegistry.cancel(orgId, convId) });
   });
 
   orgRoutes.post('/inbox/conversations/:id/takeover', async (req, res) => {
@@ -2913,6 +3045,7 @@ export function createApp(config: ApiConfig = {}): Express {
     const userId = res.locals.userId as string;
 
     const updated = await inboxRepo.takeover(orgId, convId, userId);
+    await emitInboxEvent(conversationUpdatedEvent(orgId, updated));
     res.json(updated);
   });
 
@@ -2923,6 +3056,7 @@ export function createApp(config: ApiConfig = {}): Express {
     const userId = res.locals.userId as string;
 
     const updated = await inboxRepo.release(orgId, convId, userId);
+    await emitInboxEvent(conversationUpdatedEvent(orgId, updated));
     res.json(updated);
   });
 
@@ -2934,6 +3068,7 @@ export function createApp(config: ApiConfig = {}): Express {
     const body = z.object({ assignedUserId: z.string().uuid().nullable() }).parse(req.body);
 
     const updated = await inboxRepo.assign(orgId, convId, body.assignedUserId, userId);
+    await emitInboxEvent(conversationUpdatedEvent(orgId, updated));
     res.json(updated);
   });
 
@@ -2947,6 +3082,7 @@ export function createApp(config: ApiConfig = {}): Express {
     }).parse(req.body);
 
     const updated = await inboxRepo.updateStage(orgId, convId, body.stage as any, userId);
+    await emitInboxEvent(conversationUpdatedEvent(orgId, updated));
     res.json(updated);
   });
 
@@ -2970,18 +3106,48 @@ export function createApp(config: ApiConfig = {}): Express {
       content: body.content,
       actorId: userId,
     });
+    await emitInboxEvent(messageCreatedEvent(orgId, msg));
     res.status(201).json(msg);
   });
 
   // --- METRICS & EXPORT ROUTES ---
+  // Fase 4 (docs/OPTIMIZATION_IMPLEMENTATION_PLAN.md 10.4.4): explicit format/order/range
+  // validation instead of silently ignoring startDate/endDate (the pre-Fase-4 behavior).
+  // Defaults to the last 30 UTC days when neither is given.
+  const dashboardQuerySchema = z.object({
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'startDate deve estar no formato YYYY-MM-DD.').optional(),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'endDate deve estar no formato YYYY-MM-DD.').optional(),
+  });
   orgRoutes.get('/metrics/dashboard', async (req, res) => {
     const orgId = res.locals.organizationId as string;
     const metricsRepo = res.locals.metrics as MetricsRepository;
-    const startDate = req.query.startDate ? String(req.query.startDate) : undefined;
-    const endDate = req.query.endDate ? String(req.query.endDate) : undefined;
+    const parsedQuery = dashboardQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      res.status(400).json({ error: parsedQuery.error.issues[0]?.message || 'Parâmetros de data inválidos.' });
+      return;
+    }
+    const todayUtc = new Date().toISOString().split('T')[0]!;
+    const thirtyDaysAgoUtc = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]!;
+    const startDate = parsedQuery.data.startDate ?? thirtyDaysAgoUtc;
+    const endDate = parsedQuery.data.endDate ?? todayUtc;
+    if (startDate > endDate) {
+      res.status(400).json({ error: 'startDate não pode ser depois de endDate.' });
+      return;
+    }
+    const rangeDays = (Date.parse(endDate) - Date.parse(startDate)) / (24 * 60 * 60 * 1000);
+    if (rangeDays > 366) {
+      res.status(400).json({ error: 'O intervalo entre startDate e endDate não pode exceder 366 dias.' });
+      return;
+    }
 
-    const data = await metricsRepo.getDashboardMetrics(orgId, { startDate, endDate });
-    res.json(data);
+    try {
+      const data = await metricsRepo.getDashboardMetrics(orgId, { startDate, endDate });
+      res.json(data);
+    } catch (err: any) {
+      // Never fall back to a fake/empty dashboard on a real query failure (10.4.6).
+      logger.error({ err, orgId, startDate, endDate }, 'Falha ao calcular métricas do dashboard');
+      res.status(502).json({ error: 'Não foi possível calcular as métricas no momento.' });
+    }
   });
 
   orgRoutes.post('/metrics/rollup', async (req, res) => {
@@ -3024,8 +3190,11 @@ export function createApp(config: ApiConfig = {}): Express {
   orgRoutes.get('/alerts/status', async (_req, res) => {
     const orgId = res.locals.organizationId as string;
     const db = res.locals.serviceDb || res.locals.db;
-    const result = await AlertMonitor.evaluateAlerts(db, orgId);
-    res.json(result);
+    // Real queue depth (waiting/delayed/active/failed) from the canonical queue (8.7) — absent
+    // only when this process has no turnBuffer (dev inline-fallback mode has no queue at all).
+    const queueCounts = await turnBuffer?.counts().catch(() => undefined);
+    const result = await AlertMonitor.evaluateAlerts(db, orgId, { queueWaitingCount: queueCounts?.waiting });
+    res.json({ ...result, queue: queueCounts ? { name: queueNames.turns, ...queueCounts } : undefined });
   });
 
   app.use((_req,res) => { res.status(404).json({ error: 'Rota não encontrada.' }); });

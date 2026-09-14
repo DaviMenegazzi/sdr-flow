@@ -9,6 +9,12 @@ export interface CreateExecutionInput {
   flowVersionId: string;
   status?: 'queued' | 'running' | 'waiting' | 'completed' | 'failed';
   resumeNodeId?: string | null;
+  /**
+   * Turn-level idempotency key (docs/OPTIMIZATION_IMPLEMENTATION_PLAN.md 7.5), unique per
+   * organization via flow_executions_idempotency_key_idx. A retried worker job for the same
+   * logical turn recovers the execution already created instead of creating a duplicate.
+   */
+  idempotencyKey?: string;
 }
 
 export interface UpdateExecutionInput {
@@ -42,11 +48,24 @@ export class ExecutionRepository {
         flow_version_id: input.flowVersionId,
         status: input.status || 'running',
         resume_node_id: input.resumeNodeId || null,
+        idempotency_key: input.idempotencyKey || null,
       })
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      if (input.idempotencyKey && (error as { code?: string }).code === '23505') {
+        const { data: existing, error: fetchError } = await this.db
+          .from('flow_executions')
+          .select('*')
+          .eq('organization_id', input.organizationId)
+          .eq('idempotency_key', input.idempotencyKey)
+          .single();
+        if (fetchError) throw fetchError;
+        return existing;
+      }
+      throw error;
+    }
     return data;
   }
 

@@ -11,6 +11,9 @@ importers:
       '@electric-sql/pglite':
         specifier: ^0.5.8
         version: 0.5.8
+      '@sdr/runtime':
+        specifier: workspace:*
+        version: link:packages/runtime
       '@types/node':
         specifier: ^22.9.0
         version: 22.20.1
@@ -44,6 +47,9 @@ importers:
       '@sdr/flow':
         specifier: workspace:*
         version: link:../../packages/flow
+      '@sdr/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
       '@sdr/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -148,6 +154,9 @@ importers:
       '@sdr/flow':
         specifier: workspace:*
         version: link:../../packages/flow
+      '@sdr/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
       '@sdr/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -157,6 +166,9 @@ importers:
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
+      ioredis:
+        specifier: ^5.8.2
+        version: 5.11.1
       pino:
         specifier: ^9.6.0
         version: 9.14.0
@@ -178,6 +190,27 @@ importers:
       zod:
         specifier: ^4.5.4
         version: 4.5.4
+
+  packages/runtime:
+    dependencies:
+      '@sdr/db':
+        specifier: workspace:*
+        version: link:../db
+      '@sdr/flow':
+        specifier: workspace:*
+        version: link:../flow
+      '@sdr/shared':
+        specifier: workspace:*
+        version: link:../shared
+      bullmq:
+        specifier: ^5.60.0
+        version: 5.81.4
+      ioredis:
+        specifier: ^5.8.2
+        version: 5.11.1
+      pino:
+        specifier: ^9.6.0
+        version: 9.14.0
 
   packages/shared:
     dependencies:

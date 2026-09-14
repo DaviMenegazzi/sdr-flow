@@ -1,9 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { createHmac } from 'node:crypto';
 import * as database from '../packages/db/src/index.js';
 import request from 'supertest';
 import { createApp } from '../apps/api/src/app.js';
-import { idempotencyGate } from '../apps/api/src/webhook.js';
 
 describe('API Webhook & Inbound Gateway', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -31,10 +30,6 @@ describe('API Webhook & Inbound Gateway', () => {
       .send({ data: { key: { id: 'id', remoteJid: '5511999999999@s.whatsapp.net' }, message: { conversation: 'Olá' } } });
     expect(res.status).toBe(401);
   });
-  beforeEach(() => {
-    idempotencyGate.clear();
-  });
-
   it('rejects Evolution webhook when persistence is not configured', async () => {
     const app = createApp();
     const connectionId = '00000000-0000-4000-8000-000000000001';

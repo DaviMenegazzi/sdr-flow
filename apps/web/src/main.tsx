@@ -1,126 +1,66 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, Suspense, lazy, type ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
-import {
-  Workflow,
-  Settings2,
-  Moon,
-  Sun,
-  Blocks,
-  ArrowUpRight,
-  MessageSquare,
-  BarChart3,
-  Radio,
-  BookOpen,
-  Plug,
-  ChevronRight
-  ,Users
-} from 'lucide-react';
-import { IntegrationsPage } from './integrations/IntegrationsPage';
-import { Builder } from './builder/Builder';
-import { SessionProvider, Settings, useSession } from './session';
-import { InstanceProvider, useInstance } from './context/InstanceContext';
-import { ConnectionsPage } from './connections/ConnectionsPage';
-import { KnowledgePage } from './knowledge/KnowledgePage';
-import { InboxPage } from './inbox/InboxPage';
-import { DashboardPage } from './metrics/DashboardPage';
-import './styles.css';
+import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom';
+import { Workflow, ArrowUpRight, LoaderCircle, RefreshCw } from 'lucide-react';
+import { SessionProvider } from './session';
+import { InstanceProvider } from './context/InstanceContext';
 import { AuthCallback, AuthGate, ForgotPasswordPage, LoginPage, NotFoundPage, RegisterPage, ResetPasswordPage } from './auth-pages';
-import { AgentsPage } from './agents/AgentsPage';
-import { AdminPage } from './admin/AdminPage';
+import { AppSidebar } from './components/layout/AppSidebar';
+import { AppHeader } from './components/layout/AppHeader';
+import './styles.css';
 
-function GlobalTopHeader() {
-  const { activeInstance, setActiveInstance, instances } = useInstance();
-  const location = useLocation();
-  const current = instances.find(i => i.name === activeInstance || i.id === activeInstance);
+// Fase 5 (11.4): every main route below is code-split — shell, auth and navigation (imported
+// above) are the only things that must stay in the initial chunk. `Settings` is the one
+// exception in practice: it lives in the same module as `SessionProvider` (session.tsx), which
+// is already eager for the whole app, so lazy-wrapping it here documents intent but does not by
+// itself shrink the initial bundle — splitting that file is a separate, larger refactor.
+const Builder = lazy(() => import('./builder/Builder').then(m => ({ default: m.Builder })));
+const ConnectionsPage = lazy(() => import('./connections/ConnectionsPage').then(m => ({ default: m.ConnectionsPage })));
+const AgentsPage = lazy(() => import('./agents/AgentsPage').then(m => ({ default: m.AgentsPage })));
+const AdminPage = lazy(() => import('./admin/AdminPage').then(m => ({ default: m.AdminPage })));
+const IntegrationsPage = lazy(() => import('./integrations/IntegrationsPage').then(m => ({ default: m.IntegrationsPage })));
+const KnowledgePage = lazy(() => import('./knowledge/KnowledgePage').then(m => ({ default: m.KnowledgePage })));
+const InboxPage = lazy(() => import('./inbox/InboxPage').then(m => ({ default: m.InboxPage })));
+const DashboardPage = lazy(() => import('./metrics/DashboardPage').then(m => ({ default: m.DashboardPage })));
+const Settings = lazy(() => import('./session').then(m => ({ default: m.Settings })));
 
-  const getPageTitle = (path: string) => {
-    if (path.startsWith('/flows')) return 'Fluxos & Agentes';
-    if (path.startsWith('/connections')) return 'WhatsApp (Instâncias)';
-    if (path.startsWith('/integrations')) return 'Integrações Externas';
-    if (path.startsWith('/knowledge')) return 'Base de Conhecimento';
-    if (path.startsWith('/inbox')) return 'Inbox de Atendimento';
-    if (path.startsWith('/dashboard')) return 'Painel de Indicadores';
-    if (path.startsWith('/templates')) return 'Biblioteca de Modelos';
-    if (path.startsWith('/settings')) return 'Configurações da Plataforma';
-    return 'Visão Geral';
-  };
-
+function RouteLoadingFallback() {
   return (
-    <header
-      style={{
-        height: 48,
-        borderBottom: '1px solid var(--color-border-secondary)',
-        background: 'var(--color-bg-primary)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0 24px',
-        flexShrink: 0,
-        zIndex: 10,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--color-text-secondary)' }}>
-        <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>SDR Flow</span>
-        <ChevronRight size={13} />
-        <span>{getPageTitle(location.pathname)}</span>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            background: 'var(--color-bg-secondary)',
-            border: '1px solid var(--color-border-secondary)',
-            padding: '4px 10px',
-            borderRadius: 8,
-          }}
-        >
-          <span
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              background: current?.status === 'connected' ? '#16a34a' : '#94a3b8',
-              boxShadow: current?.status === 'connected' ? '0 0 0 2px #16a34a22' : 'none',
-            }}
-            title={current?.status === 'connected' ? 'WhatsApp Conectado' : 'Instância Desconectada'}
-          />
-          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)' }}>Instância:</span>
-          <select
-            value={activeInstance}
-            onChange={e => setActiveInstance(e.target.value)}
-            style={{
-              border: 'none',
-              background: 'transparent',
-              fontWeight: 700,
-              fontSize: 12,
-              color: 'var(--color-text-primary)',
-              cursor: 'pointer',
-              outline: 'none',
-              padding: '0 4px',
-            }}
-          >
-            {instances.length === 0 ? (
-              <option value="">Nenhuma instância</option>
-            ) : (
-              instances.map(inst => (
-                <option key={inst.id} value={inst.id}>
-                  {inst.name || inst.id} {inst.phone ? `(${inst.phone})` : ''} {inst.status === 'connected' ? '🟢' : '⚪'}
-                </option>
-              ))
-            )}
-          </select>
-        </div>
-      </div>
-    </header>
+    <div role="status" aria-live="polite" className="flex-1 flex items-center justify-center py-16 text-content-muted">
+      <LoaderCircle className="w-5 h-5 animate-spin" aria-hidden="true" />
+      <span className="sr-only">Carregando…</span>
+    </div>
   );
 }
 
+// A lazy route's chunk can fail to load (a new deploy invalidated the old hashed filename while
+// this tab was still open) — that throws during render, which Suspense alone does not catch
+// (11.6.10: "falha de chunk apresenta estado recuperável"). A full reload always recovers since
+// it fetches the current manifest.
+class RouteErrorBoundary extends React.Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    if (this.state.failed) {
+      return (
+        <div role="alert" className="flex-1 flex flex-col items-center justify-center gap-3 py-16 text-content-muted">
+          <p className="text-sm m-0">Não foi possível carregar esta página.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand bg-transparent border-0 cursor-pointer underline hover:no-underline"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Recarregar
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function ProtectedApp() {
-  const { signOut } = useSession();
   const [dark, setDark] = useState(() => {
     try {
       return localStorage.getItem('sdr-flow:theme') === 'dark';
@@ -129,8 +69,14 @@ function ProtectedApp() {
     }
   });
 
-  React.useEffect(() => {
-    document.documentElement.className = dark ? 'dark' : 'light';
+  useEffect(() => {
+    if (dark) {
+      document.documentElement.classList.add('dark');
+      document.documentElement.classList.remove('light');
+    } else {
+      document.documentElement.classList.remove('dark');
+      document.documentElement.classList.add('light');
+    }
     try {
       localStorage.setItem('sdr-flow:theme', dark ? 'dark' : 'light');
     } catch {
@@ -139,98 +85,75 @@ function ProtectedApp() {
   }, [dark]);
 
   return (
-      <InstanceProvider>
-          <div className="app-shell">
-            <nav className="app-sidebar" aria-label="Navegação principal">
-              <Link className="brand" to="/flows/new" title="SDR Flow">
-                <Workflow size={27} />
-              </Link>
-              <div className="sidebar-links">
-                <NavLink to="/flows/new" aria-label="Construtor" title="Construtor">
-                  <Workflow size={21} />
-                  <span>Fluxos</span>
-                </NavLink>
-                <NavLink to="/connections" aria-label="WhatsApp" title="WhatsApp">
-                  <Radio size={21} />
-                  <span>WhatsApp</span>
-                </NavLink>
-                <NavLink to="/agents" aria-label="Agentes" title="Agentes"><Users size={21}/><span>Agentes</span></NavLink>
-                <NavLink to="/integrations" aria-label="Integrações" title="Integrações">
-                  <Plug size={21} />
-                  <span>Integrações</span>
-                </NavLink>
-                <NavLink to="/knowledge" aria-label="Base de Conhecimento" title="Base de Conhecimento">
-                  <BookOpen size={21} />
-                  <span>Conhecimento</span>
-                </NavLink>
-                <NavLink to="/inbox" aria-label="Inbox" title="Inbox">
-                  <MessageSquare size={21} />
-                  <span>Inbox</span>
-                </NavLink>
-                <NavLink to="/dashboard" aria-label="Painel de Indicadores" title="Painel">
-                  <BarChart3 size={21} />
-                  <span>Painel</span>
-                </NavLink>
-                <NavLink to="/templates" aria-label="Biblioteca" title="Biblioteca">
-                  <Blocks size={21} />
-                  <span>Modelos</span>
-                </NavLink>
-              </div>
-              <div className="sidebar-bottom">
-                <button
-                  onClick={() => setDark(!dark)}
-                  aria-label={dark ? 'Ativar tema claro' : 'Ativar tema escuro'}
-                  title="Alternar tema"
-                >
-                  {dark ? <Sun size={20} /> : <Moon size={20} />}
-                </button>
-                <NavLink to="/settings" title="Configurações" aria-label="Configurações">
-                  <Settings2 size={21} />
-                </NavLink>
-                <button className="avatar" onClick={()=>void signOut()} title="Sair" aria-label="Sair">SF</button>
-              </div>
-            </nav>
-            <main style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', height: '100dvh', overflow: 'hidden' }}>
-              <GlobalTopHeader />
-              <div style={{ flex: 1, minHeight: 0, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
-                <Routes>
-                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                  <Route path="/flows/new" element={<Builder />} />
-                  <Route path="/flows" element={<Builder />} />
-                  <Route path="/connections" element={<ConnectionsPage />} />
-                  <Route path="/agents" element={<AgentsPage />} />
-                  <Route path="/admin" element={<AdminPage />} />
-                  <Route path="/integrations" element={<IntegrationsPage />} />
-                  <Route path="/knowledge" element={<KnowledgePage />} />
-                  <Route path="/inbox" element={<InboxPage />} />
-                  <Route path="/dashboard" element={<DashboardPage />} />
-                  <Route
-                    path="/templates"
-                    element={
-                      <div className="page-content">
-                        <span className="eyebrow">BIBLIOTECA</span>
-                        <h1>Comece com um caminho pronto</h1>
-                        <p className="muted">Modelos editáveis para desenhar o atendimento da sua operação.</p>
-                        <Link className="template-card" to="/flows/new">
-                          <Workflow size={32} />
-                          <h2>Qualificação SDR</h2>
-                          <p>Modo teste, guardas, memória comercial, decisão, CRM e encaminhamento humano.</p>
-                          <span>
-                            Abra o construtor e escolha “Usar modelo SDR”. <ArrowUpRight size={15} />
-                          </span>
-                        </Link>
-                      </div>
-                    }
-                  />
-                  <Route path="/settings" element={<Settings />} />
-                  <Route path="*" element={<Navigate to="/404" replace />} />
-                </Routes>
-              </div>
-            </main>
-          </div>
-      </InstanceProvider>
+    <InstanceProvider>
+      <div className="flex h-[100dvh] w-full overflow-hidden bg-canvas text-content-primary">
+        <AppSidebar dark={dark} onToggleTheme={() => setDark(!dark)} />
+        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+          <AppHeader />
+          <main className="flex-1 min-h-0 overflow-auto flex flex-col bg-canvas">
+            <RouteErrorBoundary>
+            <Suspense fallback={<RouteLoadingFallback />}>
+            <Routes>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/flows/new" element={<Builder />} />
+              <Route path="/flows" element={<Builder />} />
+              <Route path="/connections" element={<ConnectionsPage />} />
+              <Route path="/agents" element={<AgentsPage />} />
+              <Route path="/admin" element={<AdminPage />} />
+              <Route path="/integrations" element={<IntegrationsPage />} />
+              <Route path="/knowledge" element={<KnowledgePage />} />
+              <Route path="/inbox" element={<InboxPage />} />
+              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route
+                path="/templates"
+                element={
+                  <div className="p-8 max-w-4xl mx-auto w-full">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-brand">
+                      BIBLIOTECA DE MODELOS
+                    </span>
+                    <h1 className="text-2xl font-bold tracking-tight text-content-primary mt-2">
+                      Comece com um fluxo comprovado
+                    </h1>
+                    <p className="text-xs text-content-secondary mt-1 max-w-xl">
+                      Modelos prontos e parametrizados para qualificação, agendamento de consultas e atendimento humanizado.
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
+                      <Link
+                        to="/flows/new"
+                        className="group p-6 rounded-xl bg-surface border border-border hover:border-brand transition-all duration-200 shadow-subtle hover:shadow-elevated flex flex-col justify-between"
+                      >
+                        <div>
+                          <div className="w-10 h-10 rounded-lg bg-brand/10 text-brand flex items-center justify-center mb-4 transition-transform group-hover:scale-110">
+                            <Workflow size={22} />
+                          </div>
+                          <h2 className="text-base font-semibold text-content-primary group-hover:text-brand transition-colors">
+                            Qualificação SDR Vida Card
+                          </h2>
+                          <p className="text-xs text-content-secondary mt-2 leading-relaxed">
+                            Modo teste, guardas de segurança comercial, qualificação progressiva, memória de lead e encaminhamento para vendedor humano.
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-brand mt-6">
+                          <span>Abrir e editar modelo</span>
+                          <ArrowUpRight size={14} />
+                        </div>
+                      </Link>
+                    </div>
+                  </div>
+                }
+              />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="*" element={<Navigate to="/404" replace />} />
+            </Routes>
+            </Suspense>
+            </RouteErrorBoundary>
+          </main>
+        </div>
+      </div>
+    </InstanceProvider>
   );
 }
+
 
 function App(){return <SessionProvider><BrowserRouter><Routes><Route path="/login" element={<LoginPage/>}/><Route path="/register" element={<RegisterPage/>}/><Route path="/forgot-password" element={<ForgotPasswordPage/>}/><Route path="/reset-password" element={<ResetPasswordPage/>}/><Route path="/auth/callback" element={<AuthCallback/>}/><Route path="/404" element={<NotFoundPage/>}/><Route path="/*" element={<AuthGate><ProtectedApp/></AuthGate>}/></Routes></BrowserRouter></SessionProvider>}
 

@@ -15,7 +15,8 @@
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "check:bundle": "tsx scripts/check-bundle-budget.ts --enforce",
+    "check": "pnpm typecheck && pnpm test && pnpm build && pnpm check:bundle",
     "db:types": "tsx scripts/generate-db-types.ts",
     "db:types:check": "tsx scripts/generate-db-types.ts --check",
     "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
@@ -25,6 +26,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
+    "@sdr/runtime": "workspace:*",
     "@types/node": "^22.9.0",
     "@types/supertest": "^6.0.2",
     "@types/ws": "^8.18.1",

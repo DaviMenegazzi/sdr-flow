@@ -12,6 +12,7 @@
   "dependencies": {
     "@sdr/db": "workspace:*",
     "@sdr/flow": "workspace:*",
+    "@sdr/runtime": "workspace:*",
     "@sdr/shared": "workspace:*",
     "bullmq": "^5.60.0",
     "dotenv": "^17.4.2",

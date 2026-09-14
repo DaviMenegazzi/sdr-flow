@@ -27,52 +27,13 @@ import {
 import { useSession } from '../session';
 import { useInstance } from '../context/InstanceContext';
 import { buildAgentDebugExport, createAgentDebugFilename } from './debug-export';
-
-interface ConversationItem {
-  id: string;
-  stage: string;
-  bot_paused: boolean;
-  handled_by: 'AI' | 'HUMAN' | 'SYSTEM';
-  assigned_user_id: string | null;
-  last_message_at: string | null;
-  created_at: string;
-  lead: {
-    id: string;
-    phone: string;
-    name: string | null;
-    city: string | null;
-    interest: string | null;
-    urgency: string | null;
-    memory: Record<string, unknown>;
-  };
-  connection?: {
-    id: string;
-    name: string;
-    provider: string;
-    phone_number: string | null;
-  } | null;
-  deal?: {
-    id: string;
-    title: string;
-    status: string;
-    score: number | null;
-  } | null;
-  last_message?: {
-    id: string;
-    sender: string;
-    direction: string;
-    content: string;
-    created_at: string;
-  } | null;
-}
-
-interface MessageItem {
-  id: string;
-  sender: 'lead' | 'ai' | 'human' | 'system';
-  direction: 'INBOUND' | 'OUTBOUND';
-  content: string;
-  created_at: string;
-}
+import { Button, Badge, Input } from '../components/ui';
+import {
+  applyRealtimeEvent,
+  type ConversationItem,
+  type MessageItem,
+  type InboxFilters,
+} from './inbox-state';
 
 interface DebugEvent {
   type: 'execution:started' | 'step:start' | 'step:complete' | 'step:failed' | 'execution:completed';
@@ -119,15 +80,15 @@ interface DebugSession {
   };
 }
 
-const STAGE_CONFIG: Record<string, { label: string; bg: string; text: string }> = {
-  NEW_CONVERSATION: { label: 'Nova Conversa', bg: '#3b82f618', text: '#2563eb' },
-  QUALIFYING: { label: 'Qualificando', bg: '#f59e0b18', text: '#d97706' },
-  COLLECTING_INFORMATION: { label: 'Coleta de Info', bg: '#8b5cf618', text: '#7c3aed' },
-  PRESENTING_SOLUTION: { label: 'Apresentação', bg: '#06b6d418', text: '#0891b2' },
-  NEGOTIATING: { label: 'Negociação', bg: '#ec489918', text: '#db2777' },
-  CONVERTED: { label: 'Convertido', bg: '#10b98118', text: '#059669' },
-  HUMAN_HANDOFF: { label: 'Humano / Handoff', bg: '#ef444418', text: '#dc2626' },
-  CLOSED: { label: 'Encerrado', bg: '#6b728018', text: '#4b5563' },
+const STAGE_CONFIG: Record<string, { label: string; bg: string; text: string; variant: 'info' | 'warning' | 'accent' | 'success' | 'danger' | 'default' }> = {
+  NEW_CONVERSATION: { label: 'Nova Conversa', bg: '#3b82f618', text: '#2563eb', variant: 'info' },
+  QUALIFYING: { label: 'Qualificando', bg: '#f59e0b18', text: '#d97706', variant: 'warning' },
+  COLLECTING_INFORMATION: { label: 'Coleta de Info', bg: '#8b5cf618', text: '#7c3aed', variant: 'accent' },
+  PRESENTING_SOLUTION: { label: 'Apresentação', bg: '#06b6d418', text: '#0891b2', variant: 'info' },
+  NEGOTIATING: { label: 'Negociação', bg: '#ec489918', text: '#db2777', variant: 'warning' },
+  CONVERTED: { label: 'Convertido', bg: '#10b98118', text: '#059669', variant: 'success' },
+  HUMAN_HANDOFF: { label: 'Humano / Handoff', bg: '#ef444418', text: '#dc2626', variant: 'danger' },
+  CLOSED: { label: 'Encerrado', bg: '#6b728018', text: '#4b5563', variant: 'default' },
 };
 
 export function InboxPage() {
@@ -162,6 +123,16 @@ export function InboxPage() {
   const listFailureStreak = useRef(0);
   const detailFailureStreak = useRef(0);
   const debugSocketRef = useRef<WebSocket | null>(null);
+
+  // Fase 5 (11.3): refs mirror the latest state for the realtime message handler below, so the
+  // WebSocket effect never needs to reconnect just because a conversation was selected or a
+  // filter changed — it reads the current value through these instead of re-subscribing.
+  const conversationsRef = useRef<ConversationItem[]>([]);
+  const messagesRef = useRef<MessageItem[]>([]);
+  const selectedIdRef = useRef<string | null>(null);
+  const filtersRef = useRef<InboxFilters>({ connectionId: 'ALL', stage: 'ALL', handledBy: 'ALL' });
+  const inboxSocketRef = useRef<WebSocket | null>(null);
+  const listAbortRef = useRef<AbortController | null>(null);
 
   const isStandalone = !activeOrg || !session?.access_token || activeOrg === 'standalone-org';
   const inboxBaseUrl = isStandalone ? '/api/inbox' : `/api/organizations/${activeOrg}/inbox`;
@@ -419,6 +390,11 @@ export function InboxPage() {
       setLoadingList(true);
       setError(null);
     }
+    // Abort any still-in-flight list fetch (11.3.9) — a fast filter/search change must never
+    // let a stale response land after a newer one.
+    listAbortRef.current?.abort();
+    const controller = new AbortController();
+    listAbortRef.current = controller;
     try {
       const params = new URLSearchParams();
       if (connectionFilter !== 'ALL') params.set('connectionId', connectionFilter);
@@ -428,6 +404,7 @@ export function InboxPage() {
 
       const res = await fetch(`${inboxBaseUrl}/conversations?${params.toString()}`, {
         headers: getHeaders(),
+        signal: controller.signal,
       });
       if (!res.ok) throw new Error('Erro ao listar conversas');
       const data = await res.json();
@@ -441,6 +418,7 @@ export function InboxPage() {
         return prev;
       });
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       listFailureStreak.current += 1;
       if (isBackground) {
         // eslint-disable-next-line no-console
@@ -486,24 +464,145 @@ export function InboxPage() {
     }
   }
 
-  // Load conversations when filters change, and poll every 5 seconds
+  // Fase 5 (11.3): refs mirror the latest state so the WebSocket message handler below always
+  // reads current data without needing to resubscribe on every conversation click or filter
+  // change (see the WS effect further down).
+  useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
   useEffect(() => {
-    loadConversations(false);
-    const interval = setInterval(() => {
-      loadConversations(true);
-    }, 5000);
-    return () => clearInterval(interval);
+    filtersRef.current = { connectionId: connectionFilter, stage: stageFilter, handledBy: agentFilter };
+  }, [connectionFilter, stageFilter, agentFilter]);
+
+  // Load the conversation list snapshot on mount and whenever filters/search change. The
+  // WebSocket effect below applies incremental deltas afterwards — this REST call only fires
+  // again reactively (a realtime event that needs a full resync, a reconnect, filters changing)
+  // rather than on a fixed timer (11.3.1/11.3.6). Search is debounced 250-400ms (11.3.10); the
+  // very first load stays immediate so the page doesn't sit blank for the debounce window.
+  const initialListLoadDone = useRef(false);
+  useEffect(() => {
+    if (!initialListLoadDone.current) {
+      initialListLoadDone.current = true;
+      void loadConversations(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void loadConversations(false);
+    }, 300);
+    return () => window.clearTimeout(timer);
   }, [inboxBaseUrl, stageFilter, agentFilter, connectionFilter, searchTerm]);
 
-  // Load conversation detail when selectedId changes, and poll every 4 seconds
+  // Load the detail snapshot once when the selected conversation changes. Subsequent updates to
+  // this conversation arrive as inbox:message.created / inbox:conversation.updated deltas.
   useEffect(() => {
     if (!selectedId) return;
-    loadConversationDetail(selectedId, false);
-    const interval = setInterval(() => {
-      loadConversationDetail(selectedId, true);
-    }, 4000);
-    return () => clearInterval(interval);
+    void loadConversationDetail(selectedId, false);
   }, [inboxBaseUrl, selectedId]);
+
+  // Standalone deployments have no real Supabase session to authenticate a WebSocket with (the
+  // debug-panel socket below has the exact same limitation) — they rely on the reduced-frequency
+  // fallback poll permanently. Authenticated orgs start optimistic (assume the socket will come
+  // up) and only fall back after it has been down for a defined grace period (11.3.6/11.3.7).
+  const [wsDown, setWsDown] = useState(false);
+  const fallbackActive = isStandalone || wsDown;
+
+  useEffect(() => {
+    if (isStandalone || !session?.access_token || !activeOrg) return;
+    let cancelled = false;
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | undefined;
+    let downgradeTimer: number | undefined;
+    let attempt = 0;
+
+    function scheduleReconnect() {
+      if (cancelled) return;
+      attempt += 1;
+      const base = Math.min(30000, 1000 * 2 ** Math.min(attempt, 5));
+      const jitter = Math.random() * base * 0.3;
+      reconnectTimer = window.setTimeout(connect, base + jitter);
+    }
+
+    function connect() {
+      if (cancelled) return;
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${proto}//${window.location.host}/ws?token=${encodeURIComponent(session!.access_token)}`);
+      socket = ws;
+      inboxSocketRef.current = ws;
+
+      ws.addEventListener('open', () => {
+        if (cancelled) return;
+        attempt = 0;
+        if (downgradeTimer) { window.clearTimeout(downgradeTimer); downgradeTimer = undefined; }
+        setWsDown(false);
+        ws.send(JSON.stringify({ type: 'subscribe', channel: 'inbox', organizationId: activeOrg }));
+        // A fresh connection (first open or reconnect) may have missed events — refetch a
+        // snapshot to cover the gap instead of trusting deltas alone (11.3.4).
+        void loadConversations(true);
+        if (selectedIdRef.current) void loadConversationDetail(selectedIdRef.current, true);
+      });
+
+      ws.addEventListener('message', event => {
+        let msg: any;
+        try {
+          msg = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        if (!msg || typeof msg.type !== 'string') return;
+        if (!msg.type.startsWith('inbox:') && msg.type !== 'system:resync_required') return;
+
+        const delta = applyRealtimeEvent(
+          { conversations: conversationsRef.current, messages: messagesRef.current, selectedId: selectedIdRef.current },
+          msg,
+          filtersRef.current
+        );
+        setConversations(delta.conversations);
+        setMessages(delta.messages);
+        if (delta.selectedConvPatch) {
+          const patch = delta.selectedConvPatch;
+          setSelectedConv(prev => (prev && prev.id === patch.id ? { ...prev, ...patch } : prev));
+        }
+        if (delta.needsListRefresh) void loadConversations(true);
+        if (delta.needsFullResync) {
+          void loadConversations(true);
+          if (selectedIdRef.current) void loadConversationDetail(selectedIdRef.current, true);
+        }
+      });
+
+      ws.addEventListener('close', () => {
+        if (cancelled) return;
+        if (inboxSocketRef.current === ws) inboxSocketRef.current = null;
+        if (!downgradeTimer) {
+          downgradeTimer = window.setTimeout(() => setWsDown(true), 10000);
+        }
+        scheduleReconnect();
+      });
+
+      ws.addEventListener('error', () => ws.close());
+    }
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      if (downgradeTimer) window.clearTimeout(downgradeTimer);
+      socket?.close();
+      if (inboxSocketRef.current === socket) inboxSocketRef.current = null;
+    };
+  }, [isStandalone, session?.access_token, activeOrg]);
+
+  // The only remaining timer-based refresh: engaged solely while the WebSocket is unavailable
+  // (down past the grace period, or standalone with no socket at all), at a reduced cadence —
+  // never the old 4/5s intervals (11.3.7). Cancelled the moment the socket comes back up.
+  useEffect(() => {
+    if (!fallbackActive) return;
+    const interval = window.setInterval(() => {
+      void loadConversations(true);
+      if (selectedIdRef.current) void loadConversationDetail(selectedIdRef.current, true);
+    }, 30000);
+    return () => window.clearInterval(interval);
+  }, [fallbackActive, inboxBaseUrl]);
 
   // Background tabs throttle setInterval heavily (sometimes to once a minute
   // or less), which can make the inbox look frozen for a while even though
@@ -610,35 +709,19 @@ export function InboxPage() {
   const memoryEntries = selectedConv?.lead.memory ? Object.entries(selectedConv.lead.memory) : [];
 
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: 'var(--color-bg-primary)' }}>
+    <div className="flex h-full w-full overflow-hidden bg-canvas">
       {/* LEFT COLUMN: Filters & Conversation List */}
-      <div
-        style={{
-          width: '320px',
-          borderRight: '1px solid var(--color-border-secondary)',
-          display: 'flex',
-          flexDirection: 'column',
-          flexShrink: 0,
-          background: 'var(--color-bg-primary)',
-        }}
-      >
+      <div className="w-80 border-r border-border flex flex-col flex-shrink-0 bg-surface">
         {/* Inbox Header */}
-        <div style={{ padding: '16px 16px 12px', borderBottom: '1px solid var(--color-border-secondary)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <MessageSquare size={19} color="var(--color-bg-accent)" />
-              <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0 }}>Inbox</h2>
+        <div className="p-3.5 border-b border-border flex flex-col gap-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="w-4 h-4 text-brand" />
+              <h2 className="text-sm font-semibold text-content m-0">Inbox</h2>
               {syncStalled && (
-                <span
-                  title="As atualizações automáticas pararam de responder. Clique em atualizar ou recarregue a página."
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px',
-                    color: '#dc2626', background: '#dc262614', border: '1px solid #dc262633',
-                    borderRadius: '5px', padding: '2px 6px', fontWeight: 600,
-                  }}
-                >
-                  <AlertCircle size={11} /> Desatualizado
-                </span>
+                <Badge variant="danger" size="sm" className="gap-1">
+                  <AlertCircle className="w-3 h-3" /> Desatualizado
+                </Badge>
               )}
             </div>
             <button
@@ -649,42 +732,33 @@ export function InboxPage() {
                 void loadConversations();
                 if (selectedId) void loadConversationDetail(selectedId);
               }}
-              style={{ minHeight: '28px', padding: '4px 8px', border: 0, background: 'transparent' }}
+              className="p-1 rounded text-content-muted hover:text-content hover:bg-surface-muted transition-colors border-0 bg-transparent cursor-pointer"
               title="Atualizar lista"
             >
-              <RefreshCw size={14} className={loadingList ? 'animate-spin' : ''} />
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingList ? 'animate-spin' : ''}`} />
             </button>
           </div>
 
           {/* Search Input */}
-          <div className="search-input" style={{ marginBottom: '10px' }}>
-            <Search size={14} />
-            <input
-              type="text"
-              placeholder="Buscar por nome, telefone..."
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && void loadConversations()}
-            />
-          </div>
+          <Input
+            placeholder="Buscar por nome, telefone..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && void loadConversations()}
+            leftIcon={<Search className="w-3.5 h-3.5 text-content-muted" />}
+          />
 
           {/* Agent Filter Tabs */}
-          <div style={{ display: 'flex', gap: '4px', marginBottom: '10px' }}>
+          <div className="flex p-0.5 bg-surface-muted rounded-lg border border-border/60 gap-1">
             {(['ALL', 'AI', 'HUMAN'] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setAgentFilter(tab)}
-                style={{
-                  flex: 1,
-                  fontSize: '11px',
-                  minHeight: '26px',
-                  padding: '4px',
-                  borderRadius: '5px',
-                  border: 0,
-                  background: agentFilter === tab ? 'var(--color-bg-accent)' : 'var(--color-bg-secondary)',
-                  color: agentFilter === tab ? '#fff' : 'var(--color-text-secondary)',
-                  fontWeight: agentFilter === tab ? 600 : 400,
-                }}
+                className={`flex-1 text-xs py-1 rounded-md font-medium transition-all border-0 cursor-pointer ${
+                  agentFilter === tab
+                    ? 'bg-surface text-content shadow-xs font-semibold'
+                    : 'bg-transparent text-content-muted hover:text-content'
+                }`}
               >
                 {tab === 'ALL' ? 'Todos' : tab === 'AI' ? 'IA' : 'Humano'}
               </button>
@@ -695,7 +769,7 @@ export function InboxPage() {
           <select
             value={stageFilter}
             onChange={e => setStageFilter(e.target.value)}
-            style={{ fontSize: '11px', padding: '6px 8px', borderRadius: '5px' }}
+            className="w-full text-xs py-1.5 px-2.5 bg-surface border border-border rounded-lg text-content focus:outline-none focus:ring-1 focus:ring-brand"
           >
             <option value="ALL">Todos os Estágios</option>
             {Object.entries(STAGE_CONFIG).map(([k, v]) => (
@@ -707,19 +781,19 @@ export function InboxPage() {
         </div>
 
         {/* Conversation Cards List */}
-        <div style={{ flex: 1, overflowY: 'auto' }}>
+        <div className="flex-1 overflow-y-auto divide-y divide-border/40">
           {loadingList ? (
-            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: '12px' }}>
+            <div className="p-6 text-center text-xs text-content-muted">
               Carregando conversas...
             </div>
           ) : conversations.length === 0 ? (
-            <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: '12px' }}>
+            <div className="p-8 text-center text-xs text-content-muted">
               Nenhuma conversa encontrada neste filtro.
             </div>
           ) : (
             conversations.map(c => {
               const isSelected = c.id === selectedId;
-              const stageConf = STAGE_CONFIG[c.stage] || { label: c.stage, bg: '#e2e8f0', text: '#475569' };
+              const stageConf = STAGE_CONFIG[c.stage] || { label: c.stage, variant: 'default' as const };
               const displayName = c.lead.name || c.lead.phone;
               const timeStr = c.last_message_at
                 ? new Date(c.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -729,62 +803,34 @@ export function InboxPage() {
                 <div
                   key={c.id}
                   onClick={() => setSelectedId(c.id)}
-                  style={{
-                    padding: '12px 16px',
-                    borderBottom: '1px solid var(--color-border-secondary)',
-                    background: isSelected ? 'var(--color-bg-secondary)' : 'transparent',
-                    cursor: 'pointer',
-                    transition: 'background 0.15s',
-                  }}
+                  className={`p-3.5 cursor-pointer transition-colors border-l-2 ${
+                    isSelected
+                      ? 'bg-brand/5 border-l-brand'
+                      : 'border-l-transparent hover:bg-surface-muted/60'
+                  }`}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <strong style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                  <div className="flex items-center justify-between mb-1">
+                    <strong className="text-xs font-semibold text-content truncate max-w-[180px]">
                       {displayName}
                     </strong>
-                    <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)' }}>{timeStr}</span>
+                    <span className="text-[10px] text-content-muted">{timeStr}</span>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                    <span
-                      style={{
-                        fontSize: '9px',
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                        background: stageConf.bg,
-                        color: stageConf.text,
-                        fontWeight: 600,
-                      }}
-                    >
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <Badge variant={stageConf.variant} size="sm">
                       {stageConf.label}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: '9px',
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                        background: c.handled_by === 'HUMAN' ? '#10b98118' : '#8b5cf618',
-                        color: c.handled_by === 'HUMAN' ? '#059669' : '#7c3aed',
-                        fontWeight: 600,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '3px',
-                      }}
+                    </Badge>
+                    <Badge
+                      variant={c.handled_by === 'HUMAN' ? 'success' : 'accent'}
+                      size="sm"
+                      className="gap-1"
                     >
-                      {c.handled_by === 'HUMAN' ? <User size={10} /> : <Sparkles size={10} />}
+                      {c.handled_by === 'HUMAN' ? <User className="w-2.5 h-2.5" /> : <Sparkles className="w-2.5 h-2.5" />}
                       {c.handled_by === 'HUMAN' ? 'Humano' : 'IA'}
-                    </span>
+                    </Badge>
                   </div>
 
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: '11px',
-                      color: 'var(--color-text-secondary)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
+                  <p className="text-[11px] text-content-muted truncate m-0">
                     {c.last_message?.content || 'Nenhuma mensagem recente.'}
                   </p>
                 </div>
@@ -795,52 +841,42 @@ export function InboxPage() {
       </div>
 
       {/* CENTER COLUMN: Chat Thread */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: 'var(--color-bg-primary)' }}>
+      <div className="flex-1 flex flex-col min-w-0 bg-canvas">
         {selectedConv ? (
           <>
             {/* Active Conversation Top Bar */}
-            <div
-              style={{
-                padding: '14px 24px',
-                borderBottom: '1px solid var(--color-border-secondary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '16px',
-                background: 'var(--color-bg-primary)',
-              }}
-            >
-              <div>
-                <h2 style={{ fontSize: '15px', fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="h-14 px-6 border-b border-border flex items-center justify-between gap-4 bg-surface flex-shrink-0">
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold text-content m-0 flex items-center gap-2 truncate">
                   {selectedConv.lead.name || 'Lead sem nome'}
-                  <span style={{ fontSize: '12px', fontWeight: 400, color: 'var(--color-text-secondary)' }}>
+                  <span className="text-xs font-normal text-content-muted">
                     {selectedConv.lead.phone}
                   </span>
                 </h2>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                <div className="flex items-center gap-2 mt-0.5 text-[11px] text-content-muted">
                   {selectedConv.connection && <span>Conexão: {selectedConv.connection.name}</span>}
                   <span>•</span>
                   <span>ID: {selectedConv.id.slice(0, 8)}</span>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <button
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Button
                   onClick={() => void openDebug()}
                   disabled={debugLoading}
-                  className={debugOpen ? 'primary' : undefined}
-                  style={{ fontSize: '12px' }}
+                  variant={debugOpen ? 'primary' : 'outline'}
+                  size="sm"
                   title="Ouvir e inspecionar a próxima execução do agente nesta conversa"
                 >
-                  {debugLoading ? <LoaderCircle className="debug-spin" size={14} /> : <Bug size={14} />}
+                  {debugLoading ? <LoaderCircle className="animate-spin w-3.5 h-3.5" /> : <Bug className="w-3.5 h-3.5" />}
                   {debugOpen ? 'Fechar debug' : debugSession?.status === 'armed' ? 'Debug aguardando' : 'Debug do agente'}
-                </button>
+                </Button>
 
                 {/* Stage Dropdown */}
                 <select
                   value={selectedConv.stage}
                   onChange={e => handleStageChange(e.target.value)}
-                  style={{ fontSize: '12px', padding: '6px 10px', minHeight: '32px', width: 'auto' }}
+                  className="text-xs py-1.5 px-2 bg-surface border border-border rounded-lg text-content focus:outline-none focus:ring-1 focus:ring-brand"
                 >
                   {Object.entries(STAGE_CONFIG).map(([k, v]) => (
                     <option key={k} value={k}>
@@ -851,71 +887,50 @@ export function InboxPage() {
 
                 {/* Takeover / Release Button */}
                 {selectedConv.handled_by === 'HUMAN' ? (
-                  <button
+                  <Button
                     onClick={handleRelease}
                     disabled={actionLoading}
-                    className="primary"
-                    style={{ background: '#7c3aed', borderColor: '#7c3aed', fontSize: '12px' }}
+                    variant="accent"
+                    size="sm"
                     title="Devolver controle para o fluxo de IA"
                   >
-                    <Sparkles size={14} />
+                    <Sparkles className="w-3.5 h-3.5" />
                     Devolver para IA
-                  </button>
+                  </Button>
                 ) : (
-                  <button
+                  <Button
                     onClick={handleTakeover}
                     disabled={actionLoading}
-                    style={{ fontSize: '12px', background: '#059669', color: '#fff', borderColor: '#059669' }}
+                    variant="success"
+                    size="sm"
                     title="Pausar a IA e assumir o atendimento humano"
                   >
-                    <UserCheck size={14} />
+                    <UserCheck className="w-3.5 h-3.5" />
                     Assumir Conversa
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
 
             {/* Error Notification */}
             {error && (
-              <div
-                style={{
-                  padding: '8px 16px',
-                  background: '#fef2f2',
-                  borderBottom: '1px solid #fee2e2',
-                  color: '#dc2626',
-                  fontSize: '11px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-              >
-                <AlertCircle size={14} />
+              <div className="px-4 py-2 bg-danger/10 border-b border-danger/20 text-danger text-xs flex items-center gap-2">
+                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
                 <span>{error}</span>
               </div>
             )}
 
             {/* Bot Active Warning Banner */}
             {selectedConv.handled_by !== 'HUMAN' && (
-              <div
-                style={{
-                  padding: '8px 20px',
-                  background: '#8b5cf612',
-                  borderBottom: '1px solid #8b5cf622',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  fontSize: '11px',
-                  color: '#6d28d9',
-                }}
-              >
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Bot size={14} />
+              <div className="px-5 py-2 bg-brand/10 border-b border-brand/20 flex items-center justify-between text-xs text-brand-600 dark:text-brand-400">
+                <span className="flex items-center gap-2">
+                  <Bot className="w-3.5 h-3.5 text-brand" />
                   O agente SDR autônomo está respondendo ativamente a este lead.
                 </span>
                 <button
                   onClick={handleTakeover}
                   disabled={actionLoading}
-                  style={{ minHeight: '24px', padding: '2px 8px', fontSize: '10px' }}
+                  className="text-xs font-semibold underline hover:no-underline text-brand bg-transparent border-0 cursor-pointer"
                 >
                   Assumir Agora
                 </button>
@@ -923,23 +938,13 @@ export function InboxPage() {
             )}
 
             {/* Messages Thread */}
-            <div
-              style={{
-                flex: 1,
-                overflowY: 'auto',
-                padding: '24px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '14px',
-                background: 'var(--canvas)',
-              }}
-            >
+            <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-3.5 bg-canvas">
               {loadingMessages ? (
-                <div style={{ textAlign: 'center', color: 'var(--color-text-secondary)', padding: '40px' }}>
+                <div className="text-center text-xs text-content-muted py-10">
                   Carregando mensagens...
                 </div>
               ) : messages.length === 0 ? (
-                <div style={{ textAlign: 'center', color: 'var(--color-text-secondary)', padding: '40px' }}>
+                <div className="text-center text-xs text-content-muted py-10">
                   Nenhuma mensagem registrada nesta conversa.
                 </div>
               ) : (
@@ -951,37 +956,12 @@ export function InboxPage() {
 
                   if (isSystem) {
                     return (
-                      <div
-                        key={m.id}
-                        style={{
-                          alignSelf: 'center',
-                          maxWidth: '90%',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          gap: '4px',
-                          margin: '6px 0',
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '8px 12px',
-                            borderRadius: '8px',
-                            background: '#ef444414',
-                            border: '1px solid #ef444440',
-                            color: '#b91c1c',
-                            fontSize: '12px',
-                            lineHeight: '1.5',
-                            wordBreak: 'break-word',
-                          }}
-                        >
-                          <AlertCircle size={13} style={{ flexShrink: 0 }} />
+                      <div key={m.id} className="self-center max-w-[90%] flex flex-col items-center gap-1 my-1">
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-danger/10 border border-danger/20 text-danger text-xs">
+                          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
                           <span>{m.content}</span>
                         </div>
-                        <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)' }}>
+                        <span className="text-[10px] text-content-muted">
                           {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </div>
@@ -991,36 +971,23 @@ export function InboxPage() {
                   return (
                     <div
                       key={m.id}
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: isLead ? 'flex-start' : 'flex-end',
-                        maxWidth: '75%',
-                        alignSelf: isLead ? 'flex-start' : 'flex-end',
-                      }}
+                      className={`flex flex-col max-w-[75%] ${
+                        isLead ? 'self-start items-start' : 'self-end items-end'
+                      }`}
                     >
-                      {/* Sender Label Badge */}
-                      <div
-                        style={{
-                          fontSize: '10px',
-                          color: 'var(--color-text-secondary)',
-                          marginBottom: '3px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                        }}
-                      >
+                      {/* Sender Label */}
+                      <div className="text-[10px] text-content-muted mb-1 flex items-center gap-1">
                         {isLead ? (
                           <span>{selectedConv.lead.name || 'Lead'}</span>
                         ) : isAi ? (
                           <>
-                            <Sparkles size={11} color="#8b5cf6" />
-                            <span style={{ color: '#8b5cf6', fontWeight: 600 }}>SDR Flow IA</span>
+                            <Sparkles className="w-2.5 h-2.5 text-brand" />
+                            <span className="text-brand font-semibold">SDR Flow IA</span>
                           </>
                         ) : (
                           <>
-                            <User size={11} color="#059669" />
-                            <span style={{ color: '#059669', fontWeight: 600 }}>Atendente Humano</span>
+                            <User className="w-2.5 h-2.5 text-emerald-500" />
+                            <span className="text-emerald-500 font-semibold">Atendente Humano</span>
                           </>
                         )}
                         <span>•</span>
@@ -1029,21 +996,13 @@ export function InboxPage() {
 
                       {/* Bubble */}
                       <div
-                        style={{
-                          padding: '10px 14px',
-                          borderRadius: isLead ? '4px 14px 14px 14px' : '14px 4px 14px 14px',
-                          background: isLead
-                            ? 'var(--color-bg-primary)'
+                        className={`px-3.5 py-2.5 text-[13px] leading-relaxed break-words shadow-xs ${
+                          isLead
+                            ? 'rounded-2xl rounded-tl-xs bg-surface text-content border border-border'
                             : isHuman
-                            ? '#059669'
-                            : '#6366f1',
-                          color: isLead ? 'var(--color-text-primary)' : '#ffffff',
-                          border: isLead ? '1px solid var(--color-border-secondary)' : 'none',
-                          fontSize: '13px',
-                          lineHeight: '1.5',
-                          wordBreak: 'break-word',
-                          boxShadow: 'var(--shadow)',
-                        }}
+                            ? 'rounded-2xl rounded-tr-xs bg-emerald-600 text-white'
+                            : 'rounded-2xl rounded-tr-xs bg-brand text-white'
+                        }`}
                       >
                         {m.content}
                       </div>
@@ -1057,13 +1016,7 @@ export function InboxPage() {
             {/* Input Reply Box */}
             <form
               onSubmit={handleSendMessage}
-              style={{
-                padding: '16px 20px',
-                borderTop: '1px solid var(--color-border-secondary)',
-                display: 'flex',
-                gap: '10px',
-                background: 'var(--color-bg-primary)',
-              }}
+              className="p-3.5 border-t border-border flex gap-2.5 bg-surface"
             >
               <input
                 type="text"
@@ -1074,33 +1027,23 @@ export function InboxPage() {
                 }
                 value={replyText}
                 onChange={e => setReplyText(e.target.value)}
-                style={{ flex: 1, padding: '10px 14px' }}
+                className="flex-1 px-3.5 py-2 bg-surface-muted/50 border border-border rounded-lg text-xs text-content placeholder:text-content-muted focus:outline-none focus:ring-1 focus:ring-brand"
               />
-              <button
+              <Button
                 type="submit"
-                className="primary"
+                variant="primary"
+                size="sm"
                 disabled={!replyText.trim()}
-                style={{ padding: '0 18px', minHeight: '38px' }}
               >
-                <Send size={15} />
+                <Send className="w-3.5 h-3.5" />
                 Enviar
-              </button>
+              </Button>
             </form>
           </>
         ) : (
-          <div
-            style={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--color-text-secondary)',
-              gap: '12px',
-            }}
-          >
-            <MessageSquare size={48} strokeWidth={1.2} />
-            <p style={{ margin: 0, fontSize: '14px' }}>Selecione uma conversa ao lado para iniciar o atendimento.</p>
+          <div className="flex-1 flex flex-col items-center justify-center text-content-muted gap-3">
+            <MessageSquare className="w-12 h-12 stroke-[1.2]" />
+            <p className="m-0 text-sm">Selecione uma conversa ao lado para iniciar o atendimento.</p>
           </div>
         )}
       </div>
@@ -1235,37 +1178,28 @@ export function InboxPage() {
 
       {/* RIGHT COLUMN: Lead & Commercial Context */}
       {selectedConv && !debugOpen && (
-        <div
-          style={{
-            width: '280px',
-            borderLeft: '1px solid var(--color-border-secondary)',
-            padding: '20px',
-            overflowY: 'auto',
-            flexShrink: 0,
-            background: 'var(--color-bg-light)',
-          }}
-        >
-          <span className="eyebrow" style={{ marginBottom: '14px', display: 'block' }}>
+        <div className="w-72 border-l border-border p-4 overflow-y-auto flex-shrink-0 bg-surface flex flex-col gap-4">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-content-muted">
             CONTEXTO DO LEAD
           </span>
 
           {/* Lead Card */}
-          <div className="info-card" style={{ padding: '12px', marginBottom: '16px' }}>
-            <strong style={{ fontSize: '13px', display: 'block', marginBottom: '8px' }}>
+          <div className="p-3 rounded-lg bg-surface-muted/50 border border-border flex flex-col gap-2">
+            <strong className="text-xs font-semibold text-content block">
               {selectedConv.lead.name || 'Sem nome informado'}
             </strong>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Phone size={12} /> {selectedConv.lead.phone}
+            <div className="flex flex-col gap-1.5 text-xs text-content-muted">
+              <span className="flex items-center gap-1.5">
+                <Phone className="w-3 h-3 text-content-muted" /> {selectedConv.lead.phone}
               </span>
               {selectedConv.lead.city && (
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <MapPin size={12} /> {selectedConv.lead.city}
+                <span className="flex items-center gap-1.5">
+                  <MapPin className="w-3 h-3 text-content-muted" /> {selectedConv.lead.city}
                 </span>
               )}
               {selectedConv.lead.interest && (
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Tag size={12} /> {selectedConv.lead.interest}
+                <span className="flex items-center gap-1.5">
+                  <Tag className="w-3 h-3 text-content-muted" /> {selectedConv.lead.interest}
                 </span>
               )}
             </div>
@@ -1273,45 +1207,39 @@ export function InboxPage() {
 
           {/* Deal Card */}
           {selectedConv.deal && (
-            <div className="info-card" style={{ padding: '12px', marginBottom: '16px' }}>
-              <strong style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                <Briefcase size={13} color="var(--color-bg-accent)" />
+            <div className="p-3 rounded-lg bg-surface-muted/50 border border-border flex flex-col gap-2">
+              <strong className="text-xs font-semibold text-content flex items-center gap-1.5">
+                <Briefcase className="w-3 h-3 text-brand" />
                 Negócio no CRM
               </strong>
-              <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <span>Título: {selectedConv.deal.title}</span>
-                <span>Status: <strong>{selectedConv.deal.status}</strong></span>
-                {selectedConv.deal.score !== null && <span>Pontuação: {selectedConv.deal.score} / 100</span>}
+              <div className="text-xs text-content-muted flex flex-col gap-1">
+                <span>Título: <span className="text-content font-medium">{selectedConv.deal.title}</span></span>
+                <span>Status: <strong className="text-content">{selectedConv.deal.status}</strong></span>
+                {selectedConv.deal.score !== null && <span>Pontuação: <span className="text-content font-medium">{selectedConv.deal.score} / 100</span></span>}
               </div>
             </div>
           )}
 
           {/* Commercial Memory */}
-          <span className="eyebrow" style={{ marginBottom: '10px', display: 'block' }}>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-content-muted">
             MEMÓRIA COMERCIAL
           </span>
 
           {memoryEntries.length === 0 ? (
-            <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', fontStyle: 'italic' }}>
+            <p className="text-xs text-content-muted italic m-0">
               Nenhum dado comercial extraído ainda.
             </p>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div className="flex flex-col gap-2">
               {memoryEntries.map(([key, value]) => (
                 <div
                   key={key}
-                  style={{
-                    padding: '8px 10px',
-                    borderRadius: '6px',
-                    background: 'var(--color-bg-primary)',
-                    border: '1px solid var(--color-border-secondary)',
-                    fontSize: '11px',
-                  }}
+                  className="p-2.5 rounded-lg bg-surface-muted/40 border border-border text-xs"
                 >
-                  <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '9px', textTransform: 'uppercase', marginBottom: '2px' }}>
+                  <span className="text-content-muted block text-[9px] uppercase tracking-wide mb-0.5">
                     {key}
                   </span>
-                  <span style={{ color: 'var(--color-text-primary)', wordBreak: 'break-word' }}>
+                  <span className="text-content break-words font-medium">
                     {typeof value === 'object' ? JSON.stringify(value) : String(value)}
                   </span>
                 </div>

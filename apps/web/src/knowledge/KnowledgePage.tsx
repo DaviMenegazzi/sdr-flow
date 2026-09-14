@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useSession } from '../session';
 import { useInstance } from '../context/InstanceContext';
+import { Button, Badge, Card, Input } from '../components/ui';
 
 interface KnowledgeDoc {
   id: string;
@@ -317,778 +318,449 @@ export function KnowledgePage() {
   const tokenEstimate = Math.max(1, Math.ceil((modalTitle.length + modalContent.length) / 4));
 
   return (
-    <div className="page-content" style={{ maxWidth: 1180, margin: '0 auto', padding: '32px 24px' }}>
-      {/* Header Banner */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          marginBottom: 28,
-          gap: 16,
-          flexWrap: 'wrap',
-        }}
-      >
-        <div>
-          <span
-            className="eyebrow"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              fontSize: 11,
-              fontWeight: 700,
-              letterSpacing: 1,
-              textTransform: 'uppercase',
-              color: 'var(--color-brand)',
-              marginBottom: 4,
-            }}
-          >
-            <BookOpen size={14} /> BASE DE CONHECIMENTO VETORIAL (RAG)
-          </span>
-          <h1 style={{ margin: '4px 0 8px', fontSize: 26, fontWeight: 700 }}>
-            Base de Conhecimento do SDR
-          </h1>
-          <p className="muted" style={{ margin: 0, fontSize: 14, maxWidth: 680 }}>
-            Tabelas de valores, planos, especialidades, regras de carência e respostas para objeções.
-            A IA consulta estes dados antes de responder aos clientes no WhatsApp, garantindo respostas com 100% de precisão e zero alucinações.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          className="primary"
-          onClick={openCreateModal}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '10px 18px',
-            fontSize: 14,
-            fontWeight: 600,
-            borderRadius: 8,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-          }}
-        >
-          <Plus size={18} /> Novo Documento
-        </button>
-      </div>
-
-      {/* Metrics Row */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          gap: 14,
-          marginBottom: 28,
-        }}
-      >
-        <div
-          style={{
-            background: 'var(--color-bg-surface)',
-            border: '1px solid var(--color-border-secondary)',
-            borderRadius: 10,
-            padding: '14px 18px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 14,
-          }}
-        >
-          <div
-            style={{
-              width: 42,
-              height: 42,
-              borderRadius: 8,
-              background: 'rgba(59, 130, 246, 0.12)',
-              color: '#3b82f6',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Database size={22} />
-          </div>
+    <div className="h-full overflow-y-auto p-6 md:p-8 bg-canvas text-content">
+      <div className="max-w-6xl mx-auto space-y-6">
+        {/* Header Banner */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <div style={{ fontSize: 20, fontWeight: 700 }}>{documents.length}</div>
-            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>Documentos Ativos</div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            background: 'var(--color-bg-surface)',
-            border: '1px solid var(--color-border-secondary)',
-            borderRadius: 10,
-            padding: '14px 18px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 14,
-          }}
-        >
-          <div
-            style={{
-              width: 42,
-              height: 42,
-              borderRadius: 8,
-              background: 'rgba(16, 185, 129, 0.12)',
-              color: '#10b981',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Layers size={22} />
-          </div>
-          <div>
-            <div style={{ fontSize: 20, fontWeight: 700 }}>~{totalTokens.toLocaleString()}</div>
-            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>Tokens Indexados</div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            background: 'var(--color-bg-surface)',
-            border: '1px solid var(--color-border-secondary)',
-            borderRadius: 10,
-            padding: '14px 18px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 14,
-          }}
-        >
-          <div
-            style={{
-              width: 42,
-              height: 42,
-              borderRadius: 8,
-              background: 'rgba(139, 92, 246, 0.12)',
-              color: '#8b5cf6',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Sparkles size={22} />
-          </div>
-          <div>
-            <div style={{ fontSize: 20, fontWeight: 700 }}>{COLLECTIONS.length}</div>
-            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>Categorias Oficiais</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Semantic Search Tester Card */}
-      <div
-        style={{
-          background: 'var(--color-bg-surface)',
-          border: '1px solid var(--color-border-secondary)',
-          borderRadius: 10,
-          padding: 20,
-          marginBottom: 28,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-          <Search size={18} style={{ color: 'var(--color-brand)' }} />
-          <h2 style={{ fontSize: 15, margin: 0, fontWeight: 600 }}>
-            Testador de Busca Semântica da IA
-          </h2>
-          <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginLeft: 'auto' }}>
-            Simula como a IA encontra informações para responder ao cliente
-          </span>
-        </div>
-
-        <form onSubmit={handleSearch} style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Digite uma pergunta real de cliente: ex: Quanto custa o plano familiar? Tem carência para dentista?"
-            style={{ flex: 1, minWidth: 280 }}
-          />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <label style={{ fontSize: 12, margin: 0, color: 'var(--color-text-secondary)' }}>Limiar:</label>
-            <input
-              type="number"
-              min={0.1}
-              max={0.99}
-              step={0.05}
-              value={searchThreshold}
-              onChange={e => setSearchThreshold(parseFloat(e.target.value))}
-              style={{ width: 68 }}
-              title="Sensibilidade mínima de similaridade vetorial"
-            />
-          </div>
-          <button type="submit" className="secondary" disabled={searching || !searchQuery.trim()}>
-            {searching ? 'Pesquisando...' : 'Testar Busca'}
-          </button>
-        </form>
-
-        {searchResults && (
-          <div style={{ marginTop: 18, borderTop: '1px solid var(--color-border-secondary)', paddingTop: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <h3 style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: 0, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Resultados Encontrados ({searchResults.length}):
-              </h3>
-              <button
-                type="button"
-                onClick={() => setSearchResults(null)}
-                style={{ fontSize: 11, background: 'none', border: 'none', color: 'var(--color-text-secondary)', cursor: 'pointer' }}
-              >
-                Limpar resultados
-              </button>
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand mb-1">
+              <BookOpen className="w-3.5 h-3.5" /> BASE DE CONHECIMENTO VETORIAL (RAG)
             </div>
-
-            {searchResults.length === 0 ? (
-              <div style={{ padding: 16, textAlign: 'center', background: 'var(--color-bg-secondary)', borderRadius: 8, fontSize: 13, color: 'var(--color-text-secondary)' }}>
-                Nenhum documento atingiu o limiar de similaridade de {(searchThreshold * 100).toFixed(0)}%. Tente diminuir o limiar ou adicionar informações sobre este tema.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {searchResults.map(hit => {
-                  const meta = getCollectionMeta(hit.collection);
-                  const simPct = Math.round(hit.similarity * 100);
-                  const simColor = simPct >= 65 ? '#10b981' : simPct >= 40 ? '#f59e0b' : '#64748b';
-                  return (
-                    <div
-                      key={hit.id}
-                      style={{
-                        padding: '12px 16px',
-                        background: 'var(--color-bg-secondary)',
-                        borderRadius: 8,
-                        border: '1px solid var(--color-border-secondary)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ fontSize: 14 }}>{meta.icon}</span>
-                          <strong style={{ fontSize: 13 }}>{hit.title}</strong>
-                          <span
-                            style={{
-                              fontSize: 10,
-                              textTransform: 'uppercase',
-                              padding: '2px 6px',
-                              borderRadius: 4,
-                              background: meta.badgeBg,
-                              color: meta.tagColor,
-                              fontWeight: 700,
-                            }}
-                          >
-                            {meta.name}
-                          </span>
-                        </div>
-                        <span
-                          style={{
-                            fontSize: 12,
-                            fontWeight: 700,
-                            color: simColor,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                          }}
-                        >
-                          <Check size={13} /> {simPct}% de correspondência
-                        </span>
-                      </div>
-                      <p style={{ margin: 0, fontSize: 12.5, whiteSpace: 'pre-wrap', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
-                        {hit.content}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <h1 className="text-2xl font-bold text-content tracking-tight">
+              Base de Conhecimento do SDR
+            </h1>
+            <p className="text-sm text-content-secondary max-w-2xl mt-1">
+              Tabelas de valores, planos, especialidades, regras de carência e respostas para objeções.
+              A IA consulta estes dados antes de responder aos clientes no WhatsApp, garantindo respostas com 100% de precisão e zero alucinações.
+            </p>
           </div>
-        )}
-      </div>
 
-      {/* Collection Filters Bar */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20, overflowX: 'auto', paddingBottom: 4 }}>
-        <button
-          type="button"
-          className={selectedCollection === 'all' ? 'primary' : 'secondary'}
-          onClick={() => setSelectedCollection('all')}
-          style={{ fontSize: 13, padding: '6px 14px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}
-        >
-          <span>📁 Todas as Coleções</span>
-          <span style={{ fontSize: 11, opacity: 0.8 }}>({documents.length})</span>
-        </button>
-
-        {COLLECTIONS.map(col => {
-          const count = documents.filter(d => d.collection.toLowerCase() === col.id.toLowerCase()).length;
-          return (
-            <button
-              key={col.id}
-              type="button"
-              className={selectedCollection === col.id ? 'primary' : 'secondary'}
-              onClick={() => setSelectedCollection(col.id)}
-              style={{ fontSize: 13, padding: '6px 14px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <span>{col.icon} {col.name}</span>
-              <span style={{ fontSize: 11, opacity: 0.8 }}>({count})</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Document Grid or Empty State */}
-      {error && (
-        <div style={{ padding: 14, background: '#fee2e2', color: '#b91c1c', borderRadius: 8, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <AlertCircle size={18} /> {error}
-        </div>
-      )}
-
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: 60, color: 'var(--color-text-secondary)' }}>
-          Carregando base de conhecimento...
-        </div>
-      ) : documents.length === 0 ? (
-        <div
-          style={{
-            border: '2px dashed var(--color-border-secondary)',
-            borderRadius: 12,
-            padding: '50px 24px',
-            textAlign: 'center',
-            background: 'var(--color-bg-surface)',
-          }}
-        >
-          <div
-            style={{
-              width: 56,
-              height: 56,
-              borderRadius: '50%',
-              background: 'rgba(59, 130, 246, 0.1)',
-              color: 'var(--color-brand)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              margin: '0 auto 16px',
-            }}
-          >
-            <Database size={28} />
-          </div>
-          <h3 style={{ fontSize: 18, margin: '0 0 8px', fontWeight: 600 }}>Nenhum documento cadastrado nesta categoria</h3>
-          <p style={{ fontSize: 14, color: 'var(--color-text-secondary)', maxWidth: 520, margin: '0 auto 20px', lineHeight: 1.5 }}>
-            Cadastre os preços dos seus planos, especialidades e respostas a dúvidas frequentes para que a IA atenda seus leads no WhatsApp de forma precisa.
-          </p>
-          <button
+          <Button
             type="button"
-            className="primary"
+            variant="primary"
             onClick={openCreateModal}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', fontSize: 14, fontWeight: 600 }}
+            className="self-start sm:self-auto shrink-0 shadow-sm"
           >
-            <Plus size={16} /> Cadastrar Primeiro Documento
-          </button>
+            <Plus className="w-4 h-4" /> Novo Documento
+          </Button>
         </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
-          {documents.map(doc => {
-            const meta = getCollectionMeta(doc.collection);
-            return (
-              <div
-                key={doc.id}
-                style={{
-                  background: 'var(--color-bg-surface)',
-                  border: '1px solid var(--color-border-secondary)',
-                  borderRadius: 10,
-                  padding: '18px 20px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-                  transition: 'border-color 0.15s ease',
-                }}
-              >
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 700,
-                        textTransform: 'uppercase',
-                        padding: '3px 8px',
-                        borderRadius: 4,
-                        background: meta.badgeBg,
-                        color: meta.tagColor,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                      }}
-                    >
-                      <span>{meta.icon}</span> {meta.name}
-                    </span>
-                    <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>
-                      ~{doc.token_count} tokens
-                    </span>
-                  </div>
 
-                  <h3 style={{ fontSize: 15, margin: '0 0 8px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                    {doc.title}
-                  </h3>
-
-                  <p
-                    style={{
-                      fontSize: 13,
-                      color: 'var(--color-text-secondary)',
-                      margin: 0,
-                      lineHeight: 1.5,
-                      maxHeight: 92,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'pre-wrap',
-                    }}
-                  >
-                    {doc.content}
-                  </p>
-                </div>
-
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginTop: 16,
-                    paddingTop: 12,
-                    borderTop: '1px solid var(--color-border-secondary)',
-                  }}
-                >
-                  <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
-                    {new Date(doc.created_at).toLocaleDateString('pt-BR')}
-                  </span>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => openEditModal(doc)}
-                      style={{
-                        padding: '4px 10px',
-                        fontSize: 12,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                      }}
-                    >
-                      <Edit3 size={13} /> Ver / Editar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(doc.id, doc.title)}
-                      style={{
-                        border: 'none',
-                        background: 'transparent',
-                        color: '#ef4444',
-                        cursor: 'pointer',
-                        padding: 6,
-                        borderRadius: 6,
-                        display: 'flex',
-                        alignItems: 'center',
-                      }}
-                      title="Excluir documento"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* MODERN REDESIGNED ADD / EDIT MODAL */}
-      {showAddModal && (
-        <div className="modal-overlay" style={{ zIndex: 1100 }}>
-          <div
-            className="modal-content"
-            style={{
-              maxWidth: 740,
-              width: '95%',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-              borderRadius: 12,
-              padding: '24px 28px',
-            }}
-          >
-            {/* Modal Header */}
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'flex-start',
-                marginBottom: 20,
-                borderBottom: '1px solid var(--color-border-secondary)',
-                paddingBottom: 16,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 10,
-                    background: 'rgba(59, 130, 246, 0.12)',
-                    color: 'var(--color-brand)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <BookOpen size={24} />
-                </div>
-                <div>
-                  <h2 style={{ fontSize: 18, margin: '0 0 4px', fontWeight: 700 }}>
-                    {editingDocId ? 'Editar Documento de Conhecimento' : 'Novo Documento de Conhecimento'}
-                  </h2>
-                  <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-secondary)' }}>
-                    Alimente a IA com informações oficiais e verdadeiras para atendimento no WhatsApp.
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setShowAddModal(false)}
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  color: 'var(--color-text-secondary)',
-                  cursor: 'pointer',
-                  padding: 4,
-                  borderRadius: 6,
-                }}
-                title="Fechar"
-              >
-                <X size={20} />
-              </button>
+        {/* Metrics Row */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Card className="p-4 flex items-center gap-4">
+            <div className="w-10 h-10 rounded-lg bg-info/10 text-info flex items-center justify-center shrink-0">
+              <Database className="w-5 h-5" />
             </div>
+            <div>
+              <div className="text-2xl font-bold text-content">{documents.length}</div>
+              <div className="text-xs text-content-secondary">Documentos Ativos</div>
+            </div>
+          </Card>
 
-            {modalError && (
-              <div
-                style={{
-                  padding: '12px 16px',
-                  background: '#fee2e2',
-                  color: '#b91c1c',
-                  borderRadius: 8,
-                  fontSize: 13,
-                  marginBottom: 16,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                }}
-              >
-                <AlertCircle size={16} />
-                <span>{modalError}</span>
-              </div>
-            )}
+          <Card className="p-4 flex items-center gap-4">
+            <div className="w-10 h-10 rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0">
+              <Layers className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-content">~{totalTokens.toLocaleString()}</div>
+              <div className="text-xs text-content-secondary">Tokens Indexados</div>
+            </div>
+          </Card>
 
-            <form onSubmit={handleSave}>
-              {/* Category Selector Cards */}
-              <div style={{ marginBottom: 20 }}>
-                <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 8 }}>
-                  Selecione a Coleção / Categoria:
-                </label>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-                    gap: 10,
-                  }}
+          <Card className="p-4 flex items-center gap-4">
+            <div className="w-10 h-10 rounded-lg bg-accent/10 text-accent flex items-center justify-center shrink-0">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-content">{COLLECTIONS.length}</div>
+              <div className="text-xs text-content-secondary">Categorias Oficiais</div>
+            </div>
+          </Card>
+        </div>
+
+        {/* Semantic Search Tester Card */}
+        <Card className="p-5">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2">
+              <Search className="w-4 h-4 text-brand" />
+              <h2 className="text-sm font-semibold text-content">
+                Testador de Busca Semântica da IA
+              </h2>
+            </div>
+            <span className="text-xs text-content-muted hidden sm:inline">
+              Simula como a IA encontra informações para responder ao cliente
+            </span>
+          </div>
+
+          <form onSubmit={handleSearch} className="flex gap-2.5 flex-wrap">
+            <div className="flex-1 min-w-[280px]">
+              <Input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Digite uma pergunta real de cliente: ex: Quanto custa o plano familiar? Tem carência para dentista?"
+              />
+            </div>
+            <div className="flex items-center gap-2 bg-surface-secondary px-3 py-1.5 rounded-lg border border-border">
+              <label className="text-xs text-content-secondary">Limiar:</label>
+              <input
+                type="number"
+                min={0.1}
+                max={0.99}
+                step={0.05}
+                value={searchThreshold}
+                onChange={e => setSearchThreshold(parseFloat(e.target.value))}
+                className="w-14 px-1.5 py-0.5 text-xs bg-surface border border-border rounded text-content text-center focus:outline-none focus:ring-1 focus:ring-brand"
+                title="Sensibilidade mínima de similaridade vetorial"
+              />
+            </div>
+            <Button
+              type="submit"
+              variant="secondary"
+              disabled={searching || !searchQuery.trim()}
+            >
+              {searching ? 'Pesquisando...' : 'Testar Busca'}
+            </Button>
+          </form>
+
+          {searchResults && (
+            <div className="mt-4 pt-4 border-t border-border">
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-content-muted">
+                  Resultados Encontrados ({searchResults.length}):
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setSearchResults(null)}
+                  className="text-xs text-content-muted hover:text-content transition-colors"
                 >
-                  {COLLECTIONS.map(col => {
-                    const isSelected = modalCollection === col.id;
+                  Limpar resultados
+                </button>
+              </div>
+
+              {searchResults.length === 0 ? (
+                <div className="p-4 text-center bg-surface-secondary rounded-lg text-xs text-content-secondary border border-border/60">
+                  Nenhum documento atingiu o limiar de similaridade de {(searchThreshold * 100).toFixed(0)}%. Tente diminuir o limiar ou adicionar informações sobre este tema.
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2.5">
+                  {searchResults.map(hit => {
+                    const meta = getCollectionMeta(hit.collection);
+                    const simPct = Math.round(hit.similarity * 100);
+                    const isHigh = simPct >= 65;
+                    const isMid = simPct >= 40;
                     return (
                       <div
-                        key={col.id}
-                        onClick={() => setModalCollection(col.id)}
-                        style={{
-                          border: isSelected
-                            ? '2px solid var(--color-brand)'
-                            : '1px solid var(--color-border-secondary)',
-                          borderRadius: 8,
-                          padding: '10px 12px',
-                          cursor: 'pointer',
-                          background: isSelected ? col.badgeBg : 'var(--color-bg-surface)',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: 4,
-                          position: 'relative',
-                          transition: 'all 0.15s ease',
-                        }}
+                        key={hit.id}
+                        className="p-3.5 bg-surface-secondary rounded-lg border border-border/60"
                       >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontSize: 18 }}>{col.icon}</span>
-                          {isSelected && (
+                        <div className="flex justify-between items-center mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm">{meta.icon}</span>
+                            <strong className="text-xs text-content">{hit.title}</strong>
                             <span
-                              style={{
-                                width: 18,
-                                height: 18,
-                                borderRadius: '50%',
-                                background: 'var(--color-brand)',
-                                color: '#fff',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              }}
+                              className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded"
+                              style={{ background: meta.badgeBg, color: meta.tagColor }}
                             >
-                              <Check size={11} />
+                              {meta.name}
                             </span>
-                          )}
+                          </div>
+                          <Badge variant={isHigh ? 'success' : isMid ? 'warning' : 'default'} size="sm">
+                            <Check className="w-3 h-3 mr-1" /> {simPct}% de correspondência
+                          </Badge>
                         </div>
-                        <strong style={{ fontSize: 12, color: 'var(--color-text-primary)' }}>{col.name}</strong>
+                        <p className="text-xs text-content-secondary leading-relaxed whitespace-pre-wrap">
+                          {hit.content}
+                        </p>
                       </div>
                     );
                   })}
                 </div>
+              )}
+            </div>
+          )}
+        </Card>
 
-                {/* Selected category tip */}
-                <div
-                  style={{
-                    marginTop: 8,
-                    padding: '8px 12px',
-                    background: 'var(--color-bg-secondary)',
-                    borderRadius: 6,
-                    fontSize: 12,
-                    color: 'var(--color-text-secondary)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <span>
-                    💡 <strong>{currentMeta.name}:</strong> {currentMeta.description}
-                  </span>
-                  {!editingDocId && (
-                    <button
-                      type="button"
-                      onClick={() => applyExampleTemplate(modalCollection)}
-                      style={{
-                        border: 'none',
-                        background: 'none',
-                        color: 'var(--color-brand)',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        fontSize: 11,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      <Sparkles size={12} /> Carregar Exemplo Pronto
-                    </button>
-                  )}
-                </div>
-              </div>
+        {/* Collection Filters Bar */}
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+          <button
+            type="button"
+            onClick={() => setSelectedCollection('all')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${
+              selectedCollection === 'all'
+                ? 'bg-brand text-white shadow-sm'
+                : 'bg-surface border border-border text-content-secondary hover:text-content hover:bg-surface-hover'
+            }`}
+          >
+            <span>📁 Todas as Coleções</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedCollection === 'all' ? 'bg-white/20 text-white' : 'bg-surface-secondary text-content-muted'}`}>
+              {documents.length}
+            </span>
+          </button>
 
-              {/* Title Field */}
-              <div style={{ marginBottom: 18 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <label style={{ fontSize: 13, fontWeight: 600 }}>Título do Documento ou Pergunta-Chave</label>
-                  <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>
-                    Exclusivo e descritivo
-                  </span>
-                </div>
-                <input
-                  type="text"
-                  required
-                  value={modalTitle}
-                  onChange={e => setModalTitle(e.target.value)}
-                  placeholder={currentMeta.placeholderTitle}
-                  style={{ width: '100%', fontSize: 14, padding: '10px 14px' }}
-                />
-                <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--color-text-secondary)' }}>
-                  Dica: Títulos claros e contextuais ajudam o algoritmo a encontrar o documento correto durante a conversa.
-                </p>
-              </div>
-
-              {/* Content Textarea */}
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <label style={{ fontSize: 13, fontWeight: 600 }}>
-                    Conteúdo Factual / Informações Oficiais
-                  </label>
-                  <span style={{ fontSize: 12, color: 'var(--color-brand)', fontWeight: 600 }}>
-                    ~{wordCount} palavras • ~{tokenEstimate} tokens estimados
-                  </span>
-                </div>
-                <textarea
-                  required
-                  rows={9}
-                  value={modalContent}
-                  onChange={e => setModalContent(e.target.value)}
-                  placeholder="Escreva as informações em tópicos claros com valores em R$, prazos e condições exatas..."
-                  style={{
-                    width: '100%',
-                    resize: 'vertical',
-                    fontFamily: 'inherit',
-                    fontSize: 13.5,
-                    lineHeight: 1.5,
-                    padding: '12px 14px',
-                  }}
-                />
-                <div
-                  style={{
-                    marginTop: 6,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    fontSize: 11,
-                    color: 'var(--color-text-secondary)',
-                  }}
-                >
-                  <span>
-                    A IA usará este texto como fonte inquestionável de verdade (Grounding) para não alucinar valores.
-                  </span>
-                  <span>Markdown suportado (•, -, #)</span>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'flex-end',
-                  gap: 12,
-                  borderTop: '1px solid var(--color-border-secondary)',
-                  paddingTop: 16,
-                }}
+          {COLLECTIONS.map(col => {
+            const isSelected = selectedCollection === col.id;
+            const count = documents.filter(d => d.collection.toLowerCase() === col.id.toLowerCase()).length;
+            return (
+              <button
+                key={col.id}
+                type="button"
+                onClick={() => setSelectedCollection(col.id)}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${
+                  isSelected
+                    ? 'bg-brand text-white shadow-sm'
+                    : 'bg-surface border border-border text-content-secondary hover:text-content hover:bg-surface-hover'
+                }`}
               >
+                <span>{col.icon} {col.name}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-surface-secondary text-content-muted'}`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Document Grid or Empty State */}
+        {error && (
+          <div className="p-3.5 rounded-lg bg-danger/10 border border-danger/20 text-danger text-sm flex items-center gap-2.5">
+            <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="py-16 text-center text-sm text-content-muted">
+            Carregando base de conhecimento...
+          </div>
+        ) : documents.length === 0 ? (
+          <Card className="py-14 px-6 text-center border-dashed">
+            <div className="w-12 h-12 rounded-full bg-brand/10 text-brand flex items-center justify-center mx-auto mb-3">
+              <Database className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-semibold text-content mb-1.5">
+              Nenhum documento cadastrado nesta categoria
+            </h3>
+            <p className="text-sm text-content-secondary max-w-md mx-auto mb-5 leading-relaxed">
+              Cadastre os preços dos seus planos, especialidades e respostas a dúvidas frequentes para que a IA atenda seus leads no WhatsApp de forma precisa.
+            </p>
+            <Button variant="primary" onClick={openCreateModal}>
+              <Plus className="w-4 h-4" /> Cadastrar Primeiro Documento
+            </Button>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {documents.map(doc => {
+              const meta = getCollectionMeta(doc.collection);
+              return (
+                <Card
+                  key={doc.id}
+                  className="p-5 flex flex-col justify-between hover:border-border-hover transition-colors shadow-sm"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-2.5">
+                      <span
+                        className="text-[11px] font-semibold uppercase px-2 py-0.5 rounded flex items-center gap-1.5"
+                        style={{ background: meta.badgeBg, color: meta.tagColor }}
+                      >
+                        <span>{meta.icon}</span> {meta.name}
+                      </span>
+                      <span className="text-xs text-content-muted">
+                        ~{doc.token_count} tokens
+                      </span>
+                    </div>
+
+                    <h3 className="text-sm font-semibold text-content mb-2 line-clamp-1">
+                      {doc.title}
+                    </h3>
+
+                    <p className="text-xs text-content-secondary line-clamp-4 whitespace-pre-wrap leading-relaxed">
+                      {doc.content}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-3 mt-4 border-t border-border/60">
+                    <span className="text-[11px] text-content-muted">
+                      {new Date(doc.created_at).toLocaleDateString('pt-BR')}
+                    </span>
+
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openEditModal(doc)}
+                        className="text-xs h-7 px-2.5"
+                      >
+                        <Edit3 className="w-3.5 h-3.5 mr-1" /> Editar
+                      </Button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(doc.id, doc.title)}
+                        className="p-1.5 rounded text-content-muted hover:text-danger hover:bg-danger/10 transition-colors"
+                        title="Excluir documento"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+
+        {/* MODERN REDESIGNED ADD / EDIT MODAL */}
+        {showAddModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+            <div className="bg-surface border border-border rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 flex flex-col">
+              {/* Modal Header */}
+              <div className="flex items-start justify-between pb-4 border-b border-border mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0">
+                    <BookOpen className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-content">
+                      {editingDocId ? 'Editar Documento de Conhecimento' : 'Novo Documento de Conhecimento'}
+                    </h2>
+                    <p className="text-xs text-content-secondary mt-0.5">
+                      Alimente a IA com informações oficiais e verdadeiras para atendimento no WhatsApp.
+                    </p>
+                  </div>
+                </div>
+
                 <button
                   type="button"
-                  className="secondary"
                   onClick={() => setShowAddModal(false)}
-                  disabled={saving}
-                  style={{ padding: '10px 18px' }}
+                  className="p-1.5 rounded-lg text-content-muted hover:text-content hover:bg-surface-secondary transition-colors"
+                  title="Fechar"
                 >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="primary"
-                  disabled={saving}
-                  style={{
-                    padding: '10px 22px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    fontWeight: 600,
-                  }}
-                >
-                  {saving ? (
-                    'Gravando na Base...'
-                  ) : editingDocId ? (
-                    'Atualizar Documento'
-                  ) : (
-                    <>
-                      <CheckCircle2 size={16} /> Salvar Documento
-                    </>
-                  )}
+                  <X className="w-5 h-5" />
                 </button>
               </div>
-            </form>
+
+              {modalError && (
+                <div className="p-3 rounded-lg bg-danger/10 border border-danger/20 text-danger text-xs flex items-center gap-2 mb-4">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{modalError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleSave} className="space-y-4">
+                {/* Category Selector Cards */}
+                <div>
+                  <label className="text-xs font-semibold text-content block mb-2">
+                    Selecione a Coleção / Categoria:
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                    {COLLECTIONS.map(col => {
+                      const isSelected = modalCollection === col.id;
+                      return (
+                        <div
+                          key={col.id}
+                          onClick={() => setModalCollection(col.id)}
+                          className={`p-2.5 rounded-lg border cursor-pointer flex flex-col gap-1 transition-all ${
+                            isSelected
+                              ? 'border-brand ring-1 ring-brand bg-brand/5'
+                              : 'border-border bg-surface hover:bg-surface-hover'
+                          }`}
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className="text-lg">{col.icon}</span>
+                            {isSelected && (
+                              <span className="w-4 h-4 rounded-full bg-brand text-white flex items-center justify-center text-[10px]">
+                                <Check className="w-3 h-3" />
+                              </span>
+                            )}
+                          </div>
+                          <strong className="text-xs text-content font-medium leading-tight mt-1">{col.name}</strong>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Selected category tip */}
+                  <div className="mt-2.5 p-2.5 bg-surface-secondary border border-border/60 rounded-lg text-xs text-content-secondary flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <span>
+                      💡 <strong className="text-content">{currentMeta.name}:</strong> {currentMeta.description}
+                    </span>
+                    {!editingDocId && (
+                      <button
+                        type="button"
+                        onClick={() => applyExampleTemplate(modalCollection)}
+                        className="text-xs font-semibold text-brand hover:underline flex items-center gap-1 shrink-0"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" /> Carregar Exemplo Pronto
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Title Field */}
+                <div>
+                  <div className="flex justify-between items-center mb-1.5">
+                    <label className="text-xs font-semibold text-content">Título do Documento ou Pergunta-Chave</label>
+                    <span className="text-[11px] text-content-muted">Exclusivo e descritivo</span>
+                  </div>
+                  <Input
+                    type="text"
+                    required
+                    value={modalTitle}
+                    onChange={e => setModalTitle(e.target.value)}
+                    placeholder={currentMeta.placeholderTitle}
+                  />
+                  <p className="mt-1 text-[11px] text-content-muted">
+                    Dica: Títulos claros e contextuais ajudam o algoritmo a encontrar o documento correto durante a conversa.
+                  </p>
+                </div>
+
+                {/* Content Textarea */}
+                <div>
+                  <div className="flex justify-between items-center mb-1.5">
+                    <label className="text-xs font-semibold text-content">
+                      Conteúdo Factual / Informações Oficiais
+                    </label>
+                    <span className="text-xs text-brand font-medium">
+                      ~{wordCount} palavras • ~{tokenEstimate} tokens estimados
+                    </span>
+                  </div>
+                  <textarea
+                    required
+                    rows={8}
+                    value={modalContent}
+                    onChange={e => setModalContent(e.target.value)}
+                    placeholder="Escreva as informações em tópicos claros com valores em R$, prazos e condições exatas..."
+                    className="w-full bg-surface border border-border rounded-lg text-content p-3 text-xs leading-relaxed focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand resize-y font-mono"
+                  />
+                  <div className="mt-1.5 flex justify-between items-center text-[11px] text-content-muted">
+                    <span>A IA usará este texto como fonte inquestionável de verdade (Grounding) para não alucinar valores.</span>
+                    <span>Markdown suportado (•, -, #)</span>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex justify-end gap-2.5 pt-4 border-t border-border">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setShowAddModal(false)}
+                    disabled={saving}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    loading={saving}
+                  >
+                    {editingDocId ? 'Atualizar Documento' : 'Salvar Documento'}
+                  </Button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

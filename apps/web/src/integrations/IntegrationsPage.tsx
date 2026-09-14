@@ -15,9 +15,11 @@ import {
   Info,
   Radio,
   Settings2,
-  Lock
+  Lock,
+  X,
 } from 'lucide-react';
 import { useInstance } from '../context/InstanceContext';
+import { Button, Badge, Card } from '../components/ui';
 
 interface Integration {
   id: string;
@@ -194,444 +196,309 @@ export function IntegrationsPage() {
   const currentInstanceObj = instances.find(i => i.name === activeInstance || i.id === activeInstance);
 
   return (
-    <div className="page-content" style={{ maxWidth: 1100, margin: '0 auto', padding: '32px 24px' }}>
-      {/* Header com Seletor de Instância */}
-      <div style={{ marginBottom: 32 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--color-text-secondary)', fontSize: 12, marginBottom: 8 }}>
-          <span>Painel</span>
-          <ChevronRight size={13} />
-          <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>Conexões Externas & Integrações</span>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
-          <div>
-            <h1 style={{ fontSize: 24, fontWeight: 700, margin: '0 0 6px', color: 'var(--color-text-primary)' }}>
-              Integrações por Instância
-            </h1>
-            <p style={{ margin: 0, color: 'var(--color-text-secondary)', fontSize: 13, maxWidth: 650 }}>
-              Cada instância do WhatsApp conecta sua própria agenda Google e ferramentas externas. Gerencie as conexões para a instância selecionada no topo.
-            </p>
+    <div className="h-full overflow-y-auto p-6 md:p-8 bg-canvas text-content">
+      <div className="max-w-5xl mx-auto space-y-6">
+        {/* Header com Seletor de Instância */}
+        <div>
+          <div className="flex items-center gap-1.5 text-xs text-content-muted mb-2">
+            <span>Painel</span>
+            <ChevronRight className="w-3 h-3" />
+            <span className="text-content font-medium">Conexões Externas & Integrações</span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {/* Indicador de Instância Ativa */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                background: 'var(--color-bg-primary)',
-                border: '1px solid var(--color-border)',
-                padding: '6px 12px',
-                borderRadius: 8,
-                boxShadow: 'var(--shadow-sm)',
-              }}
-            >
-              <Radio size={15} color={currentInstanceObj?.status === 'connected' ? '#16a34a' : '#94a3b8'} />
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)' }}>Instância:</span>
-              <strong style={{ fontSize: 13, color: 'var(--color-text-primary)' }}>
-                {currentInstanceObj?.name || activeInstance || 'Nenhuma'}
-                {currentInstanceObj?.phone ? ` (${currentInstanceObj.phone})` : ''}
-              </strong>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-content tracking-tight">
+                Integrações por Instância
+              </h1>
+              <p className="text-sm text-content-secondary max-w-xl mt-1">
+                Cada instância do WhatsApp conecta sua própria agenda Google e ferramentas externas. Gerencie as conexões para a instância selecionada no topo.
+              </p>
             </div>
 
-            <button
-              onClick={() => { setLoading(true); void fetchIntegrations(); }}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '7px 12px' }}
-              title="Recarregar integrações"
+            <div className="flex items-center gap-2.5">
+              {/* Indicador de Instância Ativa */}
+              <div className="flex items-center gap-2 bg-surface border border-border px-3 py-1.5 rounded-lg shadow-sm">
+                <Radio className={`w-3.5 h-3.5 ${currentInstanceObj?.status === 'connected' ? 'text-success' : 'text-content-muted'}`} />
+                <span className="text-xs text-content-secondary font-medium">Instância:</span>
+                <strong className="text-xs text-content font-semibold">
+                  {currentInstanceObj?.name || activeInstance || 'Nenhuma'}
+                  {currentInstanceObj?.phone ? ` (${currentInstanceObj.phone})` : ''}
+                </strong>
+              </div>
+
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => { setLoading(true); void fetchIntegrations(); }}
+                title="Recarregar integrações"
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Alerta de Status da Plataforma */}
+        {!googlePlatformConfigured && (
+          <div className="flex items-center justify-between gap-3 p-3.5 rounded-lg bg-warning/10 border border-warning/20 text-warning text-sm">
+            <div className="flex items-center gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>
+                <strong>Credenciais globais do Google não configuradas:</strong> O administrador precisa cadastrar o Google Client ID e Secret nas configurações da plataforma para habilitar o login em 1 clique.
+              </span>
+            </div>
+            <Link
+              to="/settings"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold underline whitespace-nowrap shrink-0 hover:opacity-80"
             >
-              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              <Settings2 className="w-3.5 h-3.5" /> Configurar Agora
+            </Link>
+          </div>
+        )}
+
+        {/* Alertas dinâmicos */}
+        {message && (
+          <div
+            className={`flex items-center gap-2.5 p-3.5 rounded-lg text-sm border ${
+              message.type === 'success'
+                ? 'bg-success/10 border-success/20 text-success'
+                : message.type === 'error'
+                ? 'bg-danger/10 border-danger/20 text-danger'
+                : 'bg-info/10 border-info/20 text-info'
+            }`}
+          >
+            {message.type === 'success' && <CheckCircle2 className="w-4 h-4 shrink-0" />}
+            {message.type === 'error' && <AlertCircle className="w-4 h-4 shrink-0" />}
+            {message.type === 'info' && <Info className="w-4 h-4 shrink-0" />}
+            <span className="flex-1 text-xs font-medium">{message.text}</span>
+            <button
+              onClick={() => setMessage(null)}
+              className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/5 text-current opacity-70 hover:opacity-100 transition-opacity"
+            >
+              <X className="w-4 h-4" />
             </button>
           </div>
-        </div>
-      </div>
+        )}
 
-      {/* Alerta de Status da Plataforma (se o admin não tiver configurado ainda) */}
-      {!googlePlatformConfigured && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-            padding: '12px 16px',
-            borderRadius: 8,
-            marginBottom: 24,
-            fontSize: 13,
-            background: '#fffbeb',
-            color: '#b45309',
-            border: '1px solid #fde68a',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <AlertCircle size={18} color="#d97706" />
-            <span>
-              <strong>Credenciais globais do Google não configuradas:</strong> O administrador precisa cadastrar o Google Client ID e Secret nas configurações da plataforma para habilitar o login em 1 clique.
-            </span>
-          </div>
-          <Link
-            to="/settings"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 5,
-              fontSize: 12,
-              fontWeight: 600,
-              color: '#d97706',
-              textDecoration: 'underline',
-              whiteSpace: 'nowrap',
-            }}
+        {/* Grid de Integrações */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {/* Card Google Calendar */}
+          <Card
+            className={`p-6 flex flex-col justify-between relative transition-colors ${
+              googleIntegration ? 'border-success/40 ring-1 ring-success/20' : ''
+            }`}
           >
-            <Settings2 size={13} /> Configurar Agora
-          </Link>
-        </div>
-      )}
-
-      {/* Alertas dinâmicos */}
-      {message && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: '12px 16px',
-            borderRadius: 8,
-            marginBottom: 24,
-            fontSize: 13,
-            background: message.type === 'success' ? '#f0fdf4' : message.type === 'error' ? '#fef2f2' : '#eff6ff',
-            color: message.type === 'success' ? '#15803d' : message.type === 'error' ? '#b91c1c' : '#1d4ed8',
-            border: `1px solid ${message.type === 'success' ? '#bbf7d0' : message.type === 'error' ? '#fecaca' : '#bfdbfe'}`,
-          }}
-        >
-          {message.type === 'success' && <CheckCircle2 size={16} />}
-          {message.type === 'error' && <AlertCircle size={16} />}
-          {message.type === 'info' && <Info size={16} />}
-          <span style={{ flex: 1 }}>{message.text}</span>
-          <button
-            onClick={() => setMessage(null)}
-            style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 2, color: 'inherit', minHeight: 'auto' }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
-      {/* Grid de Integrações */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
-        
-        {/* Card Google Calendar (1-Clique por Instância) */}
-        <div
-          style={{
-            background: 'var(--color-bg-primary)',
-            border: `1px solid ${googleIntegration ? '#16a34a44' : 'var(--color-border-secondary)'}`,
-            borderRadius: 12,
-            padding: 24,
-            display: 'flex',
-            flexDirection: 'column',
-            position: 'relative',
-            boxShadow: 'var(--shadow)',
-            transition: 'border-color 0.2s ease',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 10,
-                  background: '#2563eb12',
-                  display: 'grid',
-                  placeItems: 'center',
-                  color: '#2563eb',
-                }}
-              >
-                <Calendar size={24} />
-              </div>
-              <div>
-                <h3 style={{ margin: '0 0 2px', fontSize: 16, fontWeight: 700 }}>Google Calendar</h3>
-                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>
-                  Instância: <strong>{activeInstance || 'Nenhuma'}</strong>
-                </span>
-              </div>
-            </div>
-
-            {googleIntegration ? (
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: '#16a34a',
-                  background: '#16a34a15',
-                  padding: '4px 8px',
-                  borderRadius: 6,
-                }}
-              >
-                <CheckCircle2 size={13} /> Conectado
-              </span>
-            ) : (
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  fontSize: 11,
-                  fontWeight: 500,
-                  color: 'var(--color-text-secondary)',
-                  background: 'var(--color-bg-secondary)',
-                  padding: '4px 8px',
-                  borderRadius: 6,
-                }}
-              >
-                Desconectado
-              </span>
-            )}
-          </div>
-
-          <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5, marginBottom: 16 }}>
-            Vincula a agenda Google específica desta instância para que o bot SDR consulte horários livres, faça agendamentos e envie convites oficiais aos leads.
-          </p>
-
-          {googleIntegration ? (
-            <div style={{ background: 'var(--color-bg-secondary)', borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span style={{ color: 'var(--color-text-secondary)' }}>Conta Google:</span>
-                <strong style={{ color: 'var(--color-text-primary)' }}>{googleIntegration.accountEmail || 'Conectada via OAuth'}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--color-text-secondary)' }}>Calendários Ativos:</span>
-                <span>{loadingCalendars ? 'Carregando...' : `${calendars.length} encontrado(s)`}</span>
-              </div>
-            </div>
-          ) : (
-            <div style={{ background: 'var(--color-bg-secondary)', borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 12, color: 'var(--color-text-secondary)' }}>
-              Nenhuma conta Google conectada para a instância <strong>{activeInstance}</strong>. Conecte com 1 clique abaixo.
-            </div>
-          )}
-
-          <div style={{ marginTop: 'auto', display: 'flex', gap: 8 }}>
-            {googleIntegration ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => void fetchCalendars()}
-                  disabled={loadingCalendars}
-                  style={{ flex: 1, fontSize: 12, padding: '8px 12px' }}
-                >
-                  <RefreshCw size={13} className={loadingCalendars ? 'animate-spin' : ''} />
-                  Sincronizar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleDisconnect(googleIntegration.id)}
-                  style={{ color: '#dc2626', borderColor: '#fecaca', fontSize: 12, padding: '8px 12px' }}
-                >
-                  <Unlink size={13} /> Desconectar
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                className="primary"
-                disabled={connectingGoogle}
-                onClick={() => void handleStartGoogleOAuth()}
-                style={{
-                  width: '100%',
-                  fontSize: 13,
-                  padding: '9px 16px',
-                  background: '#2563eb',
-                  borderColor: '#2563eb',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                }}
-              >
-                {connectingGoogle ? (
-                  <>
-                    <RefreshCw size={14} className="animate-spin" /> Aguardando Login Google...
-                  </>
-                ) : (
-                  <>
-                    <Link2 size={14} /> Conectar com Google
-                  </>
-                )}
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Card HubSpot (Modular) */}
-        <div
-          style={{
-            background: 'var(--color-bg-primary)',
-            border: '1px solid var(--color-border-secondary)',
-            borderRadius: 12,
-            padding: 24,
-            display: 'flex',
-            flexDirection: 'column',
-            boxShadow: 'var(--shadow)',
-            opacity: 0.85,
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 44, height: 44, borderRadius: 10, background: '#ff7a5915', display: 'grid', placeItems: 'center', color: '#ff7a59' }}>
-                <Layers size={24} />
-              </div>
-              <div>
-                <h3 style={{ margin: '0 0 2px', fontSize: 16, fontWeight: 700 }}>HubSpot CRM</h3>
-                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>Sincronização de deals da instância</span>
-              </div>
-            </div>
-            <span style={{ fontSize: 10, fontWeight: 700, color: '#f59e0b', background: '#fef3c7', padding: '3px 7px', borderRadius: 4 }}>
-              EM BREVE
-            </span>
-          </div>
-          <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5, marginBottom: 16 }}>
-            Criação de novos contatos e atualização de estágios no pipeline comercial do HubSpot para os leads da instância {activeInstance}.
-          </p>
-          <div style={{ marginTop: 'auto' }}>
-            <button disabled style={{ width: '100%', fontSize: 12, opacity: 0.6 }}>Em desenvolvimento</button>
-          </div>
-        </div>
-
-        {/* Card RD Station (Modular) */}
-        <div
-          style={{
-            background: 'var(--color-bg-primary)',
-            border: '1px solid var(--color-border-secondary)',
-            borderRadius: 12,
-            padding: 24,
-            display: 'flex',
-            flexDirection: 'column',
-            boxShadow: 'var(--shadow)',
-            opacity: 0.85,
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 44, height: 44, borderRadius: 10, background: '#0087c915', display: 'grid', placeItems: 'center', color: '#0087c9' }}>
-                <Database size={24} />
-              </div>
-              <div>
-                <h3 style={{ margin: '0 0 2px', fontSize: 16, fontWeight: 700 }}>RD Station CRM</h3>
-                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)' }}>Conversões e oportunidades</span>
-              </div>
-            </div>
-            <span style={{ fontSize: 10, fontWeight: 700, color: '#f59e0b', background: '#fef3c7', padding: '3px 7px', borderRadius: 4 }}>
-              EM BREVE
-            </span>
-          </div>
-          <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5, marginBottom: 16 }}>
-            Envio automático de oportunidades para o funil do RD Station CRM com anotações e transcrições da instância {activeInstance}.
-          </p>
-          <div style={{ marginTop: 'auto' }}>
-            <button disabled style={{ width: '100%', fontSize: 12, opacity: 0.6 }}>Em desenvolvimento</button>
-          </div>
-        </div>
-
-      </div>
-
-      {/* Lista de Calendários Ativos para a Instância */}
-      {googleIntegration && calendars.length > 0 && (
-        <div style={{ marginTop: 32, background: 'var(--color-bg-primary)', border: '1px solid var(--color-border-secondary)', borderRadius: 12, padding: 24 }}>
-          <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Calendar size={18} color="#2563eb" /> Calendários Conectados na Instância "{activeInstance}"
-          </h3>
-          <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: '0 0 16px' }}>
-            Estes calendários estão sincronizados com a conta <strong>{googleIntegration.accountEmail}</strong> e disponíveis para os nós do Construtor de Fluxos:
-          </p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-            {calendars.map(cal => (
-              <div
-                key={cal.id}
-                style={{
-                  padding: '12px 14px',
-                  borderRadius: 8,
-                  border: '1px solid var(--color-border-secondary)',
-                  background: 'var(--color-bg-secondary)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 10,
-                }}
-              >
-                <div>
-                  <strong style={{ fontSize: 13, display: 'block', color: 'var(--color-text-primary)' }}>{cal.summary}</strong>
-                  <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', wordBreak: 'break-all' }}>{cal.id}</span>
+            <div>
+              <div className="flex justify-between items-start mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0">
+                    <Calendar className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-content">Google Calendar</h3>
+                    <span className="text-xs text-content-secondary">
+                      Instância: <strong className="text-content font-medium">{activeInstance || 'Nenhuma'}</strong>
+                    </span>
+                  </div>
                 </div>
-                {cal.primary && (
-                  <span style={{ fontSize: 10, background: '#2563eb18', color: '#2563eb', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>
-                    Principal
-                  </span>
+
+                {googleIntegration ? (
+                  <Badge variant="success" size="sm">
+                    <CheckCircle2 className="w-3 h-3 mr-1" /> Conectado
+                  </Badge>
+                ) : (
+                  <Badge variant="default" size="sm">
+                    Desconectado
+                  </Badge>
                 )}
               </div>
-            ))}
-          </div>
-        </div>
-      )}
 
-      {/* Modal de Aviso Administrativo (quando o admin ainda não colocou Client ID/Secret) */}
-      {showAdminNoticeModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.5)',
-            display: 'grid',
-            placeItems: 'center',
-            zIndex: 1000,
-            padding: 20,
-          }}
-        >
-          <div
-            style={{
-              background: 'var(--color-bg-primary)',
-              borderRadius: 14,
-              maxWidth: 480,
-              width: '100%',
-              padding: 28,
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
-              border: '1px solid var(--color-border-secondary)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: '#f59e0b18', display: 'grid', placeItems: 'center', color: '#d97706' }}>
-                <Lock size={20} />
-              </div>
-              <h2 style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>Configuração da Plataforma Necessária</h2>
+              <p className="text-xs text-content-secondary leading-relaxed mb-4">
+                Vincula a agenda Google específica desta instância para que o bot SDR consulte horários livres, faça agendamentos e envie convites oficiais aos leads.
+              </p>
+
+              {googleIntegration ? (
+                <div className="bg-surface-secondary border border-border/60 rounded-lg p-3 mb-4 text-xs space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <span className="text-content-secondary">Conta Google:</span>
+                    <strong className="text-content font-medium truncate max-w-[160px]">
+                      {googleIntegration.accountEmail || 'Conectada via OAuth'}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-content-secondary">Calendários Ativos:</span>
+                    <span className="text-content font-medium">
+                      {loadingCalendars ? 'Carregando...' : `${calendars.length} encontrado(s)`}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-surface-secondary border border-border/60 rounded-lg p-3 mb-4 text-xs text-content-secondary">
+                  Nenhuma conta Google conectada para a instância <strong className="text-content">{activeInstance}</strong>. Conecte com 1 clique abaixo.
+                </div>
+              )}
             </div>
-            <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.6, marginBottom: 20 }}>
-              Para que qualquer cliente conecte seu Google Calendar com <strong>1 clique</strong>, o administrador da plataforma precisa cadastrar o <strong>Google Client ID</strong> e <strong>Google Client Secret</strong> no painel de configurações internas.
+
+            <div className="pt-2 flex gap-2">
+              {googleIntegration ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => void fetchCalendars()}
+                    disabled={loadingCalendars}
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 mr-1 ${loadingCalendars ? 'animate-spin' : ''}`} />
+                    Sincronizar
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="danger"
+                    size="sm"
+                    onClick={() => void handleDisconnect(googleIntegration.id)}
+                  >
+                    <Unlink className="w-3.5 h-3.5 mr-1" /> Desconectar
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  type="button"
+                  variant="primary"
+                  className="w-full"
+                  disabled={connectingGoogle}
+                  onClick={() => void handleStartGoogleOAuth()}
+                >
+                  {connectingGoogle ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin mr-1.5" /> Aguardando Login Google...
+                    </>
+                  ) : (
+                    <>
+                      <Link2 className="w-4 h-4 mr-1.5" /> Conectar com Google
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+          </Card>
+
+          {/* Card HubSpot (Modular) */}
+          <Card className="p-6 flex flex-col justify-between opacity-80">
+            <div>
+              <div className="flex justify-between items-start mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-warning/10 text-warning flex items-center justify-center shrink-0">
+                    <Layers className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-content">HubSpot CRM</h3>
+                    <span className="text-xs text-content-secondary">Sincronização de deals</span>
+                  </div>
+                </div>
+                <Badge variant="warning" size="sm">
+                  EM BREVE
+                </Badge>
+              </div>
+              <p className="text-xs text-content-secondary leading-relaxed mb-4">
+                Criação de novos contatos e atualização de estágios no pipeline comercial do HubSpot para os leads da instância {activeInstance}.
+              </p>
+            </div>
+            <div className="pt-2">
+              <Button variant="secondary" size="sm" disabled className="w-full text-xs">
+                Em desenvolvimento
+              </Button>
+            </div>
+          </Card>
+
+          {/* Card RD Station (Modular) */}
+          <Card className="p-6 flex flex-col justify-between opacity-80">
+            <div>
+              <div className="flex justify-between items-start mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-info/10 text-info flex items-center justify-center shrink-0">
+                    <Database className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-content">RD Station CRM</h3>
+                    <span className="text-xs text-content-secondary">Conversões e oportunidades</span>
+                  </div>
+                </div>
+                <Badge variant="warning" size="sm">
+                  EM BREVE
+                </Badge>
+              </div>
+              <p className="text-xs text-content-secondary leading-relaxed mb-4">
+                Envio automático de oportunidades para o funil do RD Station CRM com anotações e transcrições da instância {activeInstance}.
+              </p>
+            </div>
+            <div className="pt-2">
+              <Button variant="secondary" size="sm" disabled className="w-full text-xs">
+                Em desenvolvimento
+              </Button>
+            </div>
+          </Card>
+        </div>
+
+        {/* Lista de Calendários Ativos para a Instância */}
+        {googleIntegration && calendars.length > 0 && (
+          <Card className="p-6">
+            <h3 className="text-sm font-bold text-content mb-1 flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-brand" /> Calendários Conectados na Instância "{activeInstance}"
+            </h3>
+            <p className="text-xs text-content-secondary mb-4">
+              Estes calendários estão sincronizados com a conta <strong className="text-content">{googleIntegration.accountEmail}</strong> e disponíveis para os nós do Construtor de Fluxos:
             </p>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowAdminNoticeModal(false)}>Voltar</button>
-              <Link
-                to="/settings"
-                style={{
-                  background: '#2563eb',
-                  borderColor: '#2563eb',
-                  color: '#fff',
-                  textDecoration: 'none',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  padding: '8px 14px',
-                  borderRadius: 6,
-                }}
-              >
-                Ir para Configurações <ArrowRight size={14} />
-              </Link>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {calendars.map(cal => (
+                <div
+                  key={cal.id}
+                  className="p-3 rounded-lg border border-border bg-surface-secondary flex items-center justify-between gap-2.5"
+                >
+                  <div className="min-w-0">
+                    <strong className="text-xs text-content font-medium block truncate">{cal.summary}</strong>
+                    <span className="text-[11px] text-content-muted block truncate">{cal.id}</span>
+                  </div>
+                  {cal.primary && (
+                    <Badge variant="accent" size="sm" className="shrink-0">
+                      Principal
+                    </Badge>
+                  )}
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* Modal de Aviso Administrativo */}
+        {showAdminNoticeModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+            <div className="bg-surface border border-border rounded-xl shadow-2xl max-w-md w-full p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-lg bg-warning/10 text-warning flex items-center justify-center shrink-0">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <h2 className="text-base font-bold text-content">Configuração da Plataforma Necessária</h2>
+              </div>
+              <p className="text-xs text-content-secondary leading-relaxed mb-6">
+                Para que qualquer cliente conecte seu Google Calendar com <strong className="text-content">1 clique</strong>, o administrador da plataforma precisa cadastrar o <strong className="text-content">Google Client ID</strong> e <strong className="text-content">Google Client Secret</strong> no painel de configurações internas.
+              </p>
+              <div className="flex justify-end gap-2.5">
+                <Button variant="secondary" onClick={() => setShowAdminNoticeModal(false)}>
+                  Voltar
+                </Button>
+                <Link to="/settings">
+                  <Button variant="primary">
+                    Ir para Configurações <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                  </Button>
+                </Link>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

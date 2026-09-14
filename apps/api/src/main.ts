@@ -24,6 +24,18 @@ wsServer.attach(server, {
   async authorize(userId, scope) {
     if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) return null;
     const db = serviceDatabase(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    // Inbox channel (Fase 5, 11.2.2): org-wide subscription, no connection/flow/execution to
+    // derive the org from — verify active membership directly against organization_members,
+    // the same table the REST inbox routes gate on (apps/api/src/app.ts orgRoutes middleware).
+    if (scope.organizationId && !scope.connectionId && !scope.flowId && !scope.executionId && !scope.conversationId) {
+      const { data: membership } = await db
+        .from('organization_members')
+        .select('role')
+        .eq('organization_id', scope.organizationId)
+        .eq('user_id', userId)
+        .maybeSingle();
+      return membership ? { organizationId: scope.organizationId } : null;
+    }
     if (scope.flowId) {
       const { data: flow } = await db.from('flows').select('organization_id').eq('id',scope.flowId).maybeSingle();
       const { data: profile } = flow ? await db.from('profiles').select('user_id').eq('user_id',userId).eq('default_organization_id',flow.organization_id).eq('status','active').maybeSingle() : { data:null };
@@ -48,6 +60,6 @@ wsServer.attach(server, {
 });
 for (const signal of ['SIGINT','SIGTERM']) process.on(signal,async () => {
   wsServer.close();
-  await app.locals.conversationTurnQueue?.close?.();
+  await Promise.all([app.locals.conversationTurnQueue?.close?.(), app.locals.closeRuntime?.()]);
   server.close(() => process.exit(0));
 });

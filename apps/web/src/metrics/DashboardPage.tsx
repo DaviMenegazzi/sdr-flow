@@ -23,6 +23,7 @@ import {
   Area,
 } from 'recharts';
 import { useSession } from '../session';
+import { Button, Card, Badge } from '../components/ui';
 
 interface FunnelStep {
   stage: string;
@@ -137,201 +138,182 @@ export function DashboardPage() {
   }
 
   return (
-    <div style={{ height: '100%', overflowY: 'auto', padding: '32px 40px', background: 'var(--color-bg-primary)' }}>
+    <div className="h-full overflow-y-auto p-8 bg-canvas">
       {/* Top Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '28px' }}>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
-          <span className="eyebrow">INDICADORES DE DESEMPENHO</span>
-          <h1 style={{ fontSize: '24px', fontWeight: 600, margin: '6px 0 4px', letterSpacing: '-0.5px' }}>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-content-muted">
+            INDICADORES DE DESEMPENHO
+          </span>
+          <h1 className="text-xl font-bold text-content tracking-tight mt-1 mb-1">
             Painel Gerencial SDR
           </h1>
-          <p className="muted" style={{ margin: 0 }}>
+          <p className="text-xs text-content-muted m-0">
             Taxas de conversão, tempo de resposta e custos consolidados em tempo real.
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <button
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
             onClick={handleRollup}
             disabled={consolidating}
-            style={{ fontSize: '11px', minHeight: '32px' }}
+            variant="secondary"
+            size="sm"
             title="Consolidar métricas do dia em lote"
           >
-            <RefreshCw size={13} className={consolidating ? 'animate-spin' : ''} />
+            <RefreshCw className={`w-3.5 h-3.5 ${consolidating ? 'animate-spin' : ''}`} />
             Consolidar Hoje
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() => downloadCsv('leads')}
-            style={{ fontSize: '11px', minHeight: '32px' }}
+            variant="outline"
+            size="sm"
             title="Baixar lista completa de leads em CSV"
           >
-            <Download size={13} />
+            <Download className="w-3.5 h-3.5" />
             Exportar Leads (CSV)
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() => downloadCsv('conversations')}
-            style={{ fontSize: '11px', minHeight: '32px' }}
+            variant="outline"
+            size="sm"
             title="Baixar histórico de conversas em CSV"
           >
-            <Download size={13} />
+            <Download className="w-3.5 h-3.5" />
             Exportar Conversas (CSV)
-          </button>
+          </Button>
         </div>
       </div>
 
       {notice && (
-        <div
-          style={{
-            padding: '10px 16px',
-            background: '#ecfdf5',
-            border: '1px solid #a7f3d0',
-            borderRadius: '8px',
-            color: '#065f46',
-            fontSize: '12px',
-            marginBottom: '20px',
-          }}
-        >
-          {notice}
+        <div className="p-3.5 mb-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+          <span>{notice}</span>
         </div>
       )}
 
       {error && (
-        <div
-          style={{
-            padding: '10px 16px',
-            background: '#fef2f2',
-            border: '1px solid #fecaca',
-            borderRadius: '8px',
-            color: '#b91c1c',
-            fontSize: '12px',
-            marginBottom: '20px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <AlertCircle size={15} />
+        <div className="p-3.5 mb-6 rounded-lg bg-danger/10 border border-danger/20 text-danger text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
       {/* KPI Cards Grid */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: '16px',
-          marginBottom: '28px',
-        }}
-      >
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
         {/* Total Conversas */}
-        <div className="info-card" style={{ padding: '18px', margin: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'var(--color-text-secondary)', marginBottom: '8px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 500 }}>Total de Conversas</span>
-            <Users size={16} />
+        <Card className="p-4 bg-surface border-border flex flex-col justify-between">
+          <div className="flex items-center justify-between text-content-muted mb-2">
+            <span className="text-xs font-medium">Total de Conversas</span>
+            <Users className="w-4 h-4" />
           </div>
-          <strong style={{ fontSize: '26px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-            {metrics?.totalConversations ?? 0}
-          </strong>
-          <span style={{ display: 'block', fontSize: '10px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-            {metrics?.handoffConversations ?? 0} assumidas por humanos
-          </span>
-        </div>
+          <div>
+            <div className="text-2xl font-bold text-content tracking-tight">
+              {metrics?.totalConversations ?? 0}
+            </div>
+            <span className="block text-[10px] text-content-muted mt-1">
+              {metrics?.handoffConversations ?? 0} assumidas por humanos
+            </span>
+          </div>
+        </Card>
 
         {/* Leads Qualificados */}
-        <div className="info-card" style={{ padding: '18px', margin: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#10b981', marginBottom: '8px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 500, color: 'var(--color-text-secondary)' }}>Qualificados</span>
-            <CheckCircle2 size={16} />
+        <Card className="p-4 bg-surface border-border flex flex-col justify-between">
+          <div className="flex items-center justify-between text-emerald-500 mb-2">
+            <span className="text-xs font-medium text-content-muted">Qualificados</span>
+            <CheckCircle2 className="w-4 h-4" />
           </div>
-          <strong style={{ fontSize: '26px', fontWeight: 600, color: '#10b981' }}>
-            {metrics?.qualifiedConversations ?? 0}
-          </strong>
-          <span style={{ display: 'block', fontSize: '10px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-            Leads com critérios atingidos
-          </span>
-        </div>
+          <div>
+            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight">
+              {metrics?.qualifiedConversations ?? 0}
+            </div>
+            <span className="block text-[10px] text-content-muted mt-1">
+              Leads com critérios atingidos
+            </span>
+          </div>
+        </Card>
 
         {/* Taxa de Qualificação */}
-        <div className="info-card" style={{ padding: '18px', margin: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'var(--color-bg-accent)', marginBottom: '8px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 500, color: 'var(--color-text-secondary)' }}>Taxa de Qualificação</span>
-            <TrendingUp size={16} />
+        <Card className="p-4 bg-surface border-border flex flex-col justify-between">
+          <div className="flex items-center justify-between text-brand mb-2">
+            <span className="text-xs font-medium text-content-muted">Taxa de Qualificação</span>
+            <TrendingUp className="w-4 h-4" />
           </div>
-          <strong style={{ fontSize: '26px', fontWeight: 600, color: 'var(--color-bg-accent)' }}>
-            {metrics?.qualificationRate ?? 0}%
-          </strong>
-          <span style={{ display: 'block', fontSize: '10px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-            Percentual sobre o total
-          </span>
-        </div>
+          <div>
+            <div className="text-2xl font-bold text-brand tracking-tight">
+              {metrics?.qualificationRate ?? 0}%
+            </div>
+            <span className="block text-[10px] text-content-muted mt-1">
+              Percentual sobre o total
+            </span>
+          </div>
+        </Card>
 
         {/* Tempo de Resposta */}
-        <div className="info-card" style={{ padding: '18px', margin: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#f59e0b', marginBottom: '8px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 500, color: 'var(--color-text-secondary)' }}>1ª Resposta Média</span>
-            <Clock size={16} />
+        <Card className="p-4 bg-surface border-border flex flex-col justify-between">
+          <div className="flex items-center justify-between text-amber-500 mb-2">
+            <span className="text-xs font-medium text-content-muted">1ª Resposta Média</span>
+            <Clock className="w-4 h-4" />
           </div>
-          <strong style={{ fontSize: '26px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-            {metrics?.avgFirstResponseTimeSec ?? 0}s
-          </strong>
-          <span style={{ display: 'block', fontSize: '10px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-            Tempo até primeiro retorno
-          </span>
-        </div>
+          <div>
+            <div className="text-2xl font-bold text-content tracking-tight">
+              {metrics?.avgFirstResponseTimeSec ?? 0}s
+            </div>
+            <span className="block text-[10px] text-content-muted mt-1">
+              Tempo até primeiro retorno
+            </span>
+          </div>
+        </Card>
 
         {/* Custo Total de IA */}
-        <div className="info-card" style={{ padding: '18px', margin: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'var(--color-text-secondary)', marginBottom: '8px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 500 }}>Custo Estimado IA</span>
-            <Coins size={16} />
+        <Card className="p-4 bg-surface border-border flex flex-col justify-between">
+          <div className="flex items-center justify-between text-content-muted mb-2">
+            <span className="text-xs font-medium">Custo Estimado IA</span>
+            <Coins className="w-4 h-4" />
           </div>
-          <strong style={{ fontSize: '26px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-            ${metrics?.totalEstimatedCost?.toFixed(3) ?? '0.000'}
-          </strong>
-          <span style={{ display: 'block', fontSize: '10px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-            {((metrics?.totalTokens ?? 0) / 1000).toFixed(1)}k tokens consumidos
-          </span>
-        </div>
+          <div>
+            <div className="text-2xl font-bold text-content tracking-tight">
+              ${metrics?.totalEstimatedCost?.toFixed(3) ?? '0.000'}
+            </div>
+            <span className="block text-[10px] text-content-muted mt-1">
+              {((metrics?.totalTokens ?? 0) / 1000).toFixed(1)}k tokens consumidos
+            </span>
+          </div>
+        </Card>
 
         {/* Custo por Lead Qualificado */}
-        <div className="info-card" style={{ padding: '18px', margin: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'var(--color-text-secondary)', marginBottom: '8px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 500 }}>Custo / Lead Qual.</span>
-            <Coins size={16} />
+        <Card className="p-4 bg-surface border-border flex flex-col justify-between">
+          <div className="flex items-center justify-between text-content-muted mb-2">
+            <span className="text-xs font-medium">Custo / Lead Qual.</span>
+            <Coins className="w-4 h-4" />
           </div>
-          <strong style={{ fontSize: '26px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-            ${metrics?.costPerQualifiedLead?.toFixed(3) ?? '0.000'}
-          </strong>
-          <span style={{ display: 'block', fontSize: '10px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-            Eficiência de custo da IA
-          </span>
-        </div>
+          <div>
+            <div className="text-2xl font-bold text-content tracking-tight">
+              ${metrics?.costPerQualifiedLead?.toFixed(3) ?? '0.000'}
+            </div>
+            <span className="block text-[10px] text-content-muted mt-1">
+              Eficiência de custo da IA
+            </span>
+          </div>
+        </Card>
       </div>
 
       {/* Charts Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gap: '20px', marginBottom: '28px' }}>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         {/* Funnel Bar Chart */}
-        <div
-          style={{
-            padding: '22px',
-            borderRadius: '10px',
-            border: '1px solid var(--color-border-secondary)',
-            background: 'var(--color-bg-primary)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
-            <h2 style={{ fontSize: '14px', fontWeight: 600, margin: 0 }}>Funil de Conversão SDR</h2>
-            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>Por Estágio Canônico</span>
+        <Card className="p-6 bg-surface border-border">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-content m-0">Funil de Conversão SDR</h2>
+            <span className="text-xs text-content-muted">Por Estágio Canônico</span>
           </div>
 
-          <div style={{ width: '100%', height: 260 }}>
+          <div className="w-full h-64">
             {metrics?.funnel && metrics.funnel.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={metrics.funnel} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                  <XAxis dataKey="label" fontSize={9} interval={0} angle={-25} textAnchor="end" />
-                  <YAxis fontSize={10} allowDecimals={false} />
+                  <XAxis dataKey="label" fontSize={10} interval={0} angle={-25} textAnchor="end" stroke="var(--color-text-secondary)" />
+                  <YAxis fontSize={10} allowDecimals={false} stroke="var(--color-text-secondary)" />
                   <Tooltip
                     contentStyle={{
                       background: 'var(--color-bg-primary)',
@@ -345,28 +327,21 @@ export function DashboardPage() {
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-secondary)', fontSize: '12px' }}>
+              <div className="h-full flex items-center justify-center text-xs text-content-muted">
                 Sem dados de funil disponíveis.
               </div>
             )}
           </div>
-        </div>
+        </Card>
 
         {/* Daily Trends Area Chart */}
-        <div
-          style={{
-            padding: '22px',
-            borderRadius: '10px',
-            border: '1px solid var(--color-border-secondary)',
-            background: 'var(--color-bg-primary)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
-            <h2 style={{ fontSize: '14px', fontWeight: 600, margin: 0 }}>Evolução Diária de Atendimentos</h2>
-            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>Consolidado por Data</span>
+        <Card className="p-6 bg-surface border-border">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-content m-0">Evolução Diária de Atendimentos</h2>
+            <span className="text-xs text-content-muted">Consolidado por Data</span>
           </div>
 
-          <div style={{ width: '100%', height: 260 }}>
+          <div className="w-full h-64">
             {metrics?.dailyTrends && metrics.dailyTrends.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={metrics.dailyTrends} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -381,8 +356,8 @@ export function DashboardPage() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                  <XAxis dataKey="date" fontSize={10} />
-                  <YAxis fontSize={10} allowDecimals={false} />
+                  <XAxis dataKey="date" fontSize={10} stroke="var(--color-text-secondary)" />
+                  <YAxis fontSize={10} allowDecimals={false} stroke="var(--color-text-secondary)" />
                   <Tooltip
                     contentStyle={{
                       background: 'var(--color-bg-primary)',
@@ -396,70 +371,63 @@ export function DashboardPage() {
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-secondary)', fontSize: '12px' }}>
+              <div className="h-full flex items-center justify-center text-xs text-content-muted">
                 Sem dados temporais disponíveis.
               </div>
             )}
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* Flow Comparison Table */}
-      <div
-        style={{
-          padding: '22px',
-          borderRadius: '10px',
-          border: '1px solid var(--color-border-secondary)',
-          background: 'var(--color-bg-primary)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-          <h2 style={{ fontSize: '14px', fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Workflow size={16} color="var(--color-bg-accent)" />
+      <Card className="p-6 bg-surface border-border">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-content m-0 flex items-center gap-2">
+            <Workflow className="w-4 h-4 text-brand" />
             Comparativo de Eficiência por Versão de Fluxo
           </h2>
-          <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+          <span className="text-xs text-content-muted">
             Compare o impacto de prompts e nós nas conversões reais
           </span>
         </div>
 
         {metrics?.flowComparison && metrics.flowComparison.length > 0 ? (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left border-collapse">
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--color-border-secondary)', color: 'var(--color-text-secondary)' }}>
-                  <th style={{ padding: '10px 12px', fontWeight: 500 }}>Fluxo</th>
-                  <th style={{ padding: '10px 12px', fontWeight: 500 }}>Versão</th>
-                  <th style={{ padding: '10px 12px', fontWeight: 500 }}>Conversas</th>
-                  <th style={{ padding: '10px 12px', fontWeight: 500 }}>Qualificados</th>
-                  <th style={{ padding: '10px 12px', fontWeight: 500 }}>Taxa (%)</th>
-                  <th style={{ padding: '10px 12px', fontWeight: 500 }}>Tokens</th>
-                  <th style={{ padding: '10px 12px', fontWeight: 500 }}>Custo ($)</th>
+                <tr className="border-b border-border text-content-muted">
+                  <th className="py-2.5 px-3 font-medium">Fluxo</th>
+                  <th className="py-2.5 px-3 font-medium">Versão</th>
+                  <th className="py-2.5 px-3 font-medium">Conversas</th>
+                  <th className="py-2.5 px-3 font-medium">Qualificados</th>
+                  <th className="py-2.5 px-3 font-medium">Taxa (%)</th>
+                  <th className="py-2.5 px-3 font-medium">Tokens</th>
+                  <th className="py-2.5 px-3 font-medium">Custo ($)</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border/60">
                 {metrics.flowComparison.map((f, idx) => (
-                  <tr key={idx} style={{ borderBottom: '1px solid var(--color-border-secondary)' }}>
-                    <td style={{ padding: '12px', fontWeight: 600 }}>{f.flowName}</td>
-                    <td style={{ padding: '12px' }}>
-                      <span className="badge">v{f.version}</span>
+                  <tr key={idx} className="hover:bg-surface-muted/40 transition-colors">
+                    <td className="py-3 px-3 font-semibold text-content">{f.flowName}</td>
+                    <td className="py-3 px-3">
+                      <Badge variant="outline" size="sm">v{f.version}</Badge>
                     </td>
-                    <td style={{ padding: '12px' }}>{f.conversationsCount}</td>
-                    <td style={{ padding: '12px', color: '#10b981', fontWeight: 600 }}>{f.qualifiedCount}</td>
-                    <td style={{ padding: '12px', fontWeight: 600 }}>{f.qualificationRate}%</td>
-                    <td style={{ padding: '12px', color: 'var(--color-text-secondary)' }}>{f.totalTokens.toLocaleString()}</td>
-                    <td style={{ padding: '12px', color: 'var(--color-text-secondary)' }}>${f.totalCost.toFixed(4)}</td>
+                    <td className="py-3 px-3 text-content">{f.conversationsCount}</td>
+                    <td className="py-3 px-3 text-emerald-600 dark:text-emerald-400 font-semibold">{f.qualifiedCount}</td>
+                    <td className="py-3 px-3 font-semibold text-content">{f.qualificationRate}%</td>
+                    <td className="py-3 px-3 text-content-muted">{f.totalTokens.toLocaleString()}</td>
+                    <td className="py-3 px-3 text-content-muted">${f.totalCost.toFixed(4)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         ) : (
-          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: '12px' }}>
+          <div className="py-6 text-center text-xs text-content-muted">
             Nenhum fluxo publicado associado a conversas ainda.
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

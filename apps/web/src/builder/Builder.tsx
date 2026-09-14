@@ -14,6 +14,7 @@ import { useBuilder } from './store';
 import { useSession } from '../session';
 import { useInstance } from '../context/InstanceContext';
 import { PlaygroundModal } from './PlaygroundModal';
+import { Button, Badge } from '../components/ui';
 
 const nodeTypes = { flowNode: FlowNode };
 const DRAFT_KEY = 'sdr-flow:editor-draft:v1';
@@ -355,115 +356,112 @@ function Editor() {
   const isInstanceActiveWithThisFlow = targetInstance && activeBindings[targetInstance]?.flowId === flowId;
 
   return (
-    <div className="builder-page">
-      <header className="builder-header">
-        <div className="breadcrumb">
-          <Link to="/flows"><ArrowLeft size={16} /></Link>
-          <span>Fluxos</span>
-          <ChevronRight size={13} />
-          <span>Construtor</span>
-          {flowId && <span style={{ fontSize: 12, opacity: 0.7 }}> (ID: {flowId.slice(0, 8)}...)</span>}
-        </div>
-        <div className="title-row">
-          <div>
-            <div className="flow-title">
-              <input
-                aria-label="Nome do fluxo"
-                maxLength={120}
-                value={state.name}
-                onChange={event => state.setName(event.target.value)}
-              />
-              <span className="badge">{flowId ? 'Salvo' : 'Rascunho'}</span>
-              {isInstanceActiveWithThisFlow && (
-                <span className="badge" style={{ background: '#16a34a22', color: '#16a34a', border: '1px solid #16a34a' }}>
-                  ● Ativo no WhatsApp
-                </span>
-              )}
+    <div className="builder-page flex flex-col h-full bg-canvas text-content-primary">
+      <header className="bg-surface border-b border-border px-6 py-3.5 flex-shrink-0">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <Link
+              to="/flows"
+              className="p-1.5 rounded-lg text-content-muted hover:text-content-primary hover:bg-surface-elevated transition-colors"
+              title="Voltar aos Fluxos"
+            >
+              <ArrowLeft size={16} />
+            </Link>
+            <div className="flex flex-col min-w-0">
+              <div className="flex items-center gap-2">
+                <input
+                  aria-label="Nome do fluxo"
+                  maxLength={120}
+                  value={state.name}
+                  onChange={event => state.setName(event.target.value)}
+                  className="font-bold text-base bg-transparent text-content-primary outline-none border-b border-transparent hover:border-border focus:border-brand transition-colors py-0.5 px-1 max-w-[280px]"
+                />
+                <Badge variant={flowId ? 'default' : 'warning'} size="sm">
+                  {flowId ? 'Salvo' : 'Rascunho'}
+                </Badge>
+                {isInstanceActiveWithThisFlow && (
+                  <Badge variant="success" size="sm">
+                    ● Ativo no WhatsApp
+                  </Badge>
+                )}
+              </div>
+              <p className="text-[11px] text-content-muted truncate mt-0.5">
+                Desenhe o caminho de cada conversa e conecte ao WhatsApp.
+              </p>
             </div>
-            <p>Desenhe o caminho de cada conversa e conecte ao WhatsApp.</p>
           </div>
-          <div className="header-actions">
-            <button onClick={() => setShowPlayground(true)} title="Testar fluxo com IA"><Play size={15} />Playground</button>
-            <button onClick={() => {
-              setShowValidation(true);
-              setNotice(validation.valid ? 'Grafo válido: todos os caminhos terminam.' : `${validation.issues.length} ponto(s) para revisar.`);
-            }}>
-              <CheckCheck size={16} />Validar
-            </button>
-            <button onClick={() => void save(false)} disabled={busy}><Save size={16} />{busy ? 'Salvando…' : 'Salvar'}</button>
-            <button className="primary" onClick={() => void save(true)} disabled={busy} title="Publica e ativa para a instância selecionada">
-              <Upload size={15} />{busy ? 'Publicando…' : 'Publicar'}
-            </button>
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowPlayground(true)}
+              title="Testar fluxo com IA"
+            >
+              <Play size={14} />
+              <span>Playground</span>
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setShowValidation(true);
+                setNotice(validation.valid ? 'Grafo válido: todos os caminhos terminam.' : `${validation.issues.length} ponto(s) para revisar.`);
+              }}
+            >
+              <CheckCheck size={14} />
+              <span>Validar</span>
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void save(false)}
+              disabled={busy}
+            >
+              <Save size={14} />
+              <span>{busy ? 'Salvando…' : 'Salvar'}</span>
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => void save(true)}
+              disabled={busy}
+              title="Publica e ativa para a instância selecionada"
+            >
+              <Upload size={14} />
+              <span>{busy ? 'Publicando…' : 'Publicar'}</span>
+            </Button>
           </div>
         </div>
       </header>
+
       {/* Abas Superiores do Builder (Visual, Prompts, Variáveis) */}
-      <div
-        className="builder-tabs-bar"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 24px',
-          background: 'var(--color-bg-primary)',
-          borderBottom: '1px solid var(--color-border-secondary)',
-          gap: 4,
-          flexShrink: 0,
-        }}
-      >
+      <div className="bg-surface border-b border-border px-6 flex items-center gap-2 flex-shrink-0">
         <button
           type="button"
           onClick={() => setActiveTab('canvas')}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 7,
-            padding: '10px 16px',
-            fontSize: 13,
-            fontWeight: activeTab === 'canvas' ? 600 : 500,
-            color: activeTab === 'canvas' ? 'var(--color-bg-accent, #464feb)' : 'var(--color-text-secondary)',
-            border: 'none',
-            borderBottom: activeTab === 'canvas' ? '2px solid var(--color-bg-accent, #464feb)' : '2px solid transparent',
-            borderRadius: 0,
-            background: 'transparent',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
-          }}
+          className={`flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-all duration-150 -mb-[1px] ${
+            activeTab === 'canvas'
+              ? 'border-brand text-brand font-semibold'
+              : 'border-transparent text-content-secondary hover:text-content-primary hover:border-border'
+          }`}
         >
-          <LayoutGrid size={15} />
+          <LayoutGrid size={14} />
           <span>Construtor Visual</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('prompts')}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 7,
-            padding: '10px 16px',
-            fontSize: 13,
-            fontWeight: activeTab === 'prompts' ? 600 : 500,
-            color: activeTab === 'prompts' ? 'var(--color-bg-accent, #464feb)' : 'var(--color-text-secondary)',
-            border: 'none',
-            borderBottom: activeTab === 'prompts' ? '2px solid var(--color-bg-accent, #464feb)' : '2px solid transparent',
-            borderRadius: 0,
-            background: 'transparent',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
-          }}
+          className={`flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-all duration-150 -mb-[1px] ${
+            activeTab === 'prompts'
+              ? 'border-brand text-brand font-semibold'
+              : 'border-transparent text-content-secondary hover:text-content-primary hover:border-border'
+          }`}
         >
-          <Bot size={15} />
+          <Bot size={14} />
           <span>Prompts & Conhecimento</span>
-          <span
-            style={{
-              fontSize: 10,
-              padding: '2px 7px',
-              borderRadius: 10,
-              background: activeTab === 'prompts' ? '#464feb15' : 'var(--color-bg-secondary)',
-              color: activeTab === 'prompts' ? 'var(--color-bg-accent, #464feb)' : 'var(--color-text-secondary)',
-              fontWeight: 700,
-            }}
-          >
+          <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-brand/10 text-brand">
             {graph.nodes.filter(n => typeof n.config.prompt === 'string' || typeof n.config.system === 'string' || n.type === 'context.knowledge' || n.type === 'output.send_text').length}
           </span>
         </button>
@@ -471,36 +469,25 @@ function Editor() {
         <button
           type="button"
           onClick={() => setActiveTab('variables')}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 7,
-            padding: '10px 16px',
-            fontSize: 13,
-            fontWeight: activeTab === 'variables' ? 600 : 500,
-            color: activeTab === 'variables' ? 'var(--color-bg-accent, #464feb)' : 'var(--color-text-secondary)',
-            border: 'none',
-            borderBottom: activeTab === 'variables' ? '2px solid var(--color-bg-accent, #464feb)' : '2px solid transparent',
-            borderRadius: 0,
-            background: 'transparent',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
-          }}
+          className={`flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-all duration-150 -mb-[1px] ${
+            activeTab === 'variables'
+              ? 'border-brand text-brand font-semibold'
+              : 'border-transparent text-content-secondary hover:text-content-primary hover:border-border'
+          }`}
         >
-          <Network size={15} />
+          <Network size={14} />
           <span>Mapa de Variáveis</span>
         </button>
       </div>
 
-
       {activeTab === 'prompts' && (
-        <div style={{ flex: 1, minHeight: 0, background: 'var(--color-bg-primary)', overflow: 'hidden' }}>
+        <div className="flex-1 min-h-0 bg-surface overflow-hidden">
           <PromptsView onSelectNodeInCanvas={nodeId => { setActiveTab('canvas'); focusNode(nodeId); }} />
         </div>
       )}
 
       {activeTab === 'variables' && (
-        <div style={{ flex: 1, minHeight: 0, background: 'var(--color-bg-primary)', overflow: 'hidden' }}>
+        <div className="flex-1 min-h-0 bg-surface overflow-hidden">
           <VariablesView onSelectNodeInCanvas={nodeId => { setActiveTab('canvas'); focusNode(nodeId); }} />
         </div>
       )}
@@ -508,114 +495,122 @@ function Editor() {
       {activeTab === 'canvas' && (
         <>
           {/* Barra de Configuração do Modo Teste */}
-      <section
-        aria-label="Configuração do Modo Teste"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 12,
-          padding: '10px 20px',
-          borderBottom: '1px solid var(--color-border-secondary)',
-          background: graph.testMode?.enabled ? 'rgba(234, 179, 8, 0.12)' : 'var(--color-bg-secondary)',
-          borderLeft: graph.testMode?.enabled ? '4px solid #eab308' : '4px solid transparent',
-          transition: 'all 0.2s ease',
-        }}
-      >
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0, fontWeight: 700, color: graph.testMode?.enabled ? '#b45309' : 'inherit' }}>
-          <input
-            type="checkbox"
-            role="switch"
-            checked={graph.testMode?.enabled ?? false}
-            onChange={event => state.replace({ ...graph, testMode: { enabled: event.target.checked, phone: graph.testMode?.phone || '' } })}
-            style={{ width: 16, margin: 0 }}
-          />
-          {graph.testMode?.enabled ? '⚠️ MODO TESTE ATIVADO' : 'Modo Teste'}
-        </label>
-        {graph.testMode?.enabled && (
-          <>
-            <label htmlFor="flow-test-phone" style={{ margin: 0, fontWeight: 600 }}>Número autorizado:</label>
-            <input
-              id="flow-test-phone"
-              type="tel"
-              autoComplete="off"
-              maxLength={50}
-              placeholder="+55 55 99999-9999"
-              value={graph.testMode.phone}
-              aria-invalid={!flowTestModeSchema.safeParse(graph.testMode).success}
-              aria-describedby="flow-test-help"
-              onChange={event => state.replace({ ...graph, testMode: { enabled: true, phone: event.target.value } })}
-              style={{ width: 220, padding: '4px 8px', borderRadius: 4, border: '1px solid #eab308', background: 'var(--color-bg-primary)' }}
-            />
-            <span id="flow-test-help" style={{ fontSize: 12, color: '#b45309', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-              <ShieldAlert size={14} /> Responde EXCLUSIVAMENTE a este número. Qualquer outro contato será ignorado.
-            </span>
-          </>
-        )}
-        {!graph.testMode?.enabled && (
-          <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
-            Restrinja este fluxo a um único número do WhatsApp para testar com segurança antes de abrir para o público.
-          </span>
-        )}
-      </section>
+          <section
+            aria-label="Configuração do Modo Teste"
+            className={`flex items-center flex-wrap gap-3 px-6 py-2.5 border-b text-xs transition-all flex-shrink-0 ${
+              graph.testMode?.enabled
+                ? 'bg-warning-bg border-warning-border text-warning'
+                : 'bg-surface-elevated/40 border-border text-content-secondary'
+            }`}
+          >
+            <label className="flex items-center gap-2 m-0 font-semibold cursor-pointer">
+              <input
+                type="checkbox"
+                role="switch"
+                checked={graph.testMode?.enabled ?? false}
+                onChange={event => state.replace({ ...graph, testMode: { enabled: event.target.checked, phone: graph.testMode?.phone || '' } })}
+                className="w-4 h-4 accent-brand cursor-pointer"
+              />
+              <span>{graph.testMode?.enabled ? '⚠️ Modo Teste Ativado' : 'Modo Teste'}</span>
+            </label>
+            {graph.testMode?.enabled && (
+              <>
+                <label htmlFor="flow-test-phone" className="m-0 font-medium">Número autorizado:</label>
+                <input
+                  id="flow-test-phone"
+                  type="tel"
+                  autoComplete="off"
+                  maxLength={50}
+                  placeholder="+55 55 99999-9999"
+                  value={graph.testMode.phone}
+                  aria-invalid={!flowTestModeSchema.safeParse(graph.testMode).success}
+                  aria-describedby="flow-test-help"
+                  onChange={event => state.replace({ ...graph, testMode: { enabled: true, phone: event.target.value } })}
+                  className="w-48 py-1 px-2.5 rounded-lg border border-warning-border bg-surface text-content-primary text-xs outline-none focus:ring-1 focus:ring-warning"
+                />
+                <span id="flow-test-help" className="text-xs font-semibold flex items-center gap-1.5 text-warning">
+                  <ShieldAlert size={14} /> Responde EXCLUSIVAMENTE a este número. Outros contatos serão ignorados.
+                </span>
+              </>
+            )}
+            {!graph.testMode?.enabled && (
+              <span className="text-xs text-content-muted">
+                Restrinja este fluxo a um único número do WhatsApp para testar com segurança antes de abrir para o público.
+              </span>
+            )}
+          </section>
 
-      <div className="editor-toolbar">
-        <div>
-          <button title="Desfazer (Ctrl+Z)" aria-label="Desfazer" disabled={state.cursor === 0} onClick={state.undo}><Undo2 size={16} /></button>
-          <button title="Refazer (Ctrl+Shift+Z)" aria-label="Refazer" disabled={state.cursor === state.history.length - 1} onClick={state.redo}><Redo2 size={16} /></button>
-          <span className="divider" />
-          <button onClick={() => layout()}><LayoutGrid size={15} />Organizar</button>
-          <button onClick={() => setShowJson(!showJson)}><FileJson size={15} />JSON</button>
-          <span className="divider" />
-          <label title="Máximo de vezes que cada nó pode ser executado em loops" style={{ display: 'flex', alignItems: 'center', gap: 6, margin: 0, fontSize: 13, fontWeight: 500, cursor: 'default' }}>
-            <Repeat size={14} />Loop
-            <input
-              type="number"
-              min={1}
-              max={20}
-              value={graph.loopLimit ?? 5}
-              onChange={event => state.replace({ ...graph, loopLimit: Math.max(1, Math.min(20, Number(event.target.value) || 5)) })}
-              style={{ width: 48, padding: '2px 6px', borderRadius: 4, border: '1px solid var(--color-border)', background: 'var(--color-bg-primary)', textAlign: 'center', fontSize: 13 }}
-            />
-          </label>
-        </div>
-        <div>
-          <button onClick={() => {
-            const blob = new Blob([JSON.stringify(graph, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const anchor = document.createElement('a');
-            anchor.href = url;
-            anchor.download = `${state.name.replace(/[^\p{L}\p{N}_-]/gu, '_') || 'flow'}.json`;
-            anchor.click();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-          }}>
-            <Download size={15} />Exportar
-          </button>
-          <button onClick={() => upload.current?.click()}><Upload size={15} />Importar</button>
-          <input
-            ref={upload}
-            type="file"
-            accept=".json,application/json"
-            hidden
-            onChange={async event => {
-              const file = event.target.files?.[0];
-              if (!file) return;
-              try {
-                if (file.size > 1_000_000) throw new Error('O limite é 1 MB.');
-                const imported = flowGraphSchema.parse(JSON.parse(await file.text()));
-                state.replace(imported);
-                setFlowId(null);
-                layout(imported);
-                setNotice('Grafo importado. Valide antes de publicar.');
-              } catch (error) {
-                setNotice(`Não foi possível importar: ${error instanceof Error ? error.message : 'JSON inválido.'}`);
-              } finally {
-                event.target.value = '';
-              }
-            }}
-          />
-        </div>
-      </div>
+          <div className="bg-surface border-b border-border px-6 py-2 flex items-center justify-between gap-2 text-xs flex-shrink-0">
+            <div className="flex items-center gap-1.5">
+              <Button size="sm" variant="ghost" title="Desfazer (Ctrl+Z)" aria-label="Desfazer" disabled={state.cursor === 0} onClick={state.undo}>
+                <Undo2 size={14} />
+              </Button>
+              <Button size="sm" variant="ghost" title="Refazer (Ctrl+Shift+Z)" aria-label="Refazer" disabled={state.cursor === state.history.length - 1} onClick={state.redo}>
+                <Redo2 size={14} />
+              </Button>
+              <span className="h-4 w-px bg-border mx-1" />
+              <Button size="sm" variant="ghost" onClick={() => layout()}>
+                <LayoutGrid size={14} /> Organizar
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowJson(!showJson)}>
+                <FileJson size={14} /> JSON
+              </Button>
+              <span className="h-4 w-px bg-border mx-1" />
+              <label title="Máximo de vezes que cada nó pode ser executado em loops" className="flex items-center gap-1.5 text-content-secondary text-xs font-medium cursor-default">
+                <Repeat size={13} /> Loop:
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={graph.loopLimit ?? 5}
+                  onChange={event => state.replace({ ...graph, loopLimit: Math.max(1, Math.min(20, Number(event.target.value) || 5)) })}
+                  className="w-12 py-0.5 px-1.5 rounded-md border border-border bg-surface text-center text-xs font-mono outline-none focus:ring-1 focus:ring-brand"
+                />
+              </label>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const blob = new Blob([JSON.stringify(graph, null, 2)], { type: 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const anchor = document.createElement('a');
+                  anchor.href = url;
+                  anchor.download = `${state.name.replace(/[^\p{L}\p{N}_-]/gu, '_') || 'flow'}.json`;
+                  anchor.click();
+                  setTimeout(() => URL.revokeObjectURL(url), 1000);
+                }}
+              >
+                <Download size={13} /> Exportar
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => upload.current?.click()}>
+                <Upload size={13} /> Importar
+              </Button>
+              <input
+                ref={upload}
+                type="file"
+                accept=".json,application/json"
+                hidden
+                onChange={async event => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    if (file.size > 1_000_000) throw new Error('O limite é 1 MB.');
+                    const imported = flowGraphSchema.parse(JSON.parse(await file.text()));
+                    state.replace(imported);
+                    setFlowId(null);
+                    layout(imported);
+                    setNotice('Grafo importado. Valide antes de publicar.');
+                  } catch (error) {
+                    setNotice(`Não foi possível importar: ${error instanceof Error ? error.message : 'JSON inválido.'}`);
+                  } finally {
+                    event.target.value = '';
+                  }
+                }}
+              />
+            </div>
+          </div>
 
       <div className="editor-body">
         <aside className="node-library">
