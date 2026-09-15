@@ -4,6 +4,10 @@
 > **Finalidade:** Transferência de contexto completa (*Handoff*) para continuidade do desenvolvimento com GPT ou nova equipe de engenharia.  
 > **Repositório GitHub:** `https://github.com/DaviMenegazzi/sdr-flow.git`  
 > **Ambiente de Produção (VPS):** `https://sdr.147.93.10.249.sslip.io`  
+> **Status em 15/09/2026:** este documento conserva contexto histórico. A arquitetura dual
+> descrita nas seções antigas foi aposentada: Supabase/Postgres é a única persistência de
+> negócio, as APIs raiz legadas retornam `410 Gone` e `data/store.json` deve ser tratado apenas
+> como backup de migração, nunca como fonte de execução.
 
 ---
 
@@ -25,10 +29,8 @@ sdr-flow/
 │   ├── api/          # Backend Express.js + TypeScript (Porta 3001)
 │   │   ├── src/
 │   │   │   ├── app.ts                 # Configuração de rotas, middlewares e APIs
-│   │   │   ├── storage.ts             # Persistência Standalone em JSON (store.json)
 │   │   │   ├── webhook.ts             # Processador de webhooks da Evolution API
 │   │   │   └── whatsapp/              # Clientes HTTP e Connection Manager
-│   │   └── data/store.json            # Banco de dados local standalone
 │   └── web/          # Frontend SPA React 18 + Vite + TypeScript (Porta 5173 / Nginx)
 │       ├── src/
 │       │   ├── builder/               # Editor visual de fluxos (React Flow / Canvas)
@@ -58,18 +60,17 @@ sdr-flow/
 
 ---
 
-## ⚖️ 3. Arquitetura Dual: Standalone vs Supabase
+## ⚖️ 3. Arquitetura atual: Supabase/Postgres
 
-O SDR Flow foi projetado para operar com excelência em **dois modos híbridos**:
+O SDR Flow opera exclusivamente em modo autenticado e multiempresa:
 
-1. **Modo Standalone (Produção Atual na VPS):**
-   - Não requer login nem configuração de autenticação por JWT para operar o construtor, conexões e conhecimento.
-   - Armazena configurações, instâncias locais, bases de conhecimento e histórico em `apps/api/data/store.json`.
-   - Gera embeddings de fallback localmente para busca semântica por cosseno sem custo extra.
-2. **Modo Supabase (Persistência e Histórico de Chat):**
-   - URL: `https://mppsvwqjmlvgsakqtpiw.supabase.co`
-   - Todas as mensagens reais recebidas pelo WhatsApp são persistidas nas tabelas `leads`, `conversations` e `messages`.
-   - Utiliza a `SERVICE_ROLE_KEY` no backend para ignorar travas de RLS e garantir entrega em tempo real mesmo em modo standalone.
+- Supabase/Postgres é a única persistência de fluxos, versões publicadas, conexões, conhecimento,
+  conversas e mensagens; todas as entidades de negócio são delimitadas por `organization_id` e RLS.
+- O webhook canônico resolve a conexão, o agente e a `flow_version_id` imutável no Supabase antes de
+  enfileirar ou executar uma conversa.
+- Builder, Playground, Knowledge, Inbox e Connections usam apenas endpoints autenticados sob
+  `/api/organizations/:organizationId` (ou `/api/me` para o perfil do usuário).
+- O arquivo `data/store.json`, se ainda presente no host, é backup histórico e não é lido pela API.
 
 ---
 
@@ -112,7 +113,10 @@ O SDR Flow foi projetado para operar com excelência em **dois modos híbridos**
 
 ---
 
-## 🛠️ 5. O Que Foi Feito Recentemente (Últimas Modificações)
+## 🛠️ 5. Registro Histórico de Modificações
+
+> As entradas abaixo descrevem o estado anterior à migração Supabase-only; não são instruções de
+> operação nem refletem as rotas atualmente expostas.
 
 ### A. Correção Completa do Inbox e Envio Real no WhatsApp
 - **Diagnóstico:** O webhook da Evolution API recebia as mensagens e gravava no Supabase, mas a tela `/inbox` ficava vazia por causa de uma trava rígida `if (!session || !activeOrg) return;` e uma chamada para `/api/organizations/undefined/inbox`.

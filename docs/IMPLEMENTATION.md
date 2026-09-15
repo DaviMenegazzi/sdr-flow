@@ -49,7 +49,7 @@ completo. Locks distribuídos impedem processamento simultâneo entre réplicas.
 WhatsApp, chamar webhooks ou operar a agenda, o runtime confirma que a geração ainda é a mais nova;
 execuções substituídas são encerradas sem efeitos externos e sem consumir a escuta do debug.
 
-A versão publicada (ou snapshot standalone) é registrada no trabalho atrasado, evitando trocar de
+A versão publicada imutável é registrada no trabalho atrasado, evitando trocar de
 grafo durante a janela. Sem `REDIS_URL`, o ambiente local mantém execução inline; não existe fallback
 de buffer em memória. A deduplicação HTTP pelo `IdempotencyGate` continua em memória e a homologação
 de ponta a ponta com Redis e provedores reais ainda está pendente. Nenhuma mensagem real foi enviada.
@@ -57,8 +57,7 @@ Veja PROVIDERS.md para configurar e testar a IA sem WhatsApp.
 
 ## Histórico persistido no agente — 09/09/2026
 
-O `context.memory` consulta as mensagens persistidas da conversa tanto no webhook multiempresa quanto
-na rota standalone por instância. O trace do nó informa `history.source`, `messagesCount`,
+O `context.memory` consulta as mensagens persistidas da conversa no webhook multiempresa. O trace do nó informa `history.source`, `messagesCount`,
 `requestedLimit`, disponibilidade do leitor de banco e erro de fallback, permitindo distinguir no JSON
 de debug entre histórico carregado, conversa vazia, lote atual e falha no Supabase. Erros deixaram de
 ser silenciosos. O runtime também limita `notes` comerciais a 200 caracteres, enquanto o V11 orienta

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useSession } from '../session';
 import type { FlowGraph } from '@sdr/shared';
@@ -33,6 +33,22 @@ interface Connection {
   webhook_url?: string;
 }
 
+interface ActiveFlowBinding {
+  connection: {
+    id: string;
+    name: string;
+    instanceName: string;
+  };
+  flow: {
+    id: string;
+    name: string;
+    versionId: string;
+    version: number;
+    publishedAt: string;
+    graph: FlowGraph;
+  };
+}
+
 export function ConnectionsPage() {
   const { session, activeOrg } = useSession();
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -63,22 +79,33 @@ export function ConnectionsPage() {
   const [qrCodeString, setQrCodeString] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [activeFlows, setActiveFlows] = useState<Record<string, { flowId: string; flow: any }>>({});
+  const [activeFlows, setActiveFlows] = useState<ActiveFlowBinding[]>([]);
   const [loadingActive, setLoadingActive] = useState(false);
-  const [simulatingFlow, setSimulatingFlow] = useState<{ id: string; name: string; graph: FlowGraph } | null>(null);
+  const [simulatingFlow, setSimulatingFlow] = useState<{ id: string; name: string; versionId: string; graph: FlowGraph } | null>(null);
+  const activeFlowsRequest = useRef(0);
 
   async function loadActiveFlows() {
+    const requestId = ++activeFlowsRequest.current;
     setLoadingActive(true);
     try {
-      const res = await fetch('/api/flows/active');
+      if (!activeOrg || !session?.access_token) {
+        if (requestId === activeFlowsRequest.current) setActiveFlows([]);
+        return;
+      }
+      const res = await fetch(`/api/organizations/${encodeURIComponent(activeOrg)}/active-flows`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
       if (res.ok) {
         const data = await res.json();
-        setActiveFlows(data || {});
+        if (requestId === activeFlowsRequest.current) setActiveFlows(Array.isArray(data) ? data : []);
+      } else {
+        if (requestId === activeFlowsRequest.current) setActiveFlows([]);
       }
     } catch (err) {
       console.error('Falha ao carregar fluxos ativos:', err);
+      if (requestId === activeFlowsRequest.current) setActiveFlows([]);
     } finally {
-      setLoadingActive(false);
+      if (requestId === activeFlowsRequest.current) setLoadingActive(false);
     }
   }
 
@@ -779,7 +806,7 @@ export function ConnectionsPage() {
           </div>
         </div>
 
-        {Object.keys(activeFlows).length === 0 ? (
+        {activeFlows.length === 0 ? (
           <Card className="p-4 bg-surface border-border">
             <p className="text-xs text-content-muted m-0">
               Nenhum fluxo publicado e vinculado às instâncias ainda. No <strong>Construtor de Fluxos</strong>, selecione a instância desejada e clique em <strong>Publicar</strong>.
@@ -787,13 +814,17 @@ export function ConnectionsPage() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {Object.entries(activeFlows).map(([instName, binding]) => {
-              const flow = binding.flow;
-              const isTest = Boolean(flow?.graph?.testMode?.enabled);
-              const testPhone = flow?.graph?.testMode?.phone || '';
+            {activeFlows.map(binding => {
+              const { connection, flow } = binding;
+              const isTest = Boolean(flow.graph.testMode?.enabled);
+              const testPhone = flow.graph.testMode?.phone || '';
+              const publishedAt = new Date(flow.publishedAt);
+              const publishedAtText = Number.isNaN(publishedAt.getTime())
+                ? '—'
+                : publishedAt.toLocaleString('pt-BR');
               return (
                 <Card
-                  key={instName}
+                  key={connection.id}
                   className={`p-4 bg-surface flex flex-col justify-between border ${
                     isTest ? 'border-amber-500/40 bg-amber-500/5' : 'border-emerald-500/40 bg-emerald-500/5'
                   }`}
@@ -801,7 +832,7 @@ export function ConnectionsPage() {
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs font-semibold text-content-muted uppercase">
-                        Instância: <strong className="text-content">{instName}</strong>
+                        Instância: <strong className="text-content">{connection.instanceName}</strong>
                       </span>
                       <Badge
                         variant={isTest ? 'warning' : 'success'}
@@ -820,9 +851,9 @@ export function ConnectionsPage() {
                       </Badge>
                     </div>
 
-                    <h3 className="text-sm font-bold text-content mt-1 mb-1">{flow?.name || 'Fluxo SDR'}</h3>
+                    <h3 className="text-sm font-bold text-content mt-1 mb-1">{flow.name}</h3>
                     <div className="text-[11px] text-content-muted mb-3">
-                      Versão: <strong className="text-content">v{flow?.publishedVersion || 1}</strong> · Publicado em: {flow?.publishedAt ? new Date(flow.publishedAt).toLocaleString('pt-BR') : 'Hoje'}
+                      Versão: <strong className="text-content">v{flow.version}</strong> · Publicado em: {publishedAtText}
                     </div>
 
                     {isTest ? (
@@ -852,12 +883,12 @@ export function ConnectionsPage() {
                       variant="primary"
                       size="sm"
                       className="flex-1"
-                      onClick={() => setSimulatingFlow({ id: flow?.id || binding.flowId, name: flow?.name || 'Fluxo SDR', graph: flow?.graph })}
+                      onClick={() => setSimulatingFlow({ id: flow.id, name: flow.name, versionId: flow.versionId, graph: flow.graph })}
                       title="Abrir o simulador com IA para testar conversas deste fluxo sem enviar WhatsApp"
                     >
                       <Play className="w-3.5 h-3.5" /> Playground
                     </Button>
-                    <Link to={`/flows/new?id=${encodeURIComponent(flow?.id || binding.flowId)}`}>
+                    <Link to={`/flows/new?id=${encodeURIComponent(flow.id)}`}>
                       <Button variant="outline" size="sm">
                         <Workflow className="w-3.5 h-3.5" /> Editar
                       </Button>
@@ -876,6 +907,7 @@ export function ConnectionsPage() {
           isOpen={Boolean(simulatingFlow)}
           onClose={() => setSimulatingFlow(null)}
           flowId={simulatingFlow.id}
+          flowVersionId={simulatingFlow.versionId}
           graph={simulatingFlow.graph}
         />
       )}

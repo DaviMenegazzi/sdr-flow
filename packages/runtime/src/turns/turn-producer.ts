@@ -1,5 +1,6 @@
 import type { ServiceDb } from '../inbound/inbound-event-repository.js';
 import { bufferWindowSeconds, type RedisTurnBuffer } from './redis-buffer.js';
+import type { FlowGraph } from '@sdr/shared';
 
 // Shared "resolve which flow, then enqueue" step, used by the webhook's hot path
 // (apps/api/src/webhook.ts, right after accept_inbound_event), by the worker's outbox
@@ -13,7 +14,12 @@ import { bufferWindowSeconds, type RedisTurnBuffer } from './redis-buffer.js';
 export interface TurnFlowResolution {
   organizationId: string;
   flowId: string;
+  /** The immutable version the runtime will actually execute for this connection. */
   flowVersionId: string;
+  flowName: string;
+  flowVersion: number;
+  flowVersionCreatedAt: string;
+  graph: FlowGraph;
   windowSeconds: number;
 }
 
@@ -50,7 +56,7 @@ export async function resolveTurnFlow(db: ServiceDb, connectionId: string): Prom
   const selectedFlowVersionId = assignedAgent.active_flow_version_id || flow.published_version_id;
   const { data: flowVersion } = await db
     .from('flow_versions')
-    .select('id, graph')
+    .select('id, version, created_at, graph')
     .eq('organization_id', organizationId)
     .eq('flow_id', flow.id)
     .eq('id', selectedFlowVersionId)
@@ -62,7 +68,11 @@ export async function resolveTurnFlow(db: ServiceDb, connectionId: string): Prom
     organizationId,
     flowId: flow.id,
     flowVersionId: flowVersion.id,
-    windowSeconds: bufferWindowSeconds(flowVersion.graph as any),
+    flowName: flow.name,
+    flowVersion: flowVersion.version,
+    flowVersionCreatedAt: flowVersion.created_at,
+    graph: flowVersion.graph as unknown as FlowGraph,
+    windowSeconds: bufferWindowSeconds(flowVersion.graph as FlowGraph),
   };
 }
 

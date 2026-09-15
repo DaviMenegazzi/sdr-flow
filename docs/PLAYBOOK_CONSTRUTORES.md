@@ -394,12 +394,11 @@ pela porta `error`; não existe sucesso simulado.*
 - **Variáveis geradas:** `{{calendar.event_id}}`, `{{calendar.cancelled}}` e
   `{{calendar.cancellation_reason}}`.
 
-> **Conexões Externas & OAuth Oficial:**
-> Agora o SDR Flow conta com uma seção dedicada de **Conexões Externas & Integrações (`/integrations`)**.
-> O conector do Google Calendar permite autenticação oficial via OAuth 2.0 através do botão *"Conectar com Google"*, 
-> gerenciando tokens e refresh tokens com renovação automática pelo servidor.
-> Os nós `calendar.*` resolvem as credenciais ativas diretamente do armazenamento seguro do servidor (`StandaloneStore`), 
-> dispensando a necessidade de colocar chaves manuais em arquivos `.env` ou expor tokens no JSON dos fluxos.
+> **Google Calendar no ambiente gerenciado:**
+> As credenciais são configuradas exclusivamente no servidor por
+> `GOOGLE_CALENDAR_CREDENTIALS_JSON`. A tela de Integrações explica esse estado e não grava
+> tokens locais. Os nós `calendar.*` usam somente essa configuração de servidor; ausência ou
+> falha de credenciais segue pela porta `error`, sem sucesso simulado.
 > Além disso, o usuário pode visualizar e sincronizar todos os calendários da sua conta Google diretamente pela interface.
 
 ---

@@ -23,7 +23,6 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useSession } from '../session';
-import { useInstance } from '../context/InstanceContext';
 import { Button, Badge, Card, Input } from '../components/ui';
 
 interface KnowledgeDoc {
@@ -133,7 +132,6 @@ const COLLECTIONS: CollectionMeta[] = [
 
 export function KnowledgePage() {
   const { activeOrg, session } = useSession();
-  const { activeInstance } = useInstance();
 
   const [documents, setDocuments] = useState<KnowledgeDoc[]>([]);
   const [selectedCollection, setSelectedCollection] = useState<string>('all');
@@ -155,9 +153,8 @@ export function KnowledgePage() {
   const [searchResults, setSearchResults] = useState<SearchHit[] | null>(null);
   const [searching, setSearching] = useState(false);
 
-  // Base URL & Headers detection
-  const isStandalone = !activeOrg || !session?.access_token || activeOrg === 'standalone-org';
-  const baseUrl = isStandalone ? '/api/knowledge' : `/api/organizations/${activeOrg}/knowledge`;
+  // Knowledge is always organization-scoped. There is intentionally no local JSON fallback.
+  const baseUrl = activeOrg ? `/api/organizations/${activeOrg}/knowledge` : null;
   const getHeaders = (hasBody = false): Record<string, string> => {
     const h: Record<string, string> = {};
     if (hasBody) h['Content-Type'] = 'application/json';
@@ -167,9 +164,14 @@ export function KnowledgePage() {
 
   useEffect(() => {
     loadDocuments();
-  }, [activeOrg, session, selectedCollection, activeInstance]);
+  }, [activeOrg, session?.access_token, selectedCollection]);
 
   async function loadDocuments() {
+    if (!baseUrl || !session?.access_token) {
+      setDocuments([]);
+      setError('Selecione uma organização para acessar a base de conhecimento.');
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -177,10 +179,6 @@ export function KnowledgePage() {
         selectedCollection === 'all'
           ? baseUrl
           : `${baseUrl}?collection=${encodeURIComponent(selectedCollection)}`;
-      if (activeInstance) {
-        url += `${url.includes('?') ? '&' : '?'}instanceId=${encodeURIComponent(activeInstance)}`;
-      }
-
       const res = await fetch(url, { headers: getHeaders() });
       if (!res.ok) {
         throw new Error(`Falha ao carregar base de conhecimento (${res.status})`);
@@ -223,6 +221,10 @@ export function KnowledgePage() {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
+    if (!baseUrl || !session?.access_token) {
+      setModalError('Selecione uma organização antes de salvar um documento.');
+      return;
+    }
     if (!modalTitle.trim()) {
       setModalError('O título do documento é obrigatório.');
       return;
@@ -245,7 +247,6 @@ export function KnowledgePage() {
           collection: modalCollection,
           title: modalTitle.trim(),
           content: modalContent.trim(),
-          instanceId: activeInstance || undefined,
         }),
       });
 
@@ -265,6 +266,10 @@ export function KnowledgePage() {
 
   async function handleDelete(id: string, title: string) {
     if (!confirm(`Deseja realmente excluir o documento "${title}"?`)) return;
+    if (!baseUrl || !session?.access_token) {
+      alert('Selecione uma organização antes de excluir um documento.');
+      return;
+    }
 
     try {
       const res = await fetch(`${baseUrl}/${id}`, {
@@ -282,6 +287,10 @@ export function KnowledgePage() {
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     if (!searchQuery.trim()) return;
+    if (!baseUrl || !session?.access_token) {
+      alert('Selecione uma organização antes de pesquisar a base de conhecimento.');
+      return;
+    }
 
     setSearching(true);
     try {

@@ -10,3 +10,4 @@ artifacts/
 .local/
 data/store.json
 graphify-out/
+.codex-tmp/

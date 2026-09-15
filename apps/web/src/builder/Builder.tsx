@@ -57,9 +57,11 @@ function Editor() {
   const [selectedEdges, setSelectedEdges] = useState<string[]>([]);
   const { activeInstance, activeInstanceName, currentInstance, setActiveInstance } = useInstance();
   const targetInstance = activeInstanceName || currentInstance?.name || '';
-  const managedFlowApi = Boolean(activeOrg && activeOrg !== 'standalone-org' && session?.access_token);
-  const flowApiBase = managedFlowApi ? `/api/organizations/${activeOrg}/flows` : '/api/flows';
-  const flowApiHeaders: Record<string, string> = session ? { Authorization: `Bearer ${session.access_token}` } : {};
+  const managedFlowApi = Boolean(activeOrg && session?.access_token);
+  const flowApiBase = managedFlowApi ? `/api/organizations/${activeOrg}/flows` : null;
+  const flowApiHeaders: Record<string, string> = managedFlowApi && session?.access_token
+    ? { Authorization: `Bearer ${session.access_token}` }
+    : {};
   const [appColorMode, setAppColorMode] = useState<'light' | 'dark'>(() =>
     document.documentElement.classList.contains('light') ? 'light' : 'dark'
   );
@@ -114,85 +116,55 @@ function Editor() {
   }, [nodesInitialized, fitRequested, graph.nodes, fitView]);
 
   const refreshData = async () => {
+    if (!managedFlowApi || !flowApiBase) {
+      setSavedFlows([]);
+      setActiveBindings({});
+      return;
+    }
+
     try {
-      if (managedFlowApi) {
-        const flowsRes = await fetch(flowApiBase, { headers: flowApiHeaders });
-        if (!flowsRes.ok) return;
-        const rawFlows = await flowsRes.json();
-        if (!Array.isArray(rawFlows)) return;
+      const flowsRes = await fetch(flowApiBase, { headers: flowApiHeaders });
+      if (!flowsRes.ok) return;
+      const rawFlows = await flowsRes.json();
+      if (!Array.isArray(rawFlows)) return;
 
-        const flows = rawFlows.map((flow: any): SavedFlow => ({
-          ...flow,
-          graph: flow.draft,
-          published: Boolean(flow.published_version_id),
-        }));
-        setSavedFlows(flows);
+      const flows = rawFlows.map((flow: any): SavedFlow => ({
+        ...flow,
+        graph: flow.draft,
+        published: Boolean(flow.published_version_id),
+      }));
+      setSavedFlows(flows);
 
-        const activeData: Record<string, { flowId: string; flow?: SavedFlow }> = {};
-        if (currentInstance?.agent_id) {
-          const agentRes = await fetch(`/api/me/agents/${currentInstance.agent_id}`, { headers: flowApiHeaders });
-          if (agentRes.ok) {
-            const agent = await agentRes.json();
-            const activeFlow = agent.flow_id
-              ? flows.find(flow => flow.id === agent.flow_id && flow.published_version_id)
-              : flows.find(flow => flow.published_version_id);
-            if (activeFlow) {
-              const keys = [targetInstance, activeInstance, currentInstance.id, currentInstance.name]
-                .filter((key): key is string => Boolean(key));
-              for (const key of new Set(keys)) {
-                activeData[key] = { flowId: activeFlow.id, flow: activeFlow };
-              }
+      const activeData: Record<string, { flowId: string; flow?: SavedFlow }> = {};
+      if (currentInstance?.agent_id) {
+        const agentRes = await fetch(`/api/me/agents/${currentInstance.agent_id}`, { headers: flowApiHeaders });
+        if (agentRes.ok) {
+          const agent = await agentRes.json();
+          const activeFlow = agent.flow_id
+            ? flows.find(flow => flow.id === agent.flow_id && flow.published_version_id)
+            : flows.find(flow => flow.published_version_id);
+          if (activeFlow) {
+            const keys = [targetInstance, activeInstance, currentInstance.id, currentInstance.name]
+              .filter((key): key is string => Boolean(key));
+            for (const key of new Set(keys)) {
+              activeData[key] = { flowId: activeFlow.id, flow: activeFlow };
             }
           }
-        }
-        setActiveBindings(activeData);
-
-        const queryId = new URLSearchParams(window.location.search).get('id');
-        if (queryId) {
-          const flowToOpen = flows.find(flow => flow.id === queryId);
-          if (flowToOpen) {
-            autoOpenSuppressedRef.current = true;
-            openFlow(flowToOpen, `Fluxo "${flowToOpen.name}" carregado.`);
-          }
-        } else {
-          const activeFlow = resolveActiveBinding(activeData)?.flow;
-          if (activeFlow && !autoOpenSuppressedRef.current && openFlow(activeFlow, `Fluxo ativo "${activeFlow.name}" carregado.`)) {
-            autoOpenSuppressedRef.current = true;
-          }
-        }
-        return;
-      }
-
-      let activeData: Record<string, { flowId: string; flow?: SavedFlow }> = {};
-      const activeRes = await fetch('/api/flows/active');
-      if (activeRes.ok) {
-        const active = await activeRes.json();
-        if (typeof active === 'object' && active !== null) {
-          activeData = active as Record<string, { flowId: string; flow?: SavedFlow }>;
-          setActiveBindings(activeData);
         }
       }
+      setActiveBindings(activeData);
 
-      const flowsRes = await fetch('/api/flows');
-      if (flowsRes.ok) {
-        const flows = await flowsRes.json();
-        if (Array.isArray(flows)) {
-          setSavedFlows(flows);
-          const queryId = new URLSearchParams(window.location.search).get('id');
-          if (queryId) {
-            const flowToOpen = flows.find((f: any) => f.id === queryId);
-            if (flowToOpen) {
-              autoOpenSuppressedRef.current = true;
-              openFlow(flowToOpen, `Fluxo "${flowToOpen.name}" carregado.`);
-            }
-          } else {
-            const activeFlow = resolveActiveBinding(activeData)?.flow;
-            if (activeFlow && !autoOpenSuppressedRef.current) {
-              if (openFlow(activeFlow, `Fluxo ativo "${activeFlow.name}" carregado.`)) {
-                autoOpenSuppressedRef.current = true;
-              }
-            }
-          }
+      const queryId = new URLSearchParams(window.location.search).get('id');
+      if (queryId) {
+        const flowToOpen = flows.find(flow => flow.id === queryId);
+        if (flowToOpen) {
+          autoOpenSuppressedRef.current = true;
+          openFlow(flowToOpen, `Fluxo "${flowToOpen.name}" carregado.`);
+        }
+      } else {
+        const activeFlow = resolveActiveBinding(activeData)?.flow;
+        if (activeFlow && !autoOpenSuppressedRef.current && openFlow(activeFlow, `Fluxo ativo "${activeFlow.name}" carregado.`)) {
+          autoOpenSuppressedRef.current = true;
         }
       }
     } catch {
@@ -349,13 +321,15 @@ function Editor() {
       setNotice('Selecione uma instância no topo (TopBar) para vincular e publicar este fluxo.');
       return;
     }
+    if (!managedFlowApi || !flowApiBase) {
+      setNotice('Entre em uma organização para salvar ou publicar fluxos.');
+      return;
+    }
 
     setBusy(true);
     try {
-      // 1. Salva o fluxo na API
-      const payload = managedFlowApi
-        ? { name: state.name, graph }
-        : { id: flowId || undefined, name: state.name, graph, targetInstance: targetInstance || undefined };
+      // Fluxos são persistidos apenas no endpoint autenticado da organização ativa.
+      const payload = { name: state.name, graph };
 
       const saveRes = await fetch(flowId ? `${flowApiBase}/${flowId}` : flowApiBase, {
         method: flowId ? 'PUT' : 'POST',
@@ -481,8 +455,18 @@ function Editor() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setShowPlayground(true)}
-              title="Testar fluxo com IA"
+              onClick={() => {
+                if (!managedFlowApi) {
+                  setNotice('Entre em uma organização para testar o fluxo com a base de conhecimento real.');
+                  return;
+                }
+                if (!flowId) {
+                  setNotice('Salve o fluxo antes de abrir o Playground.');
+                  return;
+                }
+                setShowPlayground(true);
+              }}
+              title={flowId ? 'Testar o fluxo salvo com dados da organização' : 'Salve o fluxo antes de abrir o Playground'}
             >
               <Play size={14} />
               <span>Playground</span>

@@ -8,10 +8,11 @@ interface PlaygroundModalProps {
   isOpen: boolean;
   onClose: () => void;
   flowId?: string | null;
+  flowVersionId?: string | null;
   graph: FlowGraph;
 }
 
-export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundModalProps) {
+export function PlaygroundModal({ isOpen, onClose, flowId, flowVersionId, graph }: PlaygroundModalProps) {
   const { session, activeOrg } = useSession();
 
   const [leadName, setLeadName] = useState('Carlos Oliveira');
@@ -24,7 +25,6 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
   const [llmMode, setLlmMode] = useState<'mock' | 'openai'>('mock');
   const [result, setResult] = useState<PlaygroundResult | null>(null);
   const [activeTab, setActiveTab] = useState<'response' | 'prompt' | 'trace' | 'memory' | 'knowledge'>('response');
-  const [customApiKey, setCustomApiKey] = useState('');
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (isOpen && graph.testMode?.enabled) setLeadPhone(graph.testMode.phone);
@@ -34,31 +34,41 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
 
   async function handleRun() {
     if (!message.trim()) return;
+    if (!session?.access_token || !activeOrg) {
+      setError('Entre em uma organização para executar o Playground com os dados reais.');
+      return;
+    }
+    if (!flowId) {
+      setError('Salve o fluxo antes de executar o Playground.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setResult(null);
 
     try {
-      const response = await fetch('/api/flows/playground', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-        },
-        body: JSON.stringify({
-          graph,
-          flowId: flowId || undefined,
-          llm: llmMode,
-          openaiApiKey: customApiKey.trim() || undefined,
-          message,
-          lead: {
-            name: leadName,
-            phone: leadPhone,
-            interest: leadInterest,
-            city: leadCity,
+      const response = await fetch(
+        `/api/organizations/${encodeURIComponent(activeOrg)}/flows/${encodeURIComponent(flowId)}/playground`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
           },
-        }),
-      });
+          body: JSON.stringify({
+            llm: llmMode,
+            flowVersionId: flowVersionId || undefined,
+            message,
+            lead: {
+              name: leadName,
+              phone: leadPhone,
+              interest: leadInterest,
+              city: leadCity,
+            },
+          }),
+        }
+      );
 
       if (!response.ok) {
         const errJson = await response.json().catch(() => null);
@@ -169,23 +179,6 @@ export function PlaygroundModal({ isOpen, onClose, flowId, graph }: PlaygroundMo
               <option value="openai">OpenAI — IA real, WhatsApp simulado</option>
             </select>
             <p style={{ fontSize: 12, marginBottom: 16 }}>OpenAI usa a chave configurada no servidor e consome tokens da sua conta. Nenhuma mensagem é enviada ao WhatsApp.</p>
-            {llmMode === 'openai' && (
-              <div style={{ marginBottom: 16, padding: '10px 12px', background: 'var(--color-bg-secondary)', borderRadius: 6, border: '1px solid var(--color-border)' }}>
-                <label style={{ fontSize: 11, fontWeight: 700, display: 'block', marginBottom: 4 }}>
-                  Chave OpenAI personalizada (opcional):
-                </label>
-                <input
-                  type="password"
-                  value={customApiKey}
-                  onChange={e => setCustomApiKey(e.target.value)}
-                  placeholder="sk-proj-... (deixe vazio para usar a da VPS)"
-                  style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
-                />
-                <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 4, display: 'block' }}>
-                  Por padrão, o servidor já utiliza a chave OpenAI da VPS.
-                </span>
-              </div>
-            )}
             <h3 style={{ fontSize: 13, textTransform: 'uppercase', color: 'var(--color-text-secondary)', marginBottom: 12 }}>
               1. Contexto do Lead
             </h3>

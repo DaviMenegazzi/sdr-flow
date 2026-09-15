@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode, type FormEvent } from 'react';
 import { createClient, type Session } from '@supabase/supabase-js';
-import { Calendar, Cpu, Users, Copy, Check, CheckCircle2, XCircle, Info, Sliders } from 'lucide-react';
+import { Sliders } from 'lucide-react';
 import type { MemberRole } from '@sdr/shared';
 
 const url = import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL;
@@ -50,7 +50,6 @@ interface SessionContextType {
   loading: boolean;
   profile: { role: 'admin'|'client'; status: string; organizationId: string } | null;
   signOut(): Promise<void>;
-  devLogin?: (email?: string) => void;
 }
 
 const Context = createContext<SessionContextType>({
@@ -63,62 +62,17 @@ const Context = createContext<SessionContextType>({
   loading: true,
   profile: null,
   signOut: async () => {},
-  devLogin: () => {},
 });
 
 export const useSession = () => useContext(Context);
 
-export const DEFAULT_DEV_SESSION: Session = {
-  access_token: 'local-dev-token',
-  token_type: 'bearer',
-  expires_in: 3600,
-  refresh_token: 'local-dev-refresh',
-  user: {
-    id: '00000000-0000-4000-8000-000000000001',
-    email: 'admin@sdrflow.local',
-    app_metadata: {},
-    user_metadata: { name: 'Admin Local' },
-    aud: 'authenticated',
-    created_at: new Date().toISOString(),
-  },
-};
-
-export const DEFAULT_DEV_PROFILE: SessionContextType['profile'] = {
-  role: 'admin',
-  status: 'active',
-  organizationId: 'standalone-org',
-};
-
-export const DEFAULT_DEV_ORGS: Org[] = [
-  { id: 'standalone-org', name: 'SDR Flow Local', role: 'owner' },
-];
-
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(() => (!supabase ? DEFAULT_DEV_SESSION : null));
-  const [organizations, setOrganizations] = useState<Org[]>(() => (!supabase ? DEFAULT_DEV_ORGS : []));
-  const [activeOrg, setActiveOrg] = useState(() => (!supabase ? 'standalone-org' : ''));
-  const [activeRole, setActiveRole] = useState<MemberRole | null>(() => (!supabase ? 'owner' : null));
+  const [session, setSession] = useState<Session | null>(null);
+  const [organizations, setOrganizations] = useState<Org[]>([]);
+  const [activeOrg, setActiveOrg] = useState('');
+  const [activeRole, setActiveRole] = useState<MemberRole | null>(null);
   const [loading, setLoading] = useState(() => Boolean(supabase));
-  const [profile, setProfile] = useState<SessionContextType['profile']>(() => (!supabase ? DEFAULT_DEV_PROFILE : null));
-
-  const devLogin = (customEmail?: string) => {
-    const devUserEmail = customEmail || 'admin@sdrflow.local';
-    const mockSession: Session = {
-      ...DEFAULT_DEV_SESSION,
-      user: {
-        ...DEFAULT_DEV_SESSION.user,
-        email: devUserEmail,
-      },
-    };
-    setSession(mockSession);
-    setProfile(DEFAULT_DEV_PROFILE);
-    setOrganizations(DEFAULT_DEV_ORGS);
-    setActiveOrg('standalone-org');
-    setActiveRole('owner');
-    try {
-      localStorage.setItem('sdr-flow:dev-session', JSON.stringify({ email: devUserEmail }));
-    } catch {}
-  };
+  const [profile, setProfile] = useState<SessionContextType['profile']>(null);
 
   const reload = async () => {
     if (!supabase || !session) return;
@@ -150,15 +104,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!supabase) {
-      try {
-        const saved = localStorage.getItem('sdr-flow:dev-session');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed.email && parsed.email !== session?.user?.email) {
-            devLogin(parsed.email);
-          }
-        }
-      } catch {}
       setLoading(false);
       return;
     }
@@ -183,7 +128,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setActiveRole(null);
     setProfile(null);
     setSession(null);
-    try{localStorage.removeItem('sdr-flow:active-instance');localStorage.removeItem('sdr-flow:dev-session')}catch{}
+    try{localStorage.removeItem('sdr-flow:active-instance')}catch{}
     await supabase?.auth.signOut();
   };
 
@@ -210,254 +155,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [activeOrg]);
 
   return (
-    <Context.Provider value={{ session, organizations, activeOrg, activeRole, setActiveOrg, reload, loading, profile, signOut, devLogin }}>
+    <Context.Provider value={{ session, organizations, activeOrg, activeRole, setActiveOrg, reload, loading, profile, signOut }}>
       {children}
     </Context.Provider>
-  );
-}
-
-
-export function PlatformSettingsSection() {
-  const [openaiApiKey, setOpenaiApiKey] = useState('');
-  const [openaiModel, setOpenaiModel] = useState('gpt-4.1-mini');
-  const [evolutionUrl, setEvolutionUrl] = useState('http://127.0.0.1:8080');
-  const [evolutionApiKey, setEvolutionApiKey] = useState('');
-  const [googleClientId, setGoogleClientId] = useState('');
-  const [googleClientSecret, setGoogleClientSecret] = useState('');
-  const [maskedOpenAI, setMaskedOpenAI] = useState('');
-  const [maskedEvolution, setMaskedEvolution] = useState('');
-  const [maskedGoogleClientId, setMaskedGoogleClientId] = useState('');
-  const [maskedGoogleClientSecret, setMaskedGoogleClientSecret] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [saveMessage, setSaveMessage] = useState('');
-  const [copiedUri, setCopiedUri] = useState(false);
-
-  const loadSettings = async () => {
-    try {
-      const res = await fetch('/api/settings');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.openaiApiKeyMasked) setMaskedOpenAI(data.openaiApiKeyMasked);
-        if (data.openaiModel) setOpenaiModel(data.openaiModel);
-        if (data.evolutionServerUrl) setEvolutionUrl(data.evolutionServerUrl);
-        if (data.evolutionApiKeyMasked) setMaskedEvolution(data.evolutionApiKeyMasked);
-        if (data.googleClientIdMasked) setMaskedGoogleClientId(data.googleClientIdMasked);
-        if (data.googleClientSecretMasked) setMaskedGoogleClientSecret(data.googleClientSecretMasked);
-      }
-    } catch {
-      // ignore
-    }
-  };
-
-  useEffect(() => {
-    void loadSettings();
-  }, []);
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setSaveMessage('');
-    try {
-      const res = await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          openaiApiKey: openaiApiKey || undefined,
-          openaiModel: openaiModel || undefined,
-          evolutionServerUrl: evolutionUrl || undefined,
-          evolutionApiKey: evolutionApiKey || undefined,
-          googleClientId: googleClientId || undefined,
-          googleClientSecret: googleClientSecret || undefined,
-        }),
-      });
-      if (!res.ok) throw new Error('Falha ao salvar configurações.');
-      setSaveMessage('Configurações salvas no servidor com sucesso!');
-      setOpenaiApiKey('');
-      setEvolutionApiKey('');
-      setGoogleClientId('');
-      setGoogleClientSecret('');
-      await loadSettings();
-    } catch (err) {
-      setSaveMessage(err instanceof Error ? err.message : 'Erro ao salvar.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleTestOpenAI = async () => {
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const res = await fetch('/api/settings/test-openai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: openaiApiKey || undefined }),
-      });
-      const data = await res.json();
-      setTestResult({ ok: Boolean(data.ok), message: data.ok ? data.message : (data.error || 'Falha ao testar chave.') });
-    } catch (err) {
-      setTestResult({ ok: false, message: err instanceof Error ? err.message : 'Falha na requisição.' });
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  return (
-    <div style={{ maxWidth: 640 }}>
-      <div className="info-card" style={{ marginBottom: 24, borderLeft: '4px solid #2ee86b' }}>
-        <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>Configurações de Inteligência Artificial & Provedores</h3>
-        <p style={{ margin: 0, fontSize: 13 }}>
-          Gerencie as credenciais que alimentam as respostas do SDR, decisões dos agentes e a conexão com o WhatsApp.
-        </p>
-      </div>
-
-      {saveMessage && (
-        <div style={{ padding: '10px 14px', borderRadius: 6, marginBottom: 16, background: saveMessage.includes('sucesso') ? '#16a34a1a' : '#ef44441a', color: saveMessage.includes('sucesso') ? '#16a34a' : '#ef4444', fontSize: 13, fontWeight: 600 }}>
-          {saveMessage}
-        </div>
-      )}
-
-      <form onSubmit={handleSave} className="settings-form">
-        <h2>Chave da OpenAI (LLM Principal)</h2>
-        <label>
-          OpenAI API Key
-          {maskedOpenAI && (
-            <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 600, display: 'block', marginBottom: 4 }}>
-              ● Chave ativa no servidor: {maskedOpenAI}
-            </span>
-          )}
-          <input
-            type="password"
-            value={openaiApiKey}
-            onChange={e => setOpenaiApiKey(e.target.value)}
-            placeholder={maskedOpenAI ? "Digite uma nova chave para alterar..." : "sk-proj-..."}
-          />
-        </label>
-
-        <div style={{ display: 'flex', gap: 10, marginTop: -8, marginBottom: 20 }}>
-          <button type="button" onClick={handleTestOpenAI} disabled={testing} style={{ fontSize: 12, padding: '4px 10px' }}>
-            {testing ? 'Testando conexão...' : 'Testar Conexão com OpenAI'}
-          </button>
-        </div>
-
-        {testResult && (
-          <div style={{ padding: '8px 12px', borderRadius: 6, marginBottom: 16, fontSize: 12, background: testResult.ok ? '#16a34a15' : '#ef444415', color: testResult.ok ? '#15803d' : '#b91c1c', border: testResult.ok ? '1px solid #16a34a' : '1px solid #ef4444', display: 'flex', alignItems: 'center', gap: 6 }}>
-            {testResult.ok ? <CheckCircle2 size={14} color="#15803d" /> : <XCircle size={14} color="#b91c1c" />}{testResult.message}
-          </div>
-        )}
-
-        <label>
-          Modelo Padrão da OpenAI
-          <select value={openaiModel} onChange={e => setOpenaiModel(e.target.value)}>
-            <option value="gpt-4.1-mini">gpt-4.1-mini (Rápido, econômico e altamente recomendado)</option>
-            <option value="gpt-4o">gpt-4o (Alta performance multimodal)</option>
-            <option value="gpt-4o-mini">gpt-4o-mini</option>
-            <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
-          </select>
-        </label>
-
-        <h2 style={{ marginTop: 28 }}>Evolution API (WhatsApp Docker)</h2>
-        <label>
-          URL do Servidor Evolution
-          <input
-            type="text"
-            value={evolutionUrl}
-            onChange={e => setEvolutionUrl(e.target.value)}
-            placeholder="http://127.0.0.1:8080"
-          />
-        </label>
-
-        <label>
-          API Key da Evolution
-          {maskedEvolution && (
-            <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 600, display: 'block', marginBottom: 4 }}>
-              ● Chave ativa: {maskedEvolution}
-            </span>
-          )}
-          <input
-            type="password"
-            value={evolutionApiKey}
-            onChange={e => setEvolutionApiKey(e.target.value)}
-            placeholder={maskedEvolution ? "Digite nova chave para alterar..." : "Sua Evolution Api Key"}
-          />
-        </label>
-
-        <h2 style={{ marginTop: 28, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Calendar size={18} color="#2563eb" /> Google Cloud OAuth (Plataforma Global)
-        </h2>
-        <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: '-4px 0 14px', lineHeight: 1.5 }}>
-          Credenciais do seu projeto no Google Cloud Console. Uma vez configuradas aqui pelo administrador, qualquer cliente conecta sua conta do Google com 1 clique direto na aba Integrações (sem precisar digitar chaves).
-        </p>
-
-        <label>
-          Google Client ID
-          {maskedGoogleClientId && (
-            <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 600, display: 'block', marginBottom: 4 }}>
-              ● Client ID ativo no servidor: {maskedGoogleClientId}
-            </span>
-          )}
-          <input
-            type="text"
-            value={googleClientId}
-            onChange={e => setGoogleClientId(e.target.value)}
-            placeholder={maskedGoogleClientId ? "Digite novo Client ID para alterar..." : "ex: 123456789-abc.apps.googleusercontent.com"}
-          />
-        </label>
-
-        <label>
-          Google Client Secret
-          {maskedGoogleClientSecret && (
-            <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 600, display: 'block', marginBottom: 4 }}>
-              ● Client Secret ativo no servidor: {maskedGoogleClientSecret}
-            </span>
-          )}
-          <input
-            type="password"
-            value={googleClientSecret}
-            onChange={e => setGoogleClientSecret(e.target.value)}
-            placeholder={maskedGoogleClientSecret ? "Digite novo Client Secret para alterar..." : "ex: GOCSPX-xxxxxxxx"}
-          />
-        </label>
-
-        <div style={{ background: 'var(--color-bg-secondary)', padding: '12px 14px', borderRadius: 8, fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 18 }}>
-          <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Info size={14} color="#2ee86b" /> URI de redirecionamento autorizada para o Google Cloud Console:
-          </div>
-          <p style={{ margin: '0 0 8px', fontSize: 11, lineHeight: 1.5 }}>
-            Copie este endereço e cole em <em>URIs de redirecionamento autorizados</em> no seu cliente OAuth 2.0 no Google Cloud:
-          </p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <code style={{ flex: 1, padding: '7px 10px', background: 'var(--color-bg-primary)', border: '1px solid var(--color-border-secondary)', borderRadius: 6, wordBreak: 'break-all', fontSize: 11, fontFamily: 'monospace' }}>
-              {window.location.origin}/api/integrations/google/callback
-            </code>
-            <button
-              type="button"
-              onClick={() => {
-                void navigator.clipboard.writeText(`${window.location.origin}/api/integrations/google/callback`);
-                setCopiedUri(true);
-                setTimeout(() => setCopiedUri(false), 2000);
-              }}
-              style={{ fontSize: 11, padding: '6px 12px', minHeight: 32, display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}
-            >
-              {copiedUri ? <><Check size={13} color="#16a34a" /> Copiado!</> : <><Copy size={13} /> Copiar</>}
-            </button>
-          </div>
-        </div>
-
-        <button className="primary" disabled={busy} style={{ marginTop: 12 }}>
-          {busy ? 'Salvando...' : 'Salvar Configurações'}
-        </button>
-      </form>
-    </div>
   );
 }
 
 export function Settings() {
   const { session, organizations, activeOrg, activeRole, setActiveOrg, reload } = useSession();
 
-  const [viewTab, setViewTab] = useState<'ai-keys' | 'account'>('ai-keys');
   const [authTab, setAuthTab] = useState<'login' | 'signup' | 'magic' | 'invitation'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -763,44 +469,13 @@ export function Settings() {
             <Sliders size={14} /> ADMINISTRAÇÃO & AJUSTES
           </div>
           <h1 className="text-2xl font-bold text-content tracking-tight">
-            Configurações da Plataforma
+            Organizações e Equipe
           </h1>
           <p className="text-sm text-content-secondary max-w-2xl mt-1">
-            Gerencie as chaves de inteligência artificial, WhatsApp, Google Calendar e acessos de equipe.
+            Gerencie membros, convites e chaves de integração da organização ativa.
           </p>
         </div>
 
-        {/* Tabs Principais de Navegação em Configurações */}
-        <div className="flex gap-2 border-b border-border pb-3">
-          <button
-            type="button"
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all border ${
-              viewTab === 'ai-keys'
-                ? 'bg-brand text-black border-brand shadow-xs'
-                : 'bg-surface border-border text-content-secondary hover:text-content hover:bg-surface-hover'
-            }`}
-            onClick={() => setViewTab('ai-keys')}
-          >
-            <Cpu size={14} /> IA & Provedores (Plataforma)
-          </button>
-          <button
-            type="button"
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all border ${
-              viewTab === 'account'
-                ? 'bg-brand text-black border-brand shadow-xs'
-                : 'bg-surface border-border text-content-secondary hover:text-content hover:bg-surface-hover'
-            }`}
-            onClick={() => setViewTab('account')}
-          >
-            <Users size={14} /> Organizações & Equipe (Supabase)
-          </button>
-        </div>
-
-      {viewTab === 'ai-keys' && (
-        <PlatformSettingsSection />
-      )}
-
-      {viewTab === 'account' && (
         <>
           {!supabase ? (
             <div className="info-card" style={{ maxWidth: 640 }}>
@@ -1261,9 +936,8 @@ export function Settings() {
             </form>
           )}
         </>
-      )}
-    </>
-  )}
+        )}
+        </>
 
       {message && (
         <p role="status" style={{ marginTop: 20, color: 'var(--color-bg-accent)', fontWeight: 500 }}>

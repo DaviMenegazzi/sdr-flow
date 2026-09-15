@@ -4,10 +4,8 @@ import { join } from 'node:path';
 
 // Static-analysis gate for docs/OPTIMIZATION_IMPLEMENTATION_PLAN.md 8.8.1/8.9: apps/api must
 // never instantiate a BullMQ Worker for the canonical turns queue — the acceptance criterion
-// "API não instancia BullMQ Worker em produção". The one remaining exception is standalone
-// mode's own, entirely separate debounce queue (apps/api/src/conversation-turn-queue.ts),
-// which is scoped to config.standaloneMode (never true in production) and never touches
-// queueNames.turns.
+// "API não instancia BullMQ Worker em produção". API is producer-only; the worker app owns
+// every BullMQ Worker construction.
 
 function listTsFiles(dir: string): string[] {
   const entries = readdirSync(dir);
@@ -25,9 +23,8 @@ describe('turn processing topology (Fase 2)', () => {
   const apiSrcDir = join(process.cwd(), 'apps', 'api', 'src');
   const files = listTsFiles(apiSrcDir);
 
-  it('apps/api never constructs a BullMQ Worker, except standalone mode\'s own queue file', () => {
+  it('apps/api never constructs a BullMQ Worker', () => {
     const offenders = files.filter(file => {
-      if (file.endsWith(join('whatsapp', 'conversation-turn-queue.ts')) || file.endsWith('conversation-turn-queue.ts')) return false;
       const content = readFileSync(file, 'utf8');
       return /new\s+Worker\s*\(/.test(content);
     });

@@ -7,7 +7,7 @@ import { z } from 'zod';
 
 export const conversationTurnJobV1Schema = z.strictObject({
   schemaVersion: z.literal(1),
-  kind: z.enum(['published', 'standalone']),
+  kind: z.literal('published'),
   organizationId: z.string().min(1),
   connectionId: z.string().min(1),
   conversationKey: z.string().min(1),

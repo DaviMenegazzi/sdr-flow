@@ -14,7 +14,7 @@ const DEFAULT_LOCK_RENEW_INTERVAL_MS = 60 * 1000;
 export const SUPERSEDED_TURN_ERROR = 'conversation_turn_superseded';
 
 export interface EnqueueTurnInput {
-  kind: 'published' | 'standalone';
+  kind: 'published';
   organizationId: string;
   connectionId: string;
   conversationKey: string;

@@ -16,8 +16,8 @@ import {
   type MetaCredentials,
   type ConversationWithLead,
 } from '@sdr/db';
-import { saveFlowSchema, memberRoleSchema, type FlowGraph, normalizeConversationStage, isPhoneNumberMatch, type FlowContext, type FlowExecutionEvent, queueNames } from '@sdr/shared';
-import { catalog, validateGraph, replayFlow, runPlayground, executeFlow, MockLLMProvider, GoogleCalendarClient, type FlowServices } from '@sdr/flow';
+import { saveFlowSchema, memberRoleSchema, type FlowGraph, normalizeConversationStage, queueNames } from '@sdr/shared';
+import { catalog, validateGraph, replayFlow, runPlayground } from '@sdr/flow';
 import { parseEvolutionWebhook, parseMetaWebhook, processInboundWebhook } from './webhook.js';
 import { ConnectionManager } from './whatsapp/connection-manager.js';
 import { EvolutionClient } from './whatsapp/evolution-client.js';
@@ -25,9 +25,8 @@ import { requestLogger, logger } from './telemetry/logger.js';
 import { SentryService } from './telemetry/sentry.js';
 import { orgRateLimiter, publicRateLimiter } from './rate-limit.js';
 import { AlertMonitor } from './alerts/alert-monitor.js';
-import { createCalendarProvider, OpenAIProvider, type RuntimeConfig } from '@sdr/flow/server';
+import { OpenAIProvider, type RuntimeConfig } from '@sdr/flow/server';
 import { secretMatches, verifyMetaSignature } from './whatsapp/webhook-auth.js';
-import { standaloneStore, type StoredFlow, type ExternalIntegration } from './storage.js';
 import { wsServer } from './ws.js';
 import {
   RedisTurnBuffer,
@@ -40,13 +39,8 @@ import {
   type DebugRegistry,
   type ExecutionEventPublisher,
   type DebugFlowSnapshot,
+  resolveTurnFlow,
 } from '@sdr/runtime';
-import {
-  bufferWindowSeconds,
-  ConversationTurnQueue,
-  SUPERSEDED_TURN_ERROR,
-  type BufferedConversationTurn,
-} from './conversation-turn-queue.js';
 import { authMiddleware, requireRole, uuidParam } from './auth.js';
 
 export interface ApiConfig extends RuntimeConfig {
@@ -57,7 +51,6 @@ export interface ApiConfig extends RuntimeConfig {
   evolutionServerUrl?: string;
   evolutionApiKey?: string;
   redisUrl?: string;
-  standaloneMode?: boolean;
   allowedOrigins?: string[];
 }
 export function createApp(config: ApiConfig = {}): Express {
@@ -144,18 +137,6 @@ export function createApp(config: ApiConfig = {}): Express {
     void inMemoryEventBus!.subscribe(event => wsServer.broadcast(event));
   }
 
-  // Standalone mode's own debounce queue, entirely separate from the canonical sdr-turns queue
-  // above. It is the one remaining case where this process may instantiate a BullMQ Worker —
-  // scoped to config.standaloneMode, which production always has false (see apps/api/src/main.ts),
-  // so this never runs alongside a real multi-tenant deployment.
-  let processStandaloneBufferedTurn: ((turn: BufferedConversationTurn) => Promise<{ status: string; [key: string]: unknown }>) | undefined;
-  const turnQueue = config.redisUrl && config.standaloneMode
-    ? new ConversationTurnQueue(config.redisUrl, async turn => {
-        if (processStandaloneBufferedTurn) return processStandaloneBufferedTurn(turn);
-        return { status: 'error', error: 'standalone_turn_handler_not_ready' };
-      })
-    : undefined;
-  app.locals.conversationTurnQueue = turnQueue;
   app.locals.closeRuntime = async () => {
     await Promise.all([
       turnBuffer?.close(),
@@ -184,7 +165,6 @@ export function createApp(config: ApiConfig = {}): Express {
         supabaseConnected = true;
       } catch {}
     }
-    const bindings = standaloneStore.getActiveBindings();
     res.json({
       status: 'ok',
       service: 'api',
@@ -192,7 +172,6 @@ export function createApp(config: ApiConfig = {}): Express {
       uptimeSeconds: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
       supabase: { configured: supabaseConfigured, connected: supabaseConnected, organizations: orgCount, connections: connectionCount },
-      standalone: { activeFlows: Object.keys(bindings).length, instances: Object.keys(bindings) },
       memory: {
         rssMb: Math.round(memory.rss / (1024 * 1024)),
         heapUsedMb: Math.round(memory.heapUsed / (1024 * 1024)),
@@ -202,14 +181,6 @@ export function createApp(config: ApiConfig = {}): Express {
   const protectedApi = authMiddleware(config);
   app.use('/api/me', protectedApi);
   app.use('/api/admin', protectedApi);
-
-  // The legacy Evolution endpoints are kept for standalone mode only. In the
-  // managed Supabase deployment they must require a real user session; they
-  // proxy directly to the Evolution server and must never be public.
-  if (!config.standaloneMode) {
-    app.use('/api/connections/instances', protectedApi);
-    app.use('/api/connections/evolution', protectedApi);
-  }
 
   app.get('/api/me', (req, res) => {
     const auth = res.locals.auth;
@@ -379,1800 +350,28 @@ export function createApp(config: ApiConfig = {}): Express {
     res.status(result.valid ? 200 : 422).json(result);
   });
 
-  // Direct WhatsApp & Evolution Endpoints (Standalone Mode)
-  const getEvoClient = (serverUrl?: string, apiKey?: string) => {
-    const settings = standaloneStore.getSettings();
-    const url = serverUrl?.trim() || settings.evolutionServerUrl || config.evolutionServerUrl || process.env.EVOLUTION_SERVER_URL || 'http://127.0.0.1:8080';
-    const key = apiKey?.trim() || settings.evolutionApiKey || config.evolutionApiKey || process.env.EVOLUTION_API_KEY || '';
-    return new EvolutionClient(url, key);
-  };
-  const getPublicApiUrl = () => {
-    const settings = standaloneStore.getSettings();
-    return settings.publicApiUrl || config.publicApiUrl || process.env.PUBLIC_API_URL || '';
-  };
-
-  app.get('/api/connections/instances', async (req, res) => {
-    try {
-      const client = getEvoClient(req.query.serverUrl as string, req.query.apiKey as string);
-      const instances = await client.fetchInstances();
-      const mapped = instances.map((inst: any) => {
-        const instanceName = inst.instance?.instanceName || inst.name || inst.instanceName || inst.id || 'unknown';
-        const connStatus = inst.instance?.status || inst.connectionStatus || inst.state;
-        return {
-          id: instanceName,
-          name: instanceName,
-          provider: 'evolution' as const,
-          status: connStatus === 'open' || connStatus === 'connected' ? 'connected' : connStatus === 'connecting' ? 'connecting' : 'disconnected',
-          phone: inst.number || inst.instance?.number || (inst.ownerJid ? inst.ownerJid.replace(/@.*$/, '') : (inst.instance?.ownerJid ? inst.instance.ownerJid.replace(/@.*$/, '') : null)),
-          provider_instance_id: instanceName,
-          created_at: inst.createdAt || inst.instance?.createdAt || new Date().toISOString(),
-          profileName: inst.profileName || inst.instance?.profileName,
-          profilePicUrl: inst.profilePicUrl || inst.instance?.profilePicUrl,
-          webhook_url: null,
-        };
+  // Keep the pure validation endpoint above, but retire every stateful legacy
+  // surface before it reaches any application handler. Canonical requests are
+  // always scoped below `/api/organizations/:organizationId` and do not match
+  // these exact prefixes.
+  const retiredLegacyPrefixes = [
+    '/api/flows',
+    '/api/integrations',
+    '/api/connections/instances',
+    '/api/connections/evolution',
+    '/api/knowledge',
+    '/api/inbox',
+    '/api/settings',
+    '/api/webhooks/evolution/instance',
+  ] as const;
+  app.use((req, res, next) => {
+    if (retiredLegacyPrefixes.some(prefix => req.path === prefix || req.path.startsWith(`${prefix}/`))) {
+      res.status(410).json({
+        error: 'Esta API legada foi desativada. Use os endpoints autenticados da organização.',
       });
-      res.json(mapped);
-    } catch (err) {
-      logger.error({ err }, 'Falha ao buscar instâncias da Evolution API');
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao comunicar com Evolution API.' });
-    }
-  });
-
-  // Cache para contatos e grupos da instância (TTL: 30s)
-  const targetsCache = new Map<string, { timestamp: number; data: any }>();
-
-  app.get('/api/connections/instances/:instanceName/targets', async (req, res) => {
-    try {
-      const { instanceName } = req.params;
-      const forceRefresh = req.query.refresh === 'true' || req.query.refresh === '1';
-      const cached = targetsCache.get(instanceName);
-      if (!forceRefresh && cached && Date.now() - cached.timestamp < 30_000) {
-        res.json(cached.data);
-        return;
-      }
-
-      const client = getEvoClient(req.query.serverUrl as string, req.query.apiKey as string);
-
-      const [groups, chats] = await Promise.all([
-        client.fetchGroups(instanceName).catch((err) => {
-          logger.warn({ err, instanceName }, 'Falha em fetchGroups da Evolution');
-          return [];
-        }),
-        client.fetchChats(instanceName).catch((err) => {
-          logger.warn({ err, instanceName }, 'Falha em fetchChats da Evolution');
-          return [];
-        }),
-      ]);
-
-      const groupMap = new Map<string, { id: string; jid: string; name: string; type: 'group'; size?: number }>();
-
-      // Adiciona grupos vindos de fetchGroups
-      for (const g of groups) {
-        if (g.id) {
-          groupMap.set(g.id, {
-            id: g.id,
-            jid: g.id,
-            name: g.subject || g.id,
-            type: 'group' as const,
-            size: g.size,
-          });
-        }
-      }
-
-      // Adiciona chats que são grupos (@g.us) como fallback essencial
-      for (const c of chats) {
-        const jid = c.id || '';
-        if (jid.endsWith('@g.us') || jid.includes('@g.us')) {
-          if (!groupMap.has(jid)) {
-            groupMap.set(jid, {
-              id: jid,
-              jid: jid,
-              name: c.name || c.pushName || jid,
-              type: 'group' as const,
-            });
-          }
-        }
-      }
-
-      const formattedGroups = Array.from(groupMap.values());
-
-      const formattedContacts = chats
-        .filter(c => !c.id.endsWith('@g.us') && !c.id.includes('@g.us'))
-        .map(c => {
-          const cleanPhone = c.id.replace(/@.*$/, '');
-          return {
-            id: cleanPhone,
-            jid: c.id,
-            name: c.name || c.pushName || cleanPhone,
-            type: 'contact' as const,
-          };
-        });
-
-      const result = {
-        instanceName,
-        groups: formattedGroups,
-        contacts: formattedContacts,
-        timestamp: new Date().toISOString(),
-      };
-
-      targetsCache.set(instanceName, { timestamp: Date.now(), data: result });
-      res.json(result);
-    } catch (err) {
-      logger.error({ err, instance: req.params.instanceName }, 'Erro ao buscar destinatários da instância');
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao listar contatos/grupos' });
-    }
-  });
-
-  app.post('/api/connections/evolution/create', async (req, res) => {
-    try {
-      const { name, serverUrl, apiKey, phone } = req.body;
-      if (!name || typeof name !== 'string') {
-        res.status(400).json({ error: 'Nome da instância é obrigatório.' });
-        return;
-      }
-      const instanceName = name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
-      const client = getEvoClient(serverUrl, apiKey);
-
-      try {
-        await client.createInstance(instanceName, phone);
-      } catch (err: any) {
-        logger.info({ instanceName, err: err.message }, 'Instância já pode existir, prosseguindo com conexão');
-      }
-
-      // Auto-configure webhook so incoming messages reach our API
-      const webhookPath = '';
-      const publicUrl = getPublicApiUrl();
-      let webhookWarning: string | undefined;
-      if (publicUrl && webhookPath) {
-        try {
-          await client.setWebhook(instanceName, `${publicUrl}${webhookPath}`);
-          logger.info({ instanceName, webhookUrl: `${publicUrl}${webhookPath}` }, 'Webhook configurado automaticamente');
-        } catch (err: any) {
-          webhookWarning = `Webhook não pôde ser configurado automaticamente: ${err.message}. Configure manualmente.`;
-          logger.warn({ instanceName, err: err.message }, 'Falha ao configurar webhook automaticamente');
-        }
-      } else {
-        webhookWarning = 'URL pública da API não configurada em Configurações. Configure o webhook manualmente na Evolution API.';
-      }
-
-      const qr = await client.getConnectQr(instanceName);
-      const state = await client.getConnectionState(instanceName);
-
-      res.status(201).json({
-        id: instanceName,
-        name: instanceName,
-        provider: 'evolution',
-        provider_instance_id: instanceName,
-        status: state.state === 'open' ? 'connected' : 'connecting',
-        phone: phone || null,
-        created_at: new Date().toISOString(),
-        qr,
-        webhook_url: webhookPath,
-        setupWarning: webhookWarning,
-      });
-    } catch (err) {
-      logger.error({ err }, 'Erro ao criar instância Evolution');
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao criar instância na Evolution.' });
-    }
-  });
-
-  app.get('/api/connections/evolution/qr/:instanceName', async (req, res) => {
-    try {
-      const instanceName = req.params.instanceName;
-      const client = getEvoClient(req.query.serverUrl as string, req.query.apiKey as string);
-
-      const state = await client.getConnectionState(instanceName);
-      if (state.state === 'open') {
-        res.json({ connected: true, status: 'connected' });
-        return;
-      }
-
-      const qr = await client.getConnectQr(instanceName);
-      res.json({
-        connected: false,
-        status: state.state || 'connecting',
-        code: qr.code,
-        base64: qr.base64,
-        pairingCode: qr.pairingCode,
-        error: qr.error,
-      });
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao obter QR code.' });
-    }
-  });
-
-  app.get('/api/connections/evolution/status/:instanceName', async (req, res) => {
-    try {
-      const instanceName = req.params.instanceName;
-      const client = getEvoClient(req.query.serverUrl as string, req.query.apiKey as string);
-      const state = await client.getConnectionState(instanceName);
-      res.json({
-        status: state.state === 'open' ? 'connected' : state.state === 'connecting' ? 'connecting' : 'disconnected',
-        state: state.state,
-      });
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao verificar status.' });
-    }
-  });
-
-  app.post('/api/connections/evolution/restart/:instanceName', async (req, res) => {
-    try {
-      const instanceName = req.params.instanceName;
-      const client = getEvoClient(req.body?.serverUrl, req.body?.apiKey);
-      await client.restartInstance(instanceName);
-      res.json({ ok: true });
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao reiniciar instância.' });
-    }
-  });
-
-  app.delete('/api/connections/evolution/:instanceName', async (req, res) => {
-    try {
-      const instanceName = req.params.instanceName;
-      const client = getEvoClient(req.query.serverUrl as string, req.query.apiKey as string);
-      await client.deleteInstance(instanceName);
-      res.json({ ok: true });
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao excluir instância.' });
-    }
-  });
-
-  // --- STANDALONE FLOWS & MANAGEMENT ---
-  app.get('/api/flows', (_req, res) => {
-    res.json(standaloneStore.listFlows());
-  });
-
-  app.get('/api/flows/active', (_req, res) => {
-    res.json(standaloneStore.getActiveBindings());
-  });
-
-  app.get('/api/flows/:id', (req, res) => {
-    const flow = standaloneStore.getFlow(req.params.id);
-    if (!flow) {
-      res.status(404).json({ error: 'Fluxo não encontrado.' });
       return;
     }
-    res.json(flow);
-  });
-
-  app.post('/api/flows', (req, res) => {
-    try {
-      const { id, name, graph, targetInstance } = req.body;
-      if (!name || !graph) {
-        res.status(400).json({ error: 'Nome e grafo do fluxo são obrigatórios.' });
-        return;
-      }
-      const validation = validateGraph(graph);
-      const saved = standaloneStore.saveFlow({ id, name, graph, targetInstance });
-      res.status(201).json({ ...saved, validation });
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao salvar fluxo.' });
-    }
-  });
-
-  app.put('/api/flows/:id', (req, res) => {
-    try {
-      const { name, graph, targetInstance } = req.body;
-      if (!name || !graph) {
-        res.status(400).json({ error: 'Nome e grafo do fluxo são obrigatórios.' });
-        return;
-      }
-      const validation = validateGraph(graph);
-      const saved = standaloneStore.saveFlow({ id: req.params.id, name, graph, targetInstance });
-      res.json({ ...saved, validation });
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao atualizar fluxo.' });
-    }
-  });
-
-  app.delete('/api/flows/:id', (req, res) => {
-    standaloneStore.deleteFlow(req.params.id);
-    res.json({ ok: true });
-  });
-
-  const publishStandaloneHandler = async (req: express.Request, res: express.Response) => {
-    try {
-      const flowId = req.params.id || req.body.id || req.body.flowId || crypto.randomUUID();
-      const graph = req.body.graph || req.body;
-      const targetInstance = req.body.targetInstance;
-
-      const validation = validateGraph(graph);
-      if (!validation.valid) {
-        res.status(422).json({ error: 'Grafo inválido para publicação.', issues: validation.issues });
-        return;
-      }
-
-      const result = standaloneStore.publishFlow(flowId, graph, targetInstance);
-
-      let webhookUrl: string | undefined;
-      let webhookError: string | undefined;
-
-      // Standalone publishing never configures provider webhooks. Canonical webhooks use connection UUIDs.
-
-      res.status(201).json({
-        ok: true,
-        version: result.version,
-        flow: result.flow,
-        targetInstance: result.flow.targetInstance || targetInstance,
-        webhookUrl,
-        webhookError,
-      });
-    } catch (err) {
-      logger.error({ err }, 'Erro ao publicar fluxo');
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha na publicação do fluxo.' });
-    }
-  };
-
-  app.post('/api/flows/publish', publishStandaloneHandler);
-  app.post('/api/flows/:id/publish', publishStandaloneHandler);
-
-  // --- PLAYGROUND STANDALONE ---
-  const playgroundStandaloneHandler = async (req: express.Request, res: express.Response) => {
-    try {
-      const { graph: inputGraph, flowId, message, lead, llm, openaiApiKey, openaiModel } = req.body;
-      let graph = inputGraph;
-      const targetId = req.params.id || flowId;
-      if (!graph && targetId) {
-        const flow = standaloneStore.getFlow(targetId);
-        if (flow) graph = flow.graph;
-      }
-      if (!graph) {
-        res.status(400).json({ error: 'Grafo do fluxo é obrigatório.' });
-        return;
-      }
-
-      const settings = standaloneStore.getSettings();
-      const effectiveApiKey = (openaiApiKey || settings.openaiApiKey || config.openaiApiKey || '').trim();
-      const effectiveModel = (openaiModel || settings.openaiModel || config.openaiModel || 'gpt-4.1-mini').trim();
-
-      if (llm === 'openai' && !effectiveApiKey) {
-        res.status(400).json({
-          error: 'Chave da OpenAI não configurada. Configure na aba de Configurações ou informe a chave.',
-        });
-        return;
-      }
-
-      const playgroundResult = await runPlayground({
-        graph,
-        organizationId: 'standalone-org',
-        message: message || 'Olá',
-        lead: lead || { name: 'Lead Teste', phone: '+5511999999999' },
-        services: {
-          llm: llm === 'openai' && effectiveApiKey
-            ? new OpenAIProvider({ apiKey: effectiveApiKey, model: effectiveModel, timeoutMs: settings.openaiTimeoutMs || 60000 })
-            : undefined,
-          db: {
-            async updateLead() {},
-            async updateConversation() {},
-            async saveMessage() { return { id: crypto.randomUUID() }; },
-            async syncDeal() { return { id: crypto.randomUUID() }; },
-            async searchKnowledge(_org, collection, query, limit, threshold) {
-              const hits = standaloneStore.searchKnowledge(query, {
-                collection: collection === 'default' ? undefined : collection,
-                limit: limit || 5,
-                threshold: typeof threshold === 'number' ? threshold : 0.2,
-              });
-              return hits.map(h => ({
-                text: `[${h.collection.toUpperCase()}] ${h.title}: ${h.content}`,
-                collection: h.collection,
-                title: h.title,
-                similarity: h.similarity,
-              }));
-            },
-            async getConversationSummary() { return null; },
-            async saveConversationSummary() {},
-          },
-        },
-      });
-      res.json(playgroundResult);
-    } catch (err) {
-      logger.error({ err }, 'Erro ao rodar playground');
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao executar playground.' });
-    }
-  };
-
-  app.post('/api/flows/playground', playgroundStandaloneHandler);
-  app.post('/api/flows/:id/playground', playgroundStandaloneHandler);
-
-  // --- KNOWLEDGE STANDALONE ---
-  const knowledgeRouter = express.Router();
-
-  knowledgeRouter.get('/', (req, res) => {
-    const collection = typeof req.query.collection === 'string' ? req.query.collection : undefined;
-    const instanceId = typeof req.query.instanceId === 'string' ? req.query.instanceId.trim() : undefined;
-    res.json(standaloneStore.listKnowledge(collection, instanceId));
-  });
-
-  knowledgeRouter.get('/collections', (req, res) => {
-    const instanceId = typeof req.query.instanceId === 'string' ? req.query.instanceId.trim() : undefined;
-    res.json(standaloneStore.listCollections(instanceId));
-  });
-
-  knowledgeRouter.post('/', (req, res) => {
-    try {
-      const { collection, title, content, metadata, instanceId } = req.body || {};
-      if (!title || typeof title !== 'string' || !title.trim()) {
-        res.status(400).json({ error: 'Título do documento é obrigatório.' });
-        return;
-      }
-      if (!content || typeof content !== 'string' || !content.trim()) {
-        res.status(400).json({ error: 'Conteúdo do documento é obrigatório.' });
-        return;
-      }
-      const doc = standaloneStore.createKnowledge({
-        collection,
-        title,
-        content,
-        instanceId: (instanceId || req.query.instanceId as string || '').trim() || undefined,
-        metadata,
-      });
-      res.status(201).json(doc);
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao salvar documento.' });
-    }
-  });
-
-  knowledgeRouter.get('/:id', (req, res) => {
-    const doc = standaloneStore.getKnowledge(req.params.id);
-    if (!doc) {
-      res.status(404).json({ error: 'Documento não encontrado.' });
-      return;
-    }
-    res.json(doc);
-  });
-
-  knowledgeRouter.patch('/:id', (req, res) => {
-    try {
-      const doc = standaloneStore.updateKnowledge(req.params.id, req.body || {});
-      if (!doc) {
-        res.status(404).json({ error: 'Documento não encontrado.' });
-        return;
-      }
-      res.json(doc);
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao atualizar documento.' });
-    }
-  });
-
-  knowledgeRouter.delete('/:id', (req, res) => {
-    const success = standaloneStore.deleteKnowledge(req.params.id);
-    res.json({ success });
-  });
-
-  knowledgeRouter.post('/search', (req, res) => {
-    try {
-      const { query, collection, threshold, limit, instanceId } = req.body || {};
-      if (!query || typeof query !== 'string' || !query.trim()) {
-        res.status(400).json({ error: 'Termo de busca é obrigatório.' });
-        return;
-      }
-      const results = standaloneStore.searchKnowledge(query, {
-        collection: collection === 'all' ? undefined : collection,
-        threshold: typeof threshold === 'number' ? threshold : 0.2,
-        limit: typeof limit === 'number' ? limit : 5,
-        instanceId: (instanceId || req.query.instanceId as string || '').trim() || undefined,
-      });
-      res.json(results);
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha na busca de conhecimento.' });
-    }
-  });
-
-  app.use('/api/knowledge', knowledgeRouter);
-
-  // --- INBOX STANDALONE ROUTER ---
-  const inboxRouter = express.Router();
-
-  const getInboxContext = async (requestedOrgId?: string) => {
-    if (!config.supabaseUrl || !config.serviceRoleKey) return null;
-    const db = serviceDatabase(config.supabaseUrl, config.serviceRoleKey);
-    const inboxRepo = new InboxRepository(db);
-
-    let orgId = requestedOrgId;
-    if (!orgId || orgId === 'undefined' || orgId === 'standalone-org' || orgId === 'null') {
-      const { data: org } = await db.from('organizations').select('id').limit(1).maybeSingle();
-      orgId = org?.id;
-    }
-    if (!orgId) return null;
-    return { db, inboxRepo, orgId };
-  };
-
-  const resolveConversationDebugFlow = async (
-    db: any,
-    organizationId: string,
-    conversation: { connection_id: string }
-  ): Promise<DebugFlowSnapshot | null> => {
-    const { data: connection } = await db
-      .from('connections')
-      .select('id, name, provider_instance_id')
-      .eq('organization_id', organizationId)
-      .eq('id', conversation.connection_id)
-      .maybeSingle();
-
-    const instanceName = connection?.provider_instance_id || connection?.name;
-    const standaloneFlow = instanceName ? standaloneStore.getActiveFlowForInstance(instanceName) : null;
-    if (standaloneFlow) {
-      return {
-        id: standaloneFlow.id,
-        name: standaloneFlow.name,
-        version: `v${standaloneFlow.publishedVersion || 1}`,
-        nodes: standaloneFlow.graph.nodes.map(node => ({ id: node.id, type: node.type, label: node.label || node.type })),
-        graph: standaloneFlow.graph,
-      };
-    }
-
-    const { data: flow } = await db
-      .from('flows')
-      .select('id, name, published_version_id')
-      .eq('organization_id', organizationId)
-      .not('published_version_id', 'is', null)
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (!flow?.published_version_id) return null;
-    const { data: publishedVersion } = await db
-      .from('flow_versions')
-      .select('id, flow_id, version, graph')
-      .eq('organization_id', organizationId)
-      .eq('id', flow.published_version_id)
-      .maybeSingle();
-    const version: any = publishedVersion ? { ...publishedVersion, flowName: flow.name } : null;
-
-    if (!version?.graph) return null;
-    let flowName = version.flowName as string | undefined;
-    if (!flowName) {
-      const { data: flow } = await db
-        .from('flows')
-        .select('name')
-        .eq('organization_id', organizationId)
-        .eq('id', version.flow_id)
-        .maybeSingle();
-      flowName = flow?.name;
-    }
-    const graph = version.graph as FlowGraph;
-    return {
-      id: version.flow_id,
-      name: flowName || 'Fluxo publicado',
-      version: `v${version.version}`,
-      nodes: graph.nodes.map(node => ({ id: node.id, type: node.type, label: node.label || node.type })),
-      graph,
-    };
-  };
-
-  const armConversationDebug = async (db: any, inboxRepo: InboxRepository, organizationId: string, conversationId: string) => {
-    const conversation = await inboxRepo.getConversation(organizationId, conversationId);
-    if (!conversation) return { status: 404, body: { error: 'Conversa não encontrada.' } };
-    if (conversation.bot_paused || conversation.handled_by === 'HUMAN') {
-      return { status: 409, body: { error: 'A IA está pausada nesta conversa. Devolva a conversa para a IA antes de iniciar o debug.' } };
-    }
-    const flow = await resolveConversationDebugFlow(db, organizationId, conversation);
-    if (!flow) {
-      return { status: 409, body: { error: 'Nenhum fluxo publicado está ativo para a instância desta conversa.' } };
-    }
-    const session = await debugRegistry.arm({
-      organizationId,
-      conversationId,
-      connectionId: conversation.connection_id,
-      flow,
-    });
-    return { status: 201, body: { session } };
-  };
-
-  inboxRouter.get('/conversations', async (req, res) => {
-    try {
-      const ctx = await getInboxContext(req.query.organizationId as string);
-      if (!ctx) {
-        res.json({ conversations: [], total: 0 });
-        return;
-      }
-      const stage = req.query.stage ? String(req.query.stage) : undefined;
-      const connectionId = req.query.connectionId && req.query.connectionId !== 'ALL' ? String(req.query.connectionId) : undefined;
-      const handledBy = req.query.handledBy && req.query.handledBy !== 'ALL' ? (String(req.query.handledBy) as any) : undefined;
-      const assignedUserId = req.query.assignedUserId === 'unassigned'
-        ? null
-        : req.query.assignedUserId
-        ? String(req.query.assignedUserId)
-        : undefined;
-      const search = req.query.search ? String(req.query.search) : undefined;
-      const limit = req.query.limit ? Number(req.query.limit) : 50;
-      const offset = req.query.offset ? Number(req.query.offset) : 0;
-
-      let resolvedConnectionId = connectionId;
-      if (connectionId && !z.string().uuid().safeParse(connectionId).success) {
-        const { data: conns } = await ctx.db
-          .from('connections')
-          .select('id')
-          .or(`name.eq.${connectionId},provider_instance_id.eq.${connectionId}`)
-          .order('created_at', { ascending: true })
-          .limit(1);
-        if (conns && conns[0]) {
-          resolvedConnectionId = conns[0].id;
-        }
-      }
-
-      const result = await ctx.inboxRepo.listConversations(ctx.orgId, {
-        stage,
-        connectionId: resolvedConnectionId,
-        handledBy,
-        assignedUserId,
-        search,
-        limit,
-        offset,
-      });
-      res.json(result);
-    } catch (err: any) {
-      logger.error({ err }, 'Erro ao listar conversas do inbox');
-      res.status(500).json({ error: err.message || 'Falha ao listar conversas.' });
-    }
-  });
-
-  inboxRouter.get('/conversations/:id', async (req, res) => {
-    try {
-      const ctx = await getInboxContext(req.query.organizationId as string);
-      if (!ctx) {
-        res.status(404).json({ error: 'Supabase não conectado.' });
-        return;
-      }
-      const convId = z.string().uuid().parse(req.params.id);
-      const conv = await ctx.inboxRepo.getConversation(ctx.orgId, convId);
-      if (!conv) {
-        res.status(404).json({ error: 'Conversa não encontrada.' });
-        return;
-      }
-      const messages = await ctx.inboxRepo.getMessages(ctx.orgId, convId);
-      res.json({ conversation: conv, messages });
-    } catch (err: any) {
-      logger.error({ err }, 'Erro ao carregar conversa');
-      res.status(500).json({ error: err.message || 'Falha ao carregar conversa.' });
-    }
-  });
-
-  inboxRouter.get('/conversations/:id/debug', async (req, res) => {
-    try {
-      const ctx = await getInboxContext(req.query.organizationId as string);
-      if (!ctx) { res.status(404).json({ error: 'Supabase não conectado.' }); return; }
-      const convId = z.string().uuid().parse(req.params.id);
-      res.json({ session: await debugRegistry.get(ctx.orgId, convId) });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Falha ao consultar debug.' });
-    }
-  });
-
-  inboxRouter.post('/conversations/:id/debug', async (req, res) => {
-    try {
-      const ctx = await getInboxContext(req.query.organizationId as string);
-      if (!ctx) { res.status(404).json({ error: 'Supabase não conectado.' }); return; }
-      const convId = z.string().uuid().parse(req.params.id);
-      const result = await armConversationDebug(ctx.db, ctx.inboxRepo, ctx.orgId, convId);
-      res.status(result.status).json(result.body);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Falha ao iniciar debug.' });
-    }
-  });
-
-  inboxRouter.delete('/conversations/:id/debug', async (req, res) => {
-    try {
-      const ctx = await getInboxContext(req.query.organizationId as string);
-      if (!ctx) { res.status(404).json({ error: 'Supabase não conectado.' }); return; }
-      const convId = z.string().uuid().parse(req.params.id);
-      res.json({ session: await debugRegistry.cancel(ctx.orgId, convId) });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Falha ao encerrar debug.' });
-    }
-  });
-
-  inboxRouter.post('/conversations/:id/takeover', async (req, res) => {
-    try {
-      const ctx = await getInboxContext(req.query.organizationId as string);
-      if (!ctx) {
-        res.status(404).json({ error: 'Supabase não conectado.' });
-        return;
-      }
-      const convId = z.string().uuid().parse(req.params.id);
-      const updated = await ctx.inboxRepo.takeover(ctx.orgId, convId, 'agent_operator');
-      await emitInboxEvent(conversationUpdatedEvent(ctx.orgId, updated));
-      res.json(updated);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Falha no takeover.' });
-    }
-  });
-
-  inboxRouter.post('/conversations/:id/release', async (req, res) => {
-    try {
-      const ctx = await getInboxContext(req.query.organizationId as string);
-      if (!ctx) {
-        res.status(404).json({ error: 'Supabase não conectado.' });
-        return;
-      }
-      const convId = z.string().uuid().parse(req.params.id);
-      const updated = await ctx.inboxRepo.release(ctx.orgId, convId, 'agent_operator');
-      await emitInboxEvent(conversationUpdatedEvent(ctx.orgId, updated));
-      res.json(updated);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Falha no release.' });
-    }
-  });
-
-  inboxRouter.patch('/conversations/:id/stage', async (req, res) => {
-    try {
-      const ctx = await getInboxContext(req.query.organizationId as string);
-      if (!ctx) {
-        res.status(404).json({ error: 'Supabase não conectado.' });
-        return;
-      }
-      const convId = z.string().uuid().parse(req.params.id);
-      const stage = normalizeConversationStage(req.body.stage);
-      const updated = await ctx.inboxRepo.updateStage(ctx.orgId, convId, stage as any, 'agent_operator');
-      await emitInboxEvent(conversationUpdatedEvent(ctx.orgId, updated));
-      res.json(updated);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Falha ao atualizar estágio.' });
-    }
-  });
-
-  inboxRouter.post('/conversations/:id/messages', async (req, res) => {
-    try {
-      const ctx = await getInboxContext(req.query.organizationId as string);
-      if (!ctx) {
-        res.status(404).json({ error: 'Supabase não conectado.' });
-        return;
-      }
-      const convId = z.string().uuid().parse(req.params.id);
-      const content = (req.body?.content || '').trim();
-      if (!content) {
-        res.status(400).json({ error: 'Conteúdo da mensagem é obrigatório.' });
-        return;
-      }
-
-      const conv = await ctx.inboxRepo.getConversation(ctx.orgId, convId);
-      if (!conv) {
-        res.status(404).json({ error: 'Conversa não encontrada.' });
-        return;
-      }
-
-      // 1. Salva a mensagem humana no Supabase
-      const msg = await ctx.inboxRepo.sendHumanMessage({
-        organizationId: ctx.orgId,
-        connectionId: conv.connection_id,
-        conversationId: conv.id,
-        content,
-        actorId: 'agent_operator',
-      });
-      await emitInboxEvent(messageCreatedEvent(ctx.orgId, msg));
-
-      // 2. Dispara a mensagem no WhatsApp via Evolution API
-      try {
-        let instanceName = conv.connection?.name || 'whatsapp';
-        const { data: connRecord } = await ctx.db
-          .from('connections')
-          .select('name, provider_instance_id')
-          .eq('id', conv.connection_id)
-          .maybeSingle();
-
-        if (connRecord) {
-          instanceName = connRecord.provider_instance_id || connRecord.name || instanceName;
-        }
-
-        const phone = conv.lead?.phone;
-        if (phone) {
-          const settings = standaloneStore.getSettings();
-          const evoClient = getEvoClient(settings.evolutionServerUrl, settings.evolutionApiKey);
-          await evoClient.sendTextMessage(instanceName, phone, content);
-          logger.info({ instanceName, phone, textLength: content.length }, 'Mensagem manual do inbox enviada ao WhatsApp');
-        }
-      } catch (evoErr: any) {
-        logger.warn({ err: evoErr.message }, 'Falha ao enviar mensagem do inbox para o WhatsApp');
-      }
-
-      res.status(201).json(msg);
-    } catch (err: any) {
-      logger.error({ err }, 'Erro ao enviar mensagem no inbox');
-      res.status(500).json({ error: err.message || 'Falha ao enviar mensagem.' });
-    }
-  });
-
-  app.use('/api/inbox', inboxRouter);
-
-  // --- SETTINGS STANDALONE ---
-  app.get('/api/settings', (_req, res) => {
-    const settings = standaloneStore.getSettings();
-    const mask = (val?: string) => {
-      if (!val || val.length <= 8) return val ? '••••••••' : '';
-      return `${val.slice(0, 7)}...${val.slice(-4)}`;
-    };
-    res.json({
-      openaiApiKeyConfigured: Boolean(settings.openaiApiKey),
-      openaiApiKeyMasked: mask(settings.openaiApiKey),
-      openaiModel: settings.openaiModel,
-      evolutionServerUrl: settings.evolutionServerUrl,
-      evolutionApiKeyMasked: mask(settings.evolutionApiKey),
-      publicApiUrl: settings.publicApiUrl,
-      googleClientIdConfigured: Boolean(settings.googleClientId || process.env.GOOGLE_CLIENT_ID),
-      googleClientIdMasked: mask(settings.googleClientId || process.env.GOOGLE_CLIENT_ID),
-      googleClientSecretConfigured: Boolean(settings.googleClientSecret || process.env.GOOGLE_CLIENT_SECRET),
-      googleClientSecretMasked: mask(settings.googleClientSecret || process.env.GOOGLE_CLIENT_SECRET),
-    });
-  });
-
-  app.post('/api/settings', (req, res) => {
-    try {
-      const { openaiApiKey, openaiModel, evolutionServerUrl, evolutionApiKey, publicApiUrl, googleClientId, googleClientSecret } = req.body;
-      const patch: any = {};
-      if (typeof openaiApiKey === 'string' && openaiApiKey.trim()) patch.openaiApiKey = openaiApiKey.trim();
-      if (typeof openaiModel === 'string' && openaiModel.trim()) patch.openaiModel = openaiModel.trim();
-      if (typeof evolutionServerUrl === 'string' && evolutionServerUrl.trim()) patch.evolutionServerUrl = evolutionServerUrl.trim();
-      if (typeof evolutionApiKey === 'string' && evolutionApiKey.trim()) patch.evolutionApiKey = evolutionApiKey.trim();
-      if (typeof publicApiUrl === 'string' && publicApiUrl.trim()) patch.publicApiUrl = publicApiUrl.trim();
-      if (typeof googleClientId === 'string' && googleClientId.trim()) patch.googleClientId = googleClientId.trim();
-      if (typeof googleClientSecret === 'string' && googleClientSecret.trim()) patch.googleClientSecret = googleClientSecret.trim();
-
-      const updated = standaloneStore.updateSettings(patch);
-      res.json({ ok: true, settings: updated });
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao salvar configurações.' });
-    }
-  });
-
-  app.post('/api/settings/test-openai', async (req, res) => {
-    try {
-      const key = (req.body?.apiKey || standaloneStore.getSettings().openaiApiKey || config.openaiApiKey || '').trim();
-      if (!key) {
-        res.status(400).json({ ok: false, error: 'Chave da OpenAI não informada.' });
-        return;
-      }
-      const resp = await fetch('https://api.openai.com/v1/models', {
-        headers: { Authorization: `Bearer ${key}` },
-      });
-      if (resp.ok) {
-        res.json({ ok: true, message: 'Chave da OpenAI válida e conectada com sucesso!' });
-      } else {
-        const errText = await resp.text();
-        res.status(400).json({ ok: false, error: `OpenAI recusou a chave (${resp.status}): ${errText}` });
-      }
-    } catch (err) {
-      res.status(500).json({ ok: false, error: err instanceof Error ? err.message : 'Falha ao testar conexão.' });
-    }
-  });
-
-  // =========================================================================
-  // CONEXÕES EXTERNAS & INTEGRAÇÕES MODULARES (Google Calendar, CRMs, etc.)
-  // =========================================================================
-
-  app.get('/api/integrations', (req, res) => {
-    try {
-      const instanceId = typeof req.query.instanceId === 'string' ? req.query.instanceId.trim() : undefined;
-      const integrations = standaloneStore.listIntegrations(instanceId);
-      // Sanitiza credenciais sensíveis antes de enviar ao frontend
-      const sanitized = integrations.map(item => ({
-        id: item.id,
-        provider: item.provider,
-        name: item.name,
-        status: item.status,
-        accountEmail: item.accountEmail,
-        instanceId: item.instanceId,
-        connectedAt: item.connectedAt,
-        updatedAt: item.updatedAt,
-        hasRefreshToken: Boolean(item.credentials?.refresh_token),
-        hasAccessToken: Boolean(item.credentials?.access_token),
-        metadata: item.metadata || {},
-      }));
-      res.json(sanitized);
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao listar integrações.' });
-    }
-  });
-
-  app.get('/api/integrations/google/auth-url', (req, res) => {
-    try {
-      const settings = standaloneStore.getSettings();
-      const clientId = (req.query.clientId as string || settings.googleClientId || process.env.GOOGLE_CLIENT_ID || '').trim();
-      const instanceId = (req.query.instanceId as string || '').trim();
-      const redirectUri = (req.query.redirectUri as string || `${req.protocol}://${req.get('host')}/api/integrations/google/callback`).trim();
-
-      if (!clientId) {
-        res.status(400).json({ error: 'Google Client ID não configurado. Adicione o Client ID da aplicação no painel Configurações.' });
-        return;
-      }
-
-      const scopes = [
-        'openid',
-        'https://www.googleapis.com/auth/userinfo.email',
-        'https://www.googleapis.com/auth/userinfo.profile',
-        'https://www.googleapis.com/auth/calendar',
-        'https://www.googleapis.com/auth/calendar.events',
-      ].join(' ');
-
-      const stateData = { instanceId, redirectUri };
-      const state = Buffer.from(JSON.stringify(stateData)).toString('base64');
-
-      const params = new URLSearchParams({
-        client_id: clientId,
-        redirect_uri: redirectUri,
-        response_type: 'code',
-        scope: scopes,
-        access_type: 'offline',
-        prompt: 'consent',
-        state,
-      });
-
-      const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-      res.json({ url, redirectUri, instanceId });
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao gerar URL de autorização Google.' });
-    }
-  });
-
-  // Handler GET para retorno oficial do redirecionamento do Google OAuth
-  app.get('/api/integrations/google/callback', async (req, res) => {
-    try {
-      const code = (req.query.code as string || '').trim();
-      const stateRaw = req.query.state as string || '';
-      let instanceId = '';
-      if (stateRaw) {
-        try {
-          const parsed = JSON.parse(Buffer.from(stateRaw, 'base64').toString('utf-8'));
-          instanceId = parsed.instanceId || '';
-        } catch {
-          instanceId = stateRaw;
-        }
-      }
-
-      const settings = standaloneStore.getSettings();
-      const cId = (settings.googleClientId || process.env.GOOGLE_CLIENT_ID || '').trim();
-      const cSecret = (settings.googleClientSecret || process.env.GOOGLE_CLIENT_SECRET || '').trim();
-      const rUri = `${req.protocol}://${req.get('host')}/api/integrations/google/callback`;
-
-      if (!code) {
-        const errorParam = req.query.error || 'Código de autorização ausente';
-        res.status(400).send(`
-          <!DOCTYPE html>
-          <html>
-            <body style="font-family:sans-serif;padding:40px;text-align:center;">
-              <h2 style="color:#ef4444;">Erro na Autorização Google</h2>
-              <p>${errorParam}</p>
-              <button onclick="window.close()" style="padding:8px 16px;cursor:pointer;">Fechar Janela</button>
-            </body>
-          </html>
-        `);
-        return;
-      }
-
-      if (!cId || !cSecret) {
-        res.status(400).send(`
-          <!DOCTYPE html>
-          <html>
-            <body style="font-family:sans-serif;padding:40px;text-align:center;">
-              <h2 style="color:#ef4444;">Credenciais Globais Não Configuradas</h2>
-              <p>O Google Client ID e Client Secret não foram configurados na área de Configurações da plataforma.</p>
-              <button onclick="window.close()" style="padding:8px 16px;cursor:pointer;">Fechar Janela</button>
-            </body>
-          </html>
-        `);
-        return;
-      }
-
-      // Troca code por tokens
-      const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          code,
-          client_id: cId,
-          client_secret: cSecret,
-          redirect_uri: rUri,
-          grant_type: 'authorization_code',
-        }).toString(),
-      });
-
-      const tokens = await tokenResp.json();
-      if (!tokenResp.ok || tokens.error) {
-        throw new Error(tokens.error_description || tokens.error || 'Falha ao trocar código por token no Google.');
-      }
-
-      let accountEmail = '';
-      try {
-        const userinfoResp = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-          headers: { Authorization: `Bearer ${tokens.access_token}` },
-        });
-        if (userinfoResp.ok) {
-          const userinfo = await userinfoResp.json();
-          accountEmail = userinfo.email || '';
-        }
-      } catch {
-        // Fallback
-      }
-
-      const integrationId = instanceId ? `google_calendar_${instanceId}` : 'google_calendar_primary';
-      const name = accountEmail
-        ? `Google Calendar (${accountEmail})${instanceId ? ` - [${instanceId}]` : ''}`
-        : `Google Calendar${instanceId ? ` - [${instanceId}]` : ''}`;
-
-      standaloneStore.saveIntegration({
-        id: integrationId,
-        provider: 'google_calendar',
-        name,
-        status: 'connected',
-        accountEmail,
-        instanceId: instanceId || undefined,
-        connectedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        credentials: {
-          client_id: cId,
-          client_secret: cSecret,
-          refresh_token: tokens.refresh_token,
-          access_token: tokens.access_token,
-          expires_at: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined,
-        },
-      });
-
-      // Retorna HTML amigável com fechamento automático e postMessage
-      res.send(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <meta charset="utf-8">
-            <title>Google Calendar Conectado</title>
-            <style>
-              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: grid; place-items: center; min-height: 80vh; background: #f8fafc; color: #0f172a; margin: 0; }
-              .card { background: white; border-radius: 14px; padding: 32px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); text-align: center; max-width: 420px; }
-              .icon { font-size: 48px; margin-bottom: 12px; }
-              h2 { margin: 0 0 10px; font-size: 20px; font-weight: 700; color: #16a34a; }
-              p { margin: 0 0 14px; font-size: 13px; color: #64748b; line-height: 1.5; }
-              .badge { display: inline-block; padding: 4px 10px; background: #f1f5f9; border-radius: 6px; font-size: 12px; font-weight: 600; color: #334155; margin-bottom: 16px; }
-            </style>
-          </head>
-          <body>
-            <div class="card">
-              <div class="icon">✅</div>
-              <h2>Google Calendar Conectado!</h2>
-              <p>A conta foi autorizada e sincronizada com sucesso para a instância.</p>
-              <div class="badge">${accountEmail || 'Conta Google'}${instanceId ? ` • ${instanceId}` : ''}</div>
-              <p style="font-size: 11px; color: #94a3b8;">Fechando janela automaticamente em instantes...</p>
-            </div>
-            <script>
-              try {
-                if (window.opener) {
-                  window.opener.postMessage({ type: 'GOOGLE_OAUTH_SUCCESS', instanceId: '${instanceId}', email: '${accountEmail}' }, '*');
-                  setTimeout(() => window.close(), 1200);
-                } else {
-                  setTimeout(() => { window.location.href = '/integrations'; }, 1500);
-                }
-              } catch (e) {
-                setTimeout(() => window.close(), 1200);
-              }
-            </script>
-          </body>
-        </html>
-      `);
-    } catch (err) {
-      logger.error({ err }, 'Erro no callback GET do Google Calendar');
-      res.status(500).send(`
-        <!DOCTYPE html>
-        <html>
-          <body style="font-family:sans-serif;padding:40px;text-align:center;">
-            <h2 style="color:#ef4444;">Erro na Conexão com o Google</h2>
-            <p>${err instanceof Error ? err.message : 'Falha na autenticação.'}</p>
-            <button onclick="window.close()" style="padding:8px 16px;cursor:pointer;">Fechar Janela</button>
-          </body>
-        </html>
-      `);
-    }
-  });
-
-  app.post('/api/integrations/google/callback', async (req, res) => {
-    try {
-      const { code, clientId, clientSecret, redirectUri, instanceId } = req.body;
-      const settings = standaloneStore.getSettings();
-      const cId = (clientId || settings.googleClientId || process.env.GOOGLE_CLIENT_ID || '').trim();
-      const cSecret = (clientSecret || settings.googleClientSecret || process.env.GOOGLE_CLIENT_SECRET || '').trim();
-      const rUri = (redirectUri || `${req.protocol}://${req.get('host')}/api/integrations/google/callback`).trim();
-
-      if (!code) {
-        res.status(400).json({ error: 'Código de autorização (code) ausente.' });
-        return;
-      }
-      if (!cId || !cSecret) {
-        res.status(400).json({ error: 'Google Client ID e Client Secret não configurados.' });
-        return;
-      }
-
-      // Troca code por access_token e refresh_token
-      const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          code,
-          client_id: cId,
-          client_secret: cSecret,
-          redirect_uri: rUri,
-          grant_type: 'authorization_code',
-        }).toString(),
-      });
-
-      const tokens = await tokenResp.json();
-      if (!tokenResp.ok || tokens.error) {
-        res.status(400).json({ error: tokens.error_description || tokens.error || 'Falha ao trocar código por token no Google.' });
-        return;
-      }
-
-      // Busca dados do usuário (email da conta conectada)
-      let accountEmail = '';
-      try {
-        const userinfoResp = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-          headers: { Authorization: `Bearer ${tokens.access_token}` },
-        });
-        if (userinfoResp.ok) {
-          const userinfo = await userinfoResp.json();
-          accountEmail = userinfo.email || '';
-        }
-      } catch {
-        // Fallback silencioso
-      }
-
-      const integrationId = instanceId ? `google_calendar_${instanceId}` : 'google_calendar_primary';
-      const name = accountEmail
-        ? `Google Calendar (${accountEmail})${instanceId ? ` - [${instanceId}]` : ''}`
-        : `Google Calendar${instanceId ? ` - [${instanceId}]` : ''}`;
-
-      const saved = standaloneStore.saveIntegration({
-        id: integrationId,
-        provider: 'google_calendar',
-        name,
-        status: 'connected',
-        accountEmail,
-        instanceId: instanceId || undefined,
-        connectedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        credentials: {
-          client_id: cId,
-          client_secret: cSecret,
-          refresh_token: tokens.refresh_token,
-          access_token: tokens.access_token,
-          expires_at: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined,
-        },
-      });
-
-      res.json({
-        ok: true,
-        message: 'Google Calendar conectado com sucesso!',
-        integration: {
-          id: saved.id,
-          name: saved.name,
-          accountEmail: saved.accountEmail,
-          instanceId: saved.instanceId,
-          status: saved.status,
-        },
-      });
-    } catch (err) {
-      logger.error({ err }, 'Erro no callback do Google Calendar');
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha na autenticação com o Google.' });
-    }
-  });
-
-  // Conexão direta / manual (com credentials JSON ou tokens)
-  app.post('/api/integrations/google/connect', async (req, res) => {
-    try {
-      const { clientId, clientSecret, refreshToken, accessToken, accountEmail, instanceId } = req.body;
-      if (!refreshToken && !accessToken) {
-        res.status(400).json({ error: 'Informe ao menos um Refresh Token ou Access Token válido.' });
-        return;
-      }
-
-      const settings = standaloneStore.getSettings();
-      const cId = clientId || settings.googleClientId || process.env.GOOGLE_CLIENT_ID || '';
-      const cSecret = clientSecret || settings.googleClientSecret || process.env.GOOGLE_CLIENT_SECRET || '';
-
-      const integrationId = instanceId ? `google_calendar_${instanceId}` : 'google_calendar_primary';
-      const name = accountEmail
-        ? `Google Calendar (${accountEmail})${instanceId ? ` - [${instanceId}]` : ''}`
-        : `Google Calendar${instanceId ? ` - [${instanceId}]` : ''}`;
-
-      const saved = standaloneStore.saveIntegration({
-        id: integrationId,
-        provider: 'google_calendar',
-        name,
-        status: 'connected',
-        accountEmail: accountEmail || 'Conta Google Conectada',
-        instanceId: instanceId || undefined,
-        connectedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        credentials: {
-          client_id: cId,
-          client_secret: cSecret,
-          refresh_token: refreshToken,
-          access_token: accessToken,
-        },
-      });
-
-      res.json({ ok: true, integration: saved });
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao salvar integração.' });
-    }
-  });
-
-  app.delete('/api/integrations/:id', (req, res) => {
-    try {
-      const success = standaloneStore.deleteIntegration(req.params.id);
-      res.json({ ok: success });
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao desconectar integração.' });
-    }
-  });
-
-  app.get('/api/integrations/google/calendars', async (req, res) => {
-    try {
-      const instanceId = typeof req.query.instanceId === 'string' ? req.query.instanceId.trim() : undefined;
-      const integration = standaloneStore.getIntegrationByProvider('google_calendar', instanceId);
-      if (!integration || integration.status !== 'connected' || !integration.credentials) {
-        res.status(404).json({ error: 'Nenhuma conexão ativa com o Google Calendar encontrada para esta instância.' });
-        return;
-      }
-
-      const client = new GoogleCalendarClient(globalThis.fetch, integration.credentials);
-      const calendars = await client.listCalendarList();
-      res.json(calendars);
-    } catch (err) {
-      logger.error({ err }, 'Falha ao listar calendários do Google');
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Falha ao listar calendários da conta conectada.' });
-    }
-  });
-
-  // --- INSTANCE WEBHOOK WITH STRICT TEST MODE PROTECTION ---
-  const processStandaloneEvents = async (
-    instanceName: string,
-    events: Array<NonNullable<ReturnType<typeof parseEvolutionWebhook>>>,
-    options: {
-      bypassQueue?: boolean;
-      messagesAlreadySaved?: boolean;
-      isCurrent?: () => Promise<boolean>;
-      flowSnapshot?: StoredFlow;
-    } = {},
-  ): Promise<{ status: string; [key: string]: unknown }> => {
-    try {
-      const event = events[events.length - 1];
-      if (!event) {
-        return { status: 'ignored_non_message' };
-      }
-      if (event.fromMe) {
-        // Cross-instance routing: if sent TO another connected instance,
-        // re-process as inbound on that instance
-        if (config.supabaseUrl && config.serviceRoleKey && event.textContent) {
-          const db = serviceDatabase(config.supabaseUrl, config.serviceRoleKey);
-          const { data: otherConns } = await db
-            .from('connections')
-            .select('provider_instance_id, phone')
-            .eq('provider', 'evolution')
-            .neq('provider_instance_id', instanceName)
-            .not('phone', 'is', null);
-
-          const destPhone = event.phone;
-          const target = otherConns?.find(c => c.phone && c.provider_instance_id && isPhoneNumberMatch(destPhone, c.phone));
-
-          if (target?.provider_instance_id) {
-            const { data: thisConns } = await db
-              .from('connections')
-              .select('phone')
-              .or(`provider_instance_id.eq.${instanceName},name.eq.${instanceName}`)
-              .eq('provider', 'evolution')
-              .order('created_at', { ascending: true })
-              .limit(1);
-
-            const thisConn = thisConns?.[0];
-
-            if (thisConn?.phone) {
-              const routedEvent = { ...event, fromMe: false, phone: thisConn.phone.replace(/\D/g, '') };
-              logger.info({ from: instanceName, to: target.provider_instance_id, sender: routedEvent.phone }, 'Cross-instance routing: re-routing fromMe as inbound');
-              return processStandaloneEvents(target.provider_instance_id, [routedEvent]);
-            }
-          }
-        }
-        return { status: 'ignored_from_me' };
-      }
-      if (!event.textContent && !event.mediaUrl) {
-        return { status: 'ignored_empty_message' };
-      }
-
-      // 1. Persist to Supabase FIRST (before flow check) so inbox always has the message
-      let organizationId = 'standalone-org';
-      let connectionId: string = instanceName;
-      let leadId = `lead_${event.phone.replace(/\D/g, '')}`;
-      let conversationId = `conv_${event.phone.replace(/\D/g, '')}`;
-      let convRepo: ConversationRepository | null = null;
-      let leadRecord: { id: string; phone: string; name: string | null; memory: Record<string, unknown> } | null = null;
-      let convRecord: { id: string; stage: string; bot_paused: boolean; handled_by: string } | null = null;
-
-      if (config.supabaseUrl && config.serviceRoleKey) {
-        try {
-          const db = serviceDatabase(config.supabaseUrl, config.serviceRoleKey);
-          convRepo = new ConversationRepository(db);
-
-          // Find connection by provider_instance_id or name
-          const { data: existingConns } = await db
-            .from('connections')
-            .select('id, organization_id')
-            .or(`provider_instance_id.eq.${instanceName},name.eq.${instanceName}`)
-            .eq('provider', 'evolution')
-            .order('created_at', { ascending: true })
-            .limit(1);
-
-          const existingConn = existingConns?.[0];
-
-          let dbConnectionId: string | null = null;
-
-          if (existingConn) {
-            organizationId = existingConn.organization_id;
-            dbConnectionId = existingConn.id;
-          } else {
-            // Find first organization and auto-create connection
-            const { data: org } = await db
-              .from('organizations')
-              .select('id')
-              .limit(1)
-              .maybeSingle();
-
-            let orgId: string | null = org?.id ?? null;
-
-            // Auto-create default org if none exists
-            if (!orgId) {
-              const { data: newOrg, error: orgErr } = await db
-                .from('organizations')
-                .insert({ name: 'SDR Flow' })
-                .select('id')
-                .single();
-              if (newOrg) {
-                orgId = newOrg.id;
-                logger.info({ orgId: newOrg.id }, 'Organização padrão auto-criada no Supabase');
-              } else {
-                logger.error({ err: orgErr }, 'Falha ao auto-criar organização no Supabase');
-              }
-            }
-
-            if (orgId) {
-              organizationId = orgId;
-              const { data: newConn, error: connErr } = await db
-                .from('connections')
-                .insert({
-                  organization_id: orgId,
-                  name: instanceName,
-                  provider: 'evolution',
-                  status: 'connected',
-                  provider_instance_id: instanceName,
-                } as any)
-                .select()
-                .single();
-
-              if (newConn) {
-                dbConnectionId = newConn.id;
-                logger.info({ instanceName, connectionId: newConn.id, orgId }, 'Conexão auto-criada no Supabase para instância standalone');
-              } else {
-                logger.error({ instanceName, err: connErr }, 'Falha ao auto-criar conexão no Supabase');
-              }
-            }
-          }
-
-          if (dbConnectionId) {
-            connectionId = dbConnectionId;
-            const lead = await convRepo.findOrCreateLead(organizationId, dbConnectionId, event.phone, event.senderName);
-            leadId = lead.id;
-            leadRecord = { id: lead.id, phone: lead.phone, name: lead.name, memory: (lead.memory as Record<string, unknown>) || {} };
-            const sessionTimeoutMinutes = Number(process.env.SESSION_TIMEOUT_MINUTES) || 15;
-            const conversation = await convRepo.findOrCreateConversation(organizationId, dbConnectionId, lead.id, null, {
-              sessionTimeoutMinutes,
-              lead: leadRecord,
-            });
-            conversationId = conversation.id;
-            convRecord = { id: conversation.id, stage: conversation.stage, bot_paused: conversation.bot_paused, handled_by: conversation.handled_by };
-
-            // Save each provider event before acknowledging the webhook. Buffered
-            // execution reuses these rows instead of inserting duplicates.
-            if (!options.messagesAlreadySaved) {
-              for (const incoming of events) {
-                await convRepo.saveMessage({
-                  organizationId,
-                  connectionId: dbConnectionId,
-                  conversationId: conversation.id,
-                  direction: 'INBOUND',
-                  sender: 'lead',
-                  content: incoming.textContent,
-                  messageType: incoming.messageType,
-                  providerMessageId: incoming.messageId,
-                });
-              }
-            }
-            logger.info({ instanceName, phone: event.phone, conversationId: conversation.id }, 'Mensagem inbound salva no Supabase');
-          }
-        } catch (dbErr: any) {
-          logger.error({ err: dbErr?.message || dbErr, instanceName, phone: event.phone }, 'Falha ao persistir mensagem no Supabase');
-          convRepo = null;
-        }
-      } else {
-        logger.warn({ instanceName }, 'Supabase não configurado — mensagens não serão salvas no inbox');
-      }
-
-      // 2. Check for active flow
-      const activeFlow = options.flowSnapshot || standaloneStore.getActiveFlowForInstance(instanceName);
-      if (!activeFlow) {
-        await debugRegistry.failArmed(organizationId, conversationId, {
-          severity: 'error',
-          code: 'no_active_flow',
-          message: `A mensagem chegou, mas não há fluxo ativo para a instância "${instanceName}".`,
-        });
-        logger.info({ instanceName }, 'Mensagem salva no inbox mas não há fluxo ativo para esta instância');
-        return { status: 'no_active_flow', instanceName, messageSaved: !!convRepo };
-      }
-
-      // 3. STRICT TEST MODE GATE
-      const testMode = activeFlow.graph.testMode;
-      if (testMode?.enabled) {
-        const authorized = testMode.phone || '';
-        const match = isPhoneNumberMatch(event.phone, authorized);
-        if (!match) {
-          await debugRegistry.failArmed(organizationId, conversationId, {
-            severity: 'error',
-            code: 'blocked_by_test_mode',
-            message: `A mensagem foi bloqueada pelo modo teste, autorizado apenas para ${authorized}.`,
-          });
-          logger.warn(
-            { sender: event.phone, authorized, instanceName },
-            '[MODO TESTE BLOQUEIO] Mensagem de número não autorizado descartada com segurança total.'
-          );
-          return {
-            status: 'blocked_by_test_mode',
-            reason: `Modo Teste ativado apenas para ${authorized}. Mensagem de ${event.phone} descartada.`,
-          };
-        }
-        logger.info(
-          { sender: event.phone, authorized, instanceName },
-          '[MODO TESTE PERMISSÃO] Mensagem de número autorizado aceita para execução.'
-        );
-      }
-
-      const windowSeconds = bufferWindowSeconds(activeFlow.graph);
-      if (turnQueue && !options.bypassQueue && windowSeconds > 0) {
-        try {
-          const queued = await turnQueue.enqueue({
-            kind: 'standalone',
-            target: instanceName,
-            conversationKey: `${organizationId}:${conversationId}`,
-            windowSeconds,
-            event,
-            metadata: { flowSnapshot: activeFlow },
-          });
-          return {
-            status: 'queued',
-            conversationId,
-            generation: queued.generation,
-            delayMs: queued.delayMs,
-          };
-        } catch (queueErr) {
-          logger.warn({ err: queueErr instanceof Error ? queueErr.message : String(queueErr), instanceName, conversationId }, 'Redis indisponível — processando mensagem sem buffer');
-        }
-      }
-
-      // 4. Execute Flow for Authorized Inbound Message
-      const executionId = crypto.randomUUID();
-      const debugFlow: DebugFlowSnapshot = {
-        id: activeFlow.id,
-        name: activeFlow.name,
-        version: `v${activeFlow.publishedVersion || 1}`,
-        nodes: activeFlow.graph.nodes.map(node => ({ id: node.id, type: node.type, label: node.label || node.type })),
-        graph: activeFlow.graph,
-      };
-      await debugRegistry.claim({ organizationId, conversationId, executionId, flow: debugFlow });
-      const emitExecutionEvent = async (event: FlowExecutionEvent) => {
-        wsServer.broadcast(await debugRegistry.record({ ...event, conversationId }));
-      };
-      const flowCtx: FlowContext = {
-        organizationId,
-        connectionId,
-        leadId,
-        conversationId,
-        executionId,
-        flowVersionId: `v${activeFlow.publishedVersion || 1}`,
-        lead: leadRecord
-          ? { id: leadRecord.id, phone: leadRecord.phone, name: leadRecord.name || event.senderName || 'Contato WhatsApp', memory: leadRecord.memory }
-          : { id: leadId, phone: event.phone, name: event.senderName || 'Contato WhatsApp', memory: {} },
-        conversation: convRecord
-          ? { id: convRecord.id, stage: convRecord.stage, bot_paused: convRecord.bot_paused, handled_by: convRecord.handled_by as any }
-          : { id: conversationId, stage: 'NOVO', bot_paused: false, handled_by: 'AI' },
-        messages: events.map((incoming, index) => ({
-          id: incoming.messageId || `${executionId}-${index}`,
-          text: incoming.textContent,
-          fromMe: false,
-          type: incoming.messageType,
-          mediaUrl: incoming.mediaUrl,
-        })),
-        variables: {},
-        tokens: { input: 0, output: 0 },
-      };
-
-      const settings = standaloneStore.getSettings();
-      const evoClient = getEvoClient(settings.evolutionServerUrl, settings.evolutionApiKey);
-      const effectiveApiKey = settings.openaiApiKey || config.openaiApiKey;
-      const effectiveModel = settings.openaiModel || config.openaiModel || 'gpt-4.1-mini';
-
-      const capturedConvRepo = convRepo;
-      const capturedConnectionId = connectionId;
-      const assertCurrentTurn = async () => {
-        if (options.isCurrent && !(await options.isCurrent())) throw new Error(SUPERSEDED_TURN_ERROR);
-      };
-      let standaloneCalendar = createCalendarProvider(config);
-      if (!standaloneCalendar) {
-        const instanceIntegration = standaloneStore.getIntegrationByProvider('google_calendar', instanceName);
-        if (instanceIntegration?.credentials) {
-          standaloneCalendar = new GoogleCalendarClient(globalThis.fetch, instanceIntegration.credentials);
-        }
-      }
-      const guardedCalendar = standaloneCalendar
-        ? {
-            async getCalendarName(...args: Parameters<NonNullable<FlowServices['calendar']>['getCalendarName']>) { await assertCurrentTurn(); return standaloneCalendar!.getCalendarName(...args); },
-            async listEvents(...args: Parameters<NonNullable<FlowServices['calendar']>['listEvents']>) { await assertCurrentTurn(); return standaloneCalendar!.listEvents(...args); },
-            async createEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['createEvent']>) { await assertCurrentTurn(); return standaloneCalendar!.createEvent(...args); },
-            async updateEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['updateEvent']>) { await assertCurrentTurn(); return standaloneCalendar!.updateEvent(...args); },
-            async cancelEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['cancelEvent']>) { await assertCurrentTurn(); return standaloneCalendar!.cancelEvent(...args); },
-          }
-        : undefined;
-      const services: FlowServices = {
-        llm: effectiveApiKey
-          ? new OpenAIProvider({ apiKey: effectiveApiKey, model: effectiveModel, timeoutMs: settings.openaiTimeoutMs || 60000 })
-          : new MockLLMProvider(),
-        messaging: {
-          async sendText(_connId, phone, text) {
-            await assertCurrentTurn();
-            logger.info({ instanceName, phone, textLength: text.length }, 'Enviando resposta WhatsApp via Evolution API');
-            const sendRes = await evoClient.sendTextMessage(instanceName, phone, text);
-            if (!sendRes.success || !sendRes.messageId) {
-              const errMsg = sendRes.error || 'Falha desconhecida na Evolution API';
-              logger.error({ instanceName, phone, error: errMsg }, 'Falha no envio da resposta WhatsApp via Evolution API');
-              throw new Error(`Falha no envio WhatsApp via Evolution API (${instanceName}): ${errMsg}`);
-            }
-            const msgId = sendRes.messageId;
-            if (capturedConvRepo) {
-              try {
-                await capturedConvRepo.saveMessage({
-                  organizationId,
-                  connectionId: capturedConnectionId,
-                  conversationId,
-                  direction: 'OUTBOUND',
-                  sender: 'ai',
-                  content: text,
-                  messageType: 'text',
-                  providerMessageId: msgId,
-                });
-              } catch (e) { logger.warn({ err: e }, 'Falha ao salvar mensagem outbound no Supabase'); }
-            }
-            return { messageId: msgId };
-          },
-          async sendMedia() { await assertCurrentTurn(); return { messageId: crypto.randomUUID() }; },
-          async sendTemplate() { await assertCurrentTurn(); return { messageId: crypto.randomUUID() }; },
-        },
-        calendar: guardedCalendar,
-        fetch: async (...args) => { await assertCurrentTurn(); return globalThis.fetch(...args); },
-        db: {
-          async updateLead(_org, lid, patch) {
-            if (capturedConvRepo) {
-              try { await capturedConvRepo.updateLead(_org, lid, patch); } catch {}
-            }
-          },
-          async updateConversation(_org, cid, patch) {
-            if (capturedConvRepo) {
-              try { await capturedConvRepo.updateConversation(_org, cid, patch); } catch {}
-            }
-          },
-          async saveMessage(_org, cId, cvId, msg) {
-            if (capturedConvRepo) {
-              try {
-                const res = await capturedConvRepo.saveMessage({
-                  organizationId: _org,
-                  connectionId: cId,
-                  conversationId: cvId,
-                  direction: msg.direction,
-                  sender: msg.sender,
-                  content: msg.content,
-                  messageType: msg.messageType,
-                  providerMessageId: msg.providerMessageId,
-                });
-                return { id: res.id };
-              } catch {}
-            }
-            return { id: crypto.randomUUID() };
-          },
-          async syncDeal(_org, lid, deal) {
-            if (capturedConvRepo) {
-              try {
-                const res = await capturedConvRepo.syncDeal(_org, lid, deal);
-                return { id: res.id };
-              } catch {}
-            }
-            return { id: crypto.randomUUID() };
-          },
-          async getMessages(_org, convId, limit) {
-            if (!capturedConvRepo) return [];
-            return capturedConvRepo.getMessages(_org, convId, limit);
-          },
-          async getLeadRecentMessages(_org, leadId, limit) {
-            if (!capturedConvRepo) return [];
-            return capturedConvRepo.getLeadRecentMessages(_org, leadId, limit);
-          },
-          async searchKnowledge(_org, collection, query, limit, threshold) {
-            const hits = standaloneStore.searchKnowledge(query, {
-              collection: collection === 'default' ? undefined : collection,
-              limit: limit || 5,
-              threshold: typeof threshold === 'number' ? threshold : 0.2,
-            });
-            return hits.map(h => ({
-              text: `[${h.collection.toUpperCase()}] ${h.title}: ${h.content}`,
-              collection: h.collection,
-              title: h.title,
-              similarity: h.similarity,
-            }));
-          },
-        },
-        now: () => new Date(),
-      };
-
-      await emitExecutionEvent({
-        type: 'execution:started',
-        executionId,
-        organizationId,
-        flowId: activeFlow.id,
-        timestamp: new Date().toISOString(),
-        payload: { conversationId, instanceName, sender: event.phone },
-      });
-
-      const result = await executeFlow(activeFlow.graph, flowCtx, services, {
-        hooks: {
-          onStepStart: async step => {
-            await emitExecutionEvent({
-              type: 'step:start',
-              executionId,
-              organizationId,
-              flowId: activeFlow.id,
-              timestamp: new Date().toISOString(),
-              payload: step,
-            });
-          },
-          onStepComplete: async step => {
-            await emitExecutionEvent({
-              type: 'step:complete',
-              executionId,
-              organizationId,
-              flowId: activeFlow.id,
-              timestamp: new Date().toISOString(),
-              payload: step,
-            });
-          },
-          onStepError: async step => {
-            await emitExecutionEvent({
-              type: 'step:failed',
-              executionId,
-              organizationId,
-              flowId: activeFlow.id,
-              timestamp: new Date().toISOString(),
-              payload: step,
-            });
-          },
-        },
-      });
-
-      const nodeLabel = (nodeId: string) =>
-        activeFlow.graph.nodes.find((n: any) => n.id === nodeId)?.label || nodeId;
-      const debugIssues: Array<{ severity: 'warning' | 'error'; code: string; message: string; nodeId?: string }> = [];
-
-      if (result.status === 'failed' && result.error === SUPERSEDED_TURN_ERROR) {
-        await debugRegistry.supersede(executionId);
-        logger.info({ instanceName, conversationId, executionId }, 'Execução substituída por mensagens mais recentes antes do envio');
-        return { status: 'superseded', executionId, conversationId };
-      }
-
-      if (result.status === 'failed') {
-        const failedStep = result.steps[result.steps.length - 1];
-        logger.error(
-          { instanceName, phone: event.phone, executionId, error: result.error, steps: result.steps },
-          'Falha na execução do fluxo — mensagem não foi enviada de volta ao WhatsApp'
-        );
-        if (failedStep) {
-          await emitExecutionEvent({
-            type: 'step:failed',
-            executionId,
-            organizationId,
-            flowId: activeFlow.id,
-            timestamp: new Date().toISOString(),
-            payload: { sequence: failedStep.sequence, nodeId: failedStep.nodeId, error: result.error || 'Erro desconhecido' },
-          });
-        }
-        if (convRepo) {
-          try {
-            await convRepo.saveMessage({
-              organizationId,
-              connectionId,
-              conversationId,
-              direction: 'OUTBOUND',
-              sender: 'system',
-              content: `⚠️ O fluxo falhou no bloco "${failedStep ? nodeLabel(failedStep.nodeId) : '?'}": ${result.error || 'erro desconhecido'}`,
-              messageType: 'text',
-            });
-          } catch (e) {
-            logger.warn({ err: e }, 'Falha ao salvar mensagem de erro do sistema no Supabase');
-          }
-        }
-      } else {
-        const sentSomething = result.steps.some(
-          step => step.nodeType.startsWith('output.') && (step.output as any)?.sent
-        );
-        if (!sentSomething) {
-          const lastStep = result.steps[result.steps.length - 1];
-          debugIssues.push({
-            severity: 'warning',
-            code: 'no_message_sent',
-            message: 'O fluxo terminou sem enviar uma mensagem. Verifique as portas de saída do último bloco.',
-            nodeId: lastStep?.nodeId,
-          });
-          logger.warn(
-            {
-              instanceName,
-              phone: event.phone,
-              executionId,
-              status: result.status,
-              lastNode: lastStep ? { id: lastStep.nodeId, type: lastStep.nodeType, output: lastStep.output } : null,
-              steps: result.steps,
-            },
-            'Fluxo terminou sem enviar mensagem — provável porta sem conexão (ex: guard.response_policy → rewrite/blocked)'
-          );
-          if (lastStep) {
-            await emitExecutionEvent({
-              type: 'step:failed',
-              executionId,
-              organizationId,
-              flowId: activeFlow.id,
-              timestamp: new Date().toISOString(),
-              payload: {
-                sequence: lastStep.sequence,
-                nodeId: lastStep.nodeId,
-                error: 'Fluxo terminou aqui sem enviar mensagem — verifique se todas as portas de saída deste bloco estão conectadas.',
-              },
-            });
-          }
-          if (convRepo) {
-            try {
-              await convRepo.saveMessage({
-                organizationId,
-                connectionId,
-                conversationId,
-                direction: 'OUTBOUND',
-                sender: 'system',
-                content: `⚠️ O fluxo terminou no bloco "${lastStep ? nodeLabel(lastStep.nodeId) : '?'}" sem enviar mensagem. Verifique se todas as saídas desse bloco estão conectadas.`,
-                messageType: 'text',
-              });
-            } catch (e) {
-              logger.warn({ err: e }, 'Falha ao salvar mensagem de erro do sistema no Supabase');
-            }
-          }
-        }
-      }
-
-      await emitExecutionEvent({
-        type: 'execution:completed',
-        executionId,
-        organizationId,
-        flowId: activeFlow.id,
-        timestamp: new Date().toISOString(),
-        payload: { status: result.status, steps: result.steps.length, tokens: result.tokens },
-      });
-      await debugRegistry.finish(executionId, result, debugIssues);
-
-      return { ok: true, executionId, status: result.status };
-    } catch (err) {
-      logger.error({ err }, 'Erro ao processar webhook da instância Evolution');
-      return { status: 'error', error: err instanceof Error ? err.message : 'Falha no processamento do webhook' };
-    }
-  };
-
-  processStandaloneBufferedTurn = turn => processStandaloneEvents(turn.target, turn.events, {
-    bypassQueue: true,
-    messagesAlreadySaved: true,
-    isCurrent: turn.isCurrent,
-    flowSnapshot: turn.metadata?.flowSnapshot as StoredFlow | undefined,
+    next();
   });
 
   // Webhooks
@@ -2216,19 +415,6 @@ export function createApp(config: ApiConfig = {}): Express {
     if (req.query['hub.mode'] !== 'subscribe' || !secretMatches(String(req.query['hub.verify_token'] || ''), credentials?.verifyToken)) { res.sendStatus(403); return; }
     res.type('text/plain').send(String(req.query['hub.challenge'] || ''));
   });
-  // Evolution instances created before the Supabase migration still point to
-  // /instance/<name>. Resolve that name to the managed connection so existing
-  // webhook registrations continue to work during the cutover.
-  app.post('/api/webhooks/evolution/instance/:instanceName', async (req, res) => {
-    if (!config.supabaseUrl || !config.serviceRoleKey) { res.status(503).json({ error: 'Supabase não configurado para webhooks.' }); return; }
-    const instanceName = String(req.params.instanceName || '').trim();
-    if (!instanceName) { res.status(400).json({ error: 'Nome da instância inválido.' }); return; }
-    const db = serviceDatabase(config.supabaseUrl, config.serviceRoleKey);
-    const { data: connection } = await db.from('connections').select('id').eq('provider', 'evolution').eq('provider_instance_id', instanceName).maybeSingle();
-    if (!connection?.id) { res.sendStatus(404); return; }
-    await handleEvolutionWebhook(connection.id, req, res);
-  });
-
   app.post('/api/webhooks/evolution/:connectionId', async (req, res) => {
     const connectionId = z.uuid().safeParse(req.params.connectionId);
     if (!connectionId.success) { res.status(400).json({ error: 'ID de conexão inválido.' }); return; }
@@ -2284,26 +470,50 @@ export function createApp(config: ApiConfig = {}): Express {
     }
   });
 
-  // Fallback for standalone org knowledge requests
-  app.use('/api/organizations/:organizationId/knowledge', (req, res, next) => {
-    const orgId = req.params.organizationId;
-    if (!config.supabaseUrl || !config.anonKey || orgId === 'undefined' || orgId === 'standalone-org' || orgId === 'null') {
-      knowledgeRouter(req, res, next);
-      return;
-    }
-    next();
-  });
+  // The inbox debugger must mirror the exact immutable version that an inbound
+  // turn would execute. Keeping a second "most recently updated flow" query here
+  // made its preview disagree with production whenever an agent pinned a version.
+  const resolveConversationDebugFlow = async (
+    db: any,
+    organizationId: string,
+    conversation: { connection_id: string },
+  ): Promise<DebugFlowSnapshot | null> => {
+    const resolution = await resolveTurnFlow(db, conversation.connection_id);
+    if (resolution.status !== 'resolved' || resolution.organizationId !== organizationId) return null;
 
-  // Fallback for standalone org inbox requests
-  app.use('/api/organizations/:organizationId/inbox', (req, res, next) => {
-    const orgId = req.params.organizationId;
-    const authHeader = req.get('authorization') || '';
-    if (!config.supabaseUrl || !config.anonKey || orgId === 'undefined' || orgId === 'standalone-org' || orgId === 'null' || !authHeader) {
-      inboxRouter(req, res, next);
-      return;
+    const graph = resolution.graph;
+    return {
+      id: resolution.flowId,
+      name: resolution.flowName,
+      version: `v${resolution.flowVersion}`,
+      nodes: graph.nodes.map(node => ({ id: node.id, type: node.type, label: node.label || node.type })),
+      graph,
+    };
+  };
+
+  const armConversationDebug = async (
+    db: any,
+    inboxRepo: InboxRepository,
+    organizationId: string,
+    conversationId: string,
+  ) => {
+    const conversation = await inboxRepo.getConversation(organizationId, conversationId);
+    if (!conversation) return { status: 404, body: { error: 'Conversa não encontrada.' } };
+    if (conversation.bot_paused || conversation.handled_by === 'HUMAN') {
+      return { status: 409, body: { error: 'A IA está pausada nesta conversa. Devolva a conversa para a IA antes de iniciar o debug.' } };
     }
-    next();
-  });
+    const flow = await resolveConversationDebugFlow(db, organizationId, conversation);
+    if (!flow) {
+      return { status: 409, body: { error: 'Nenhum fluxo publicado está ativo para a conexão desta conversa.' } };
+    }
+    const session = await debugRegistry.arm({
+      organizationId,
+      conversationId,
+      connectionId: conversation.connection_id,
+      flow,
+    });
+    return { status: 201, body: { session } };
+  };
 
   const orgRoutes = express.Router({ mergeParams: true });
   app.use('/api/organizations/:organizationId', orgRoutes);
@@ -2598,6 +808,76 @@ export function createApp(config: ApiConfig = {}): Express {
     res.json(connection);
   });
 
+  orgRoutes.get('/connections/:connectionId/targets', checkScope('connections:read'), async (req, res) => {
+    const connectionId = z.uuid().parse(req.params.connectionId);
+    const organizationId = res.locals.organizationId as string;
+    const serviceDb = getServiceDb() || res.locals.db;
+    const connRepo = new ConnectionRepository(serviceDb);
+    const connection = await connRepo.getConnection(organizationId, connectionId);
+    if (!connection) {
+      res.status(404).json({ error: 'Conexão não encontrada.' });
+      return;
+    }
+    if (connection.provider !== 'evolution') {
+      res.status(400).json({ error: 'Contatos e grupos só estão disponíveis para conexões Evolution API.' });
+      return;
+    }
+
+    const credentials = await connRepo.getConnectionCredentials<EvolutionCredentials>(connectionId, serviceDb);
+    const instanceName = connection.provider_instance_id || credentials?.instanceName || '';
+    if (!credentials?.serverUrl || !credentials.apiKey || !instanceName) {
+      res.status(409).json({ error: 'A conexão Evolution não possui credenciais ou instância configuradas.' });
+      return;
+    }
+
+    const client = new EvolutionClient(credentials.serverUrl, credentials.apiKey);
+    const [groups, chats] = await Promise.all([
+      client.fetchGroups(instanceName).catch(err => {
+        logger.warn({ err, connectionId }, 'Falha ao buscar grupos da Evolution');
+        return [];
+      }),
+      client.fetchChats(instanceName).catch(err => {
+        logger.warn({ err, connectionId }, 'Falha ao buscar contatos da Evolution');
+        return [];
+      }),
+    ]);
+
+    const groupMap = new Map<string, { id: string; jid: string; name: string; type: 'group'; size?: number }>();
+    for (const group of groups) {
+      if (!group.id) continue;
+      groupMap.set(group.id, {
+        id: group.id,
+        jid: group.id,
+        name: group.subject || group.id,
+        type: 'group',
+        size: group.size,
+      });
+    }
+    for (const chat of chats) {
+      const jid = chat.id || '';
+      if ((jid.endsWith('@g.us') || jid.includes('@g.us')) && !groupMap.has(jid)) {
+        groupMap.set(jid, {
+          id: jid,
+          jid,
+          name: chat.name || chat.pushName || jid,
+          type: 'group',
+        });
+      }
+    }
+
+    res.json({
+      connectionId,
+      groups: Array.from(groupMap.values()),
+      contacts: chats
+        .filter(chat => !chat.id.endsWith('@g.us') && !chat.id.includes('@g.us'))
+        .map(chat => {
+          const id = chat.id.replace(/@.*$/, '');
+          return { id, jid: chat.id, name: chat.name || chat.pushName || id, type: 'contact' as const };
+        }),
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   orgRoutes.get('/connections/:connectionId/qr', checkScope('connections:read'), async (req, res) => {
     const connectionId = z.uuid().parse(req.params.connectionId);
     const serviceDb = getServiceDb() || res.locals.db;
@@ -2702,6 +982,43 @@ export function createApp(config: ApiConfig = {}): Express {
 
     await connRepo.deleteConnection(res.locals.organizationId as string, connectionId, serviceDb);
     res.json({ ok: true });
+  });
+
+  // Active flow bindings must use the same resolver as inbound turns. In particular,
+  // an agent can pin an immutable version that differs from flows.published_version_id;
+  // showing the draft or a global fallback here would make the UI lie about production.
+  orgRoutes.get('/active-flows', checkScope('flows:read'), async (_req, res) => {
+    const organizationId = res.locals.organizationId as string;
+    const db = res.locals.db;
+    const { data: connections, error } = await db
+      .from('connections')
+      .select('id,name,provider_instance_id')
+      .eq('organization_id', organizationId)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+
+    const bindings = await Promise.all((connections || []).map(async (connection: any) => {
+      const resolution = await resolveTurnFlow(db, connection.id);
+      if (resolution.status !== 'resolved') return null;
+
+      return {
+        connection: {
+          id: connection.id,
+          name: connection.name,
+          instanceName: connection.provider_instance_id || connection.name,
+        },
+        flow: {
+          id: resolution.flowId,
+          name: resolution.flowName,
+          versionId: resolution.flowVersionId,
+          version: resolution.flowVersion,
+          publishedAt: resolution.flowVersionCreatedAt,
+          graph: resolution.graph,
+        },
+      };
+    }));
+
+    res.json(bindings.filter((binding): binding is NonNullable<typeof binding> => binding !== null));
   });
 
   // Flows

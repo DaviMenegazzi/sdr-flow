@@ -150,9 +150,10 @@ function InstanceTargetPicker({
   typeFilter?: 'all' | 'contacts' | 'groups';
   onSelect: (id: string, name: string) => void;
 }) {
-  const { activeInstanceName, currentInstance } = useInstance();
-  const { session } = useSession();
-  const selectedInstance = activeInstanceName || currentInstance?.name || '';
+  const { currentInstance } = useInstance();
+  const { session, activeOrg } = useSession();
+  const selectedInstance = currentInstance?.name || '';
+  const connectionId = currentInstance?.id || '';
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [targets, setTargets] = useState<{
@@ -162,10 +163,13 @@ function InstanceTargetPicker({
   const [open, setOpen] = useState(false);
 
   const loadTargets = (refresh = false) => {
-    if (!selectedInstance) return;
+    if (!activeOrg || !session?.access_token || !connectionId) {
+      setTargets({ groups: [], contacts: [] });
+      return;
+    }
     setLoading(true);
-    const url = `/api/connections/instances/${encodeURIComponent(selectedInstance)}/targets${refresh ? '?refresh=true' : ''}`;
-    fetch(url, session?.access_token ? { headers: { Authorization: `Bearer ${session.access_token}` } } : undefined)
+    const url = `/api/organizations/${encodeURIComponent(activeOrg)}/connections/${encodeURIComponent(connectionId)}/targets${refresh ? '?refresh=true' : ''}`;
+    fetch(url, { headers: { Authorization: `Bearer ${session.access_token}` } })
       .then(res => res.json())
       .then(data => {
         setTargets({
@@ -179,7 +183,7 @@ function InstanceTargetPicker({
 
   useEffect(() => {
     loadTargets(false);
-  }, [selectedInstance]);
+  }, [activeOrg, connectionId, session?.access_token]);
 
   const filteredGroups = useMemo(() => {
     if (typeFilter === 'contacts') return [];

@@ -134,13 +134,14 @@ export function InboxPage() {
   const inboxSocketRef = useRef<WebSocket | null>(null);
   const listAbortRef = useRef<AbortController | null>(null);
 
-  const isStandalone = !activeOrg || !session?.access_token || activeOrg === 'standalone-org';
-  const inboxBaseUrl = isStandalone ? '/api/inbox' : `/api/organizations/${activeOrg}/inbox`;
+  const accessToken = session?.access_token;
+  const hasInboxAccess = Boolean(activeOrg && accessToken);
+  const inboxBaseUrl = hasInboxAccess ? `/api/organizations/${activeOrg}/inbox` : null;
 
   const getHeaders = (hasBody = false) => {
     const headers: Record<string, string> = {};
-    if (session?.access_token) {
-      headers['Authorization'] = `Bearer ${session.access_token}`;
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
     }
     if (hasBody) {
       headers['Content-Type'] = 'application/json';
@@ -149,6 +150,10 @@ export function InboxPage() {
   };
 
   async function loadDebugSession(conversationId: string, silent = false): Promise<DebugSession | null> {
+    if (!inboxBaseUrl || !accessToken) {
+      if (!silent) setDebugError('Selecione uma organização para consultar o debug.');
+      return null;
+    }
     try {
       const res = await fetch(`${inboxBaseUrl}/conversations/${conversationId}/debug`, { headers: getHeaders() });
       if (!res.ok) throw new Error('Não foi possível consultar o debug.');
@@ -165,6 +170,11 @@ export function InboxPage() {
 
   async function armDebugSession() {
     if (!selectedConv) return;
+    if (!inboxBaseUrl || !accessToken) {
+      setDebugError('Selecione uma organização para iniciar o debug.');
+      setDebugOpen(true);
+      return;
+    }
     setDebugLoading(true);
     setDebugError(null);
     setExpandedDebugStep(null);
@@ -191,6 +201,11 @@ export function InboxPage() {
       setDebugOpen(false);
       return;
     }
+    if (!inboxBaseUrl || !accessToken) {
+      setDebugError('Selecione uma organização para consultar o debug.');
+      setDebugOpen(true);
+      return;
+    }
     setDebugOpen(true);
     setDebugLoading(true);
     const existing = await loadDebugSession(selectedConv.id, true);
@@ -200,6 +215,10 @@ export function InboxPage() {
 
   async function stopDebugSession() {
     if (!selectedConv) return;
+    if (!inboxBaseUrl || !accessToken) {
+      setDebugError('Selecione uma organização para encerrar o debug.');
+      return;
+    }
     setDebugLoading(true);
     try {
       const res = await fetch(`${inboxBaseUrl}/conversations/${selectedConv.id}/debug`, {
@@ -220,24 +239,23 @@ export function InboxPage() {
     setDebugSession(null);
     setDebugError(null);
     setExpandedDebugStep(null);
-    if (debugOpen && selectedId) void loadDebugSession(selectedId, true);
-  }, [selectedId]);
+    if (debugOpen && selectedId && hasInboxAccess) void loadDebugSession(selectedId, true);
+  }, [selectedId, hasInboxAccess]);
 
   useEffect(() => {
-    if (!debugOpen || !selectedId || !debugSession?.id) return;
+    if (!debugOpen || !selectedId || !debugSession?.id || !hasInboxAccess) return;
     const status = debugSession?.status;
     if (status && !['armed', 'running'].includes(status)) return;
     const interval = window.setInterval(() => void loadDebugSession(selectedId, true), 1200);
     return () => window.clearInterval(interval);
-  }, [debugOpen, selectedId, debugSession?.status, inboxBaseUrl]);
+  }, [debugOpen, selectedId, debugSession?.status, hasInboxAccess, inboxBaseUrl]);
 
   useEffect(() => {
-    if (!debugOpen || !selectedId || !debugSession?.id) return;
+    if (!debugOpen || !selectedId || !debugSession?.id || !activeOrg || !accessToken || !inboxBaseUrl) return;
     const debugSessionId = debugSession.id;
     try {
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const token = session?.access_token ? `?token=${encodeURIComponent(session.access_token)}` : '';
-      const socket = new WebSocket(`${proto}//${window.location.host}/ws${token}`);
+      const socket = new WebSocket(`${proto}//${window.location.host}/ws?token=${encodeURIComponent(accessToken)}`);
       debugSocketRef.current = socket;
       socket.addEventListener('open', () => {
         socket.send(JSON.stringify({
@@ -264,7 +282,7 @@ export function InboxPage() {
     } catch {
       // Polling is the fallback when WebSocket is unavailable.
     }
-  }, [debugOpen, selectedId, debugSession?.id, debugSession?.organizationId, activeOrg, session?.access_token]);
+  }, [debugOpen, selectedId, debugSession?.id, debugSession?.organizationId, activeOrg, accessToken, inboxBaseUrl]);
 
   const debugSteps = useMemo(() => {
     const steps = new Map<string, {
@@ -329,51 +347,34 @@ export function InboxPage() {
 
   useEffect(() => {
     async function loadConnections() {
-      const merged: Array<{ id: string; name: string; provider: string; status: string }> = [];
-      const seen = new Set<string>();
-
-      // Load org connections if authenticated
-      if (session && activeOrg && !isStandalone) {
-        try {
-          const res = await fetch(`/api/organizations/${activeOrg}/connections`, {
-            headers: { Authorization: `Bearer ${session.access_token}` },
-          });
-          if (res.ok) {
-            const data = await res.json();
-            for (const c of Array.isArray(data) ? data : []) {
-              merged.push(c);
-              seen.add(c.provider_instance_id || c.name);
-            }
-          }
-        } catch {}
+      if (!activeOrg || !accessToken) {
+        setConnections([]);
+        return;
       }
 
-      // Standalone instances are only available when no Supabase organization
-      // is active. Managed deployments use the scoped organization endpoint.
-      if (isStandalone) {
-        try {
-          const res = await fetch('/api/connections/instances');
-          if (res.ok) {
-            const data = await res.json();
-            for (const inst of Array.isArray(data) ? data : []) {
-              if (!seen.has(inst.name)) {
-                merged.push({ id: inst.id, name: inst.name, provider: inst.provider, status: inst.status });
-              }
-            }
-          }
-        } catch {}
-      }
-
-      setConnections(merged);
-      if (activeInstance) {
-        const matching = merged.find(c => c.name === activeInstance || c.id === activeInstance);
-        if (matching) {
-          setConnectionFilter(matching.id);
+      try {
+        const res = await fetch(`/api/organizations/${activeOrg}/connections`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!res.ok) {
+          setConnections([]);
+          return;
         }
+        const data = await res.json();
+        const list: Array<{ id: string; name: string; provider: string; status: string }> = Array.isArray(data) ? data : [];
+        setConnections(list);
+        if (activeInstance) {
+          const matching = list.find(c => c.name === activeInstance || c.id === activeInstance);
+          if (matching) {
+            setConnectionFilter(matching.id);
+          }
+        }
+      } catch {
+        setConnections([]);
       }
     }
     void loadConnections();
-  }, [session, activeOrg, isStandalone]);
+  }, [activeOrg, accessToken]);
 
   useEffect(() => {
     if (activeInstance) {
@@ -386,6 +387,11 @@ export function InboxPage() {
   }, [activeInstance, connections]);
 
   async function loadConversations(isBackground = false) {
+    if (!inboxBaseUrl || !accessToken) {
+      listAbortRef.current?.abort();
+      if (!isBackground) setLoadingList(false);
+      return;
+    }
     if (!isBackground) {
       setLoadingList(true);
       setError(null);
@@ -435,6 +441,10 @@ export function InboxPage() {
   }
 
   async function loadConversationDetail(id: string, isBackground = false) {
+    if (!inboxBaseUrl || !accessToken) {
+      if (!isBackground) setLoadingMessages(false);
+      return;
+    }
     if (!isBackground) {
       setLoadingMessages(true);
     }
@@ -481,6 +491,10 @@ export function InboxPage() {
   // very first load stays immediate so the page doesn't sit blank for the debounce window.
   const initialListLoadDone = useRef(false);
   useEffect(() => {
+    if (!hasInboxAccess) {
+      initialListLoadDone.current = false;
+      return;
+    }
     if (!initialListLoadDone.current) {
       initialListLoadDone.current = true;
       void loadConversations(false);
@@ -490,24 +504,23 @@ export function InboxPage() {
       void loadConversations(false);
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [inboxBaseUrl, stageFilter, agentFilter, connectionFilter, searchTerm]);
+  }, [hasInboxAccess, inboxBaseUrl, stageFilter, agentFilter, connectionFilter, searchTerm]);
 
   // Load the detail snapshot once when the selected conversation changes. Subsequent updates to
   // this conversation arrive as inbox:message.created / inbox:conversation.updated deltas.
   useEffect(() => {
-    if (!selectedId) return;
+    if (!selectedId || !hasInboxAccess) return;
     void loadConversationDetail(selectedId, false);
-  }, [inboxBaseUrl, selectedId]);
+  }, [hasInboxAccess, inboxBaseUrl, selectedId]);
 
-  // Standalone deployments have no real Supabase session to authenticate a WebSocket with (the
-  // debug-panel socket below has the exact same limitation) — they rely on the reduced-frequency
-  // fallback poll permanently. Authenticated orgs start optimistic (assume the socket will come
-  // up) and only fall back after it has been down for a defined grace period (11.3.6/11.3.7).
+  // Authenticated organizations start optimistic (assume the socket will come up) and only fall
+  // back after it has been down for a defined grace period (11.3.6/11.3.7).
   const [wsDown, setWsDown] = useState(false);
-  const fallbackActive = isStandalone || wsDown;
+  const fallbackActive = wsDown;
 
   useEffect(() => {
-    if (isStandalone || !session?.access_token || !activeOrg) return;
+    if (!hasInboxAccess || !accessToken || !activeOrg) return;
+    const websocketToken = accessToken;
     let cancelled = false;
     let socket: WebSocket | null = null;
     let reconnectTimer: number | undefined;
@@ -525,7 +538,7 @@ export function InboxPage() {
     function connect() {
       if (cancelled) return;
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${proto}//${window.location.host}/ws?token=${encodeURIComponent(session!.access_token)}`);
+      const ws = new WebSocket(`${proto}//${window.location.host}/ws?token=${encodeURIComponent(websocketToken)}`);
       socket = ws;
       inboxSocketRef.current = ws;
 
@@ -590,25 +603,26 @@ export function InboxPage() {
       socket?.close();
       if (inboxSocketRef.current === socket) inboxSocketRef.current = null;
     };
-  }, [isStandalone, session?.access_token, activeOrg]);
+  }, [hasInboxAccess, accessToken, activeOrg]);
 
   // The only remaining timer-based refresh: engaged solely while the WebSocket is unavailable
-  // (down past the grace period, or standalone with no socket at all), at a reduced cadence —
-  // never the old 4/5s intervals (11.3.7). Cancelled the moment the socket comes back up.
+  // (down past the grace period), at a reduced cadence — never the old 4/5s intervals (11.3.7).
+  // Cancelled the moment the socket comes back up.
   useEffect(() => {
-    if (!fallbackActive) return;
+    if (!fallbackActive || !hasInboxAccess) return;
     const interval = window.setInterval(() => {
       void loadConversations(true);
       if (selectedIdRef.current) void loadConversationDetail(selectedIdRef.current, true);
     }, 30000);
     return () => window.clearInterval(interval);
-  }, [fallbackActive, inboxBaseUrl]);
+  }, [fallbackActive, hasInboxAccess, inboxBaseUrl]);
 
   // Background tabs throttle setInterval heavily (sometimes to once a minute
   // or less), which can make the inbox look frozen for a while even though
   // nothing is broken. Force an immediate refresh whenever the tab regains
   // focus so it never stays stale for longer than the user was away.
   useEffect(() => {
+    if (!hasInboxAccess) return;
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
       void loadConversations(true);
@@ -620,14 +634,14 @@ export function InboxPage() {
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onVisible);
     };
-  }, [inboxBaseUrl, selectedId, stageFilter, agentFilter, connectionFilter, searchTerm]);
+  }, [hasInboxAccess, inboxBaseUrl, selectedId, stageFilter, agentFilter, connectionFilter, searchTerm]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
 
   async function handleTakeover() {
-    if (!selectedConv) return;
+    if (!selectedConv || !inboxBaseUrl || !accessToken) return;
     setActionLoading(true);
     try {
       const res = await fetch(`${inboxBaseUrl}/conversations/${selectedConv.id}/takeover`, {
@@ -646,7 +660,7 @@ export function InboxPage() {
   }
 
   async function handleRelease() {
-    if (!selectedConv) return;
+    if (!selectedConv || !inboxBaseUrl || !accessToken) return;
     setActionLoading(true);
     try {
       const res = await fetch(`${inboxBaseUrl}/conversations/${selectedConv.id}/release`, {
@@ -665,7 +679,7 @@ export function InboxPage() {
   }
 
   async function handleStageChange(newStage: string) {
-    if (!selectedConv) return;
+    if (!selectedConv || !inboxBaseUrl || !accessToken) return;
     try {
       const res = await fetch(`${inboxBaseUrl}/conversations/${selectedConv.id}/stage`, {
         method: 'PATCH',
@@ -683,7 +697,7 @@ export function InboxPage() {
 
   async function handleSendMessage(e: React.FormEvent) {
     e.preventDefault();
-    if (!replyText.trim() || !selectedConv) return;
+    if (!replyText.trim() || !selectedConv || !inboxBaseUrl || !accessToken) return;
 
     const content = replyText.trim();
     setReplyText('');

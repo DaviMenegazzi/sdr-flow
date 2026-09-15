@@ -4,8 +4,8 @@ import { RedisTurnBuffer, type RedisTurnBufferDependencies } from '../packages/r
 
 // Fase 2 (docs/OPTIMIZATION_IMPLEMENTATION_PLAN.md 8.4, 8.8): debounce/lock semantics for the
 // canonical queue, exercised with an in-memory Redis/BullMQ double — the same
-// dependency-injection pattern as tests/conversation-turn-queue.test.ts, extended to cover
-// lock renewal (new in this phase) and lock loss.
+// dependency-injection pattern used by the canonical queue, extended to cover lock renewal
+// and lock loss.
 
 const state = {
   jobs: [] as Array<{ name: string; data: any; options: any }>,

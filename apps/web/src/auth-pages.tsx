@@ -1,6 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Navigate, Link, useLocation, useNavigate } from 'react-router-dom';
-import { Info } from 'lucide-react';
 import { supabase, useSession } from './session';
 import { Button, Input } from './components/ui';
 
@@ -9,7 +8,7 @@ export function AuthGate({ children, admin = false }: { children: ReactNode; adm
   const location = useLocation();
 
   if (!supabase) {
-    return <>{children}</>;
+    return <ConfigurationRequired />;
   }
 
   if (loading) {
@@ -23,6 +22,16 @@ export function AuthGate({ children, admin = false }: { children: ReactNode; adm
   if (!profile || profile.status !== 'active') return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   if (admin && profile.role !== 'admin') return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
+}
+
+function ConfigurationRequired() {
+  return (
+    <AuthCard title="Configuração necessária">
+      <p className="text-xs text-content-muted text-center m-0 leading-relaxed">
+        Este ambiente exige <code>VITE_SUPABASE_URL</code> e <code>VITE_SUPABASE_ANON_KEY</code> para autenticar e isolar os dados por organização.
+      </p>
+    </AuthCard>
+  );
 }
 
 function AuthCard({ title, children }: { title: string; children: ReactNode }) {
@@ -50,28 +59,23 @@ function AuthCard({ title, children }: { title: string; children: ReactNode }) {
 }
 
 export function LoginPage() {
-  const { session, devLogin } = useSession();
+  const { session } = useSession();
   const navigate = useNavigate();
   const location = useLocation();
+  const client = supabase;
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   if (session) return <Navigate to="/dashboard" replace />;
+  if (!client) return <ConfigurationRequired />;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!supabase) {
-      devLogin?.(email || 'admin@sdrflow.local');
-      const from = (location.state as { from?: string } | null)?.from;
-      const dest = from && from.startsWith('/') && !from.startsWith('//') && from !== '/' && from !== '/login' && from !== '/404' ? from : '/dashboard';
-      navigate(dest, { replace: true });
-      return;
-    }
     setBusy(true);
     setError('');
-    const result = await supabase.auth.signInWithPassword({ email, password });
+    const result = await client.auth.signInWithPassword({ email, password });
     setBusy(false);
     if (result?.error) {
       setError(result.error.message === 'Invalid login credentials' ? 'E-mail ou senha inválidos.' : result.error.message);
@@ -85,17 +89,11 @@ export function LoginPage() {
   return (
     <AuthCard title="Entrar no SDR Flow">
       <form onSubmit={submit} className="flex flex-col gap-4">
-        {!supabase && (
-          <div className="p-3 bg-brand/10 border border-brand/20 text-brand text-xs rounded-lg flex items-center gap-2">
-            <Info className="w-4 h-4 text-brand shrink-0" />
-            <span>Modo Local (Sem Supabase conectado). Digite qualquer e-mail e senha ou clique em <strong>Entrar</strong> para navegar no painel.</span>
-          </div>
-        )}
         <Input
           label="E-mail"
           type="email"
           autoComplete="email"
-          required={Boolean(supabase)}
+          required
           value={email}
           onChange={e => setEmail(e.target.value)}
           placeholder="seu@email.com"
@@ -104,7 +102,7 @@ export function LoginPage() {
           label="Senha"
           type="password"
           autoComplete="current-password"
-          required={Boolean(supabase)}
+          required
           value={password}
           onChange={e => setPassword(e.target.value)}
           placeholder="••••••••"
@@ -115,7 +113,7 @@ export function LoginPage() {
           </div>
         )}
         <Button type="submit" variant="primary" loading={busy} className="w-full mt-1">
-          {busy ? 'Entrando…' : !supabase ? 'Entrar (Modo Local)' : 'Entrar'}
+          {busy ? 'Entrando…' : 'Entrar'}
         </Button>
       </form>
       <div className="flex items-center justify-center gap-3 text-xs text-content-muted pt-2 border-t border-border/60">
@@ -132,8 +130,6 @@ export function LoginPage() {
 }
 
 export function RegisterPage() {
-  const { devLogin } = useSession();
-  const navigate = useNavigate();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -147,11 +143,7 @@ export function RegisterPage() {
       setMessage('As senhas não coincidem.');
       return;
     }
-    if (!supabase) {
-      devLogin?.(email || 'admin@sdrflow.local');
-      navigate('/dashboard', { replace: true });
-      return;
-    }
+    if (!supabase) return;
     setBusy(true);
     const { error } = await supabase.auth.signUp({
       email,
@@ -224,6 +216,7 @@ export function ForgotPasswordPage() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!supabase) return;
     setBusy(true);
     await supabase?.auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/reset-password` });
     setBusy(false);
@@ -270,6 +263,7 @@ export function ResetPasswordPage() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!supabase) return;
     setBusy(true);
     const { error } = await supabase!.auth.updateUser({ password });
     setBusy(false);

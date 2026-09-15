@@ -86,6 +86,44 @@ describe('resolveTurnFlow', () => {
     expect(result.status).toBe('resolved');
     expect((result as any).flowVersionId).toBe('v-pinned');
   });
+
+  it('returns the immutable version metadata and graph used by active-flow cards', async () => {
+    // The mutable draft can differ from the version pinned to this connection.
+    // Cards must display the latter, exactly as the worker will execute it.
+    const publishedGraph = { nodes: [{ type: 'guard.test_mode', config: { enabled: true, phone: '5511999999999' } }] };
+    const db = makeDb({
+      connections: { data: { organization_id: 'org-1', owner_user_id: 'user-1', agent_id: 'agent-1' } },
+      ai_agents: { data: { id: 'agent-1', flow_id: 'flow-1', active_flow_version_id: 'v-pinned', status: 'active' } },
+      flows: {
+        data: {
+          id: 'flow-1',
+          name: 'Fluxo publicado',
+          draft: { nodes: [{ type: 'guard.test_mode', config: { enabled: false } }] },
+          published_version_id: 'v-newer',
+        },
+      },
+      flow_versions: {
+        data: {
+          id: 'v-pinned',
+          version: 3,
+          created_at: '2026-09-15T12:34:56.000Z',
+          graph: publishedGraph,
+        },
+      },
+    });
+
+    const result = await resolveTurnFlow(db, 'conn-1');
+
+    expect(result).toMatchObject({
+      status: 'resolved',
+      flowId: 'flow-1',
+      flowVersionId: 'v-pinned',
+      flowName: 'Fluxo publicado',
+      flowVersion: 3,
+      flowVersionCreatedAt: '2026-09-15T12:34:56.000Z',
+      graph: publishedGraph,
+    });
+  });
 });
 
 describe('resolveAndEnqueueTurn', () => {

@@ -21,7 +21,6 @@
     "db:types:check": "tsx scripts/generate-db-types.ts --check",
     "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
     "ops:sync-webhooks": "tsx scripts/sync-evolution-webhooks.ts",
-    "standalone:inventory": "tsx scripts/inventory-standalone.ts",
     "test:db": "vitest run tests/database.test.ts"
   },
   "devDependencies": {
