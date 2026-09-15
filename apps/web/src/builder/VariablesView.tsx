@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Network, Search, Copy, Check, ArrowRight, CornerDownRight, AlertTriangle, CheckCircle2, Info, Sparkles } from 'lucide-react';
+import { Network, Search, Copy, Check, ArrowRight, CornerDownRight, AlertTriangle, CheckCircle2, Info, Sparkles, Bot, User, Cpu, Sliders } from 'lucide-react';
 import { catalog, categoryColors } from '@sdr/flow';
 import type { FlowNode } from '@sdr/shared';
 import { useBuilder } from './store';
@@ -319,8 +319,16 @@ export function VariablesView({ onSelectNodeInCanvas }: VariablesViewProps) {
 
               {/* Status footer */}
               <div style={{ marginTop: '12px', paddingTop: '8px', borderTop: '1px solid var(--color-border-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '10px' }}>
-                <span style={{ color: 'var(--color-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>
-                  {item.category === 'agent' ? '🤖 Inteligência' : item.category === 'lead' ? '👤 Cadastro Lead' : item.category === 'context' ? '🧠 Memória/RAG' : '⚙️ Controle'}
+                <span style={{ color: 'var(--color-text-secondary)', textTransform: 'uppercase', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  {item.category === 'agent' ? (
+                    <><Bot size={11} /> Inteligência</>
+                  ) : item.category === 'lead' ? (
+                    <><User size={11} /> Cadastro Lead</>
+                  ) : item.category === 'context' ? (
+                    <><Cpu size={11} /> Memória / RAG</>
+                  ) : (
+                    <><Sliders size={11} /> Controle</>
+                  )}
                 </span>
                 {isProduced && isConsumed && (
                   <span style={{ color: '#10b981', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>

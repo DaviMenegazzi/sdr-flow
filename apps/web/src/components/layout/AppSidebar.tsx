@@ -53,23 +53,21 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
     <aside className="w-56 bg-surface border-r border-border flex flex-col h-full flex-shrink-0 select-none z-20">
       {/* Brand Header */}
       <div className="p-4 pb-3 border-b border-border/60">
-        <Link to="/flows/new" className="flex items-center gap-2.5 group">
-          <div className="w-8 h-8 rounded-lg bg-brand flex items-center justify-center text-white shadow-sm transition-transform group-hover:scale-105">
-            <Workflow size={18} />
-          </div>
-          <div className="flex flex-col">
-            <div className="flex items-center gap-1.5">
-              <span className="font-bold text-sm tracking-tight text-content-primary">
-                SDR Flow
-              </span>
-              <span className="text-[10px] px-1.5 py-0.2 bg-brand/10 text-brand rounded font-mono font-bold">
-                v11
-              </span>
+        <Link to="/flows/new" className="flex flex-col gap-1 group">
+          <div className="flex items-center gap-2">
+            <div className="flex items-baseline font-black text-xl tracking-tight select-none">
+              <span className="text-content-primary font-black">pro</span>
+              <span className="text-content-muted font-mono font-normal">(</span>
+              <span className="text-[#2ee86b] font-black drop-shadow-[0_0_12px_rgba(46,232,107,0.4)]">digi</span>
+              <span className="text-content-muted font-mono font-normal">)</span>
             </div>
-            <span className="text-[10px] text-content-muted truncate max-w-[120px]">
-              {currentOrg?.name || 'Organização'}
+            <span className="text-[9px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#2ee86b]/10 text-[#2ee86b] border border-[#2ee86b]/30 shadow-[0_0_8px_rgba(46,232,107,0.15)]">
+              SDR Flow
             </span>
           </div>
+          <span className="text-[10px] text-content-muted truncate max-w-[170px] pl-0.5">
+            {currentOrg?.name || 'Workspace'}
+          </span>
         </Link>
       </div>
 

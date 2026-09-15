@@ -1,5 +1,22 @@
 import { useState } from 'react';
-import { Bot, Sparkles, BookOpen, Search, ExternalLink, Check, Copy, AlertCircle, Cpu, Sliders } from 'lucide-react';
+import {
+  Bot,
+  Sparkles,
+  BookOpen,
+  Search,
+  ExternalLink,
+  Check,
+  Copy,
+  AlertCircle,
+  Cpu,
+  Sliders,
+  CreditCard,
+  Stethoscope,
+  HelpCircle,
+  ShieldAlert,
+  FileText,
+  type LucideIcon,
+} from 'lucide-react';
 import { catalog, categoryColors } from '@sdr/flow';
 import type { FlowNode } from '@sdr/shared';
 import { useBuilder } from './store';
@@ -8,13 +25,13 @@ interface PromptsViewProps {
   onSelectNodeInCanvas: (nodeId: string) => void;
 }
 
-const KNOWLEDGE_COLLECTIONS: Record<string, { label: string; icon: string }> = {
-  default: { label: 'Todas as coleções', icon: '📚' },
-  pricing: { label: 'Preços & Planos', icon: '💳' },
-  catalog: { label: 'Catálogo & Serviços', icon: '🩺' },
-  faq: { label: 'Dúvidas & FAQ', icon: '❓' },
-  objections: { label: 'Objeções Comerciais', icon: '🛡️' },
-  documents: { label: 'Políticas & Diretrizes', icon: '📋' },
+const KNOWLEDGE_COLLECTIONS: Record<string, { label: string; icon: LucideIcon }> = {
+  default: { label: 'Todas as coleções', icon: BookOpen },
+  pricing: { label: 'Preços & Planos', icon: CreditCard },
+  catalog: { label: 'Catálogo & Serviços', icon: Stethoscope },
+  faq: { label: 'Dúvidas & FAQ', icon: HelpCircle },
+  objections: { label: 'Objeções Comerciais', icon: ShieldAlert },
+  documents: { label: 'Políticas & Diretrizes', icon: FileText },
 };
 
 export function PromptsView({ onSelectNodeInCanvas }: PromptsViewProps) {
@@ -60,8 +77,8 @@ export function PromptsView({ onSelectNodeInCanvas }: PromptsViewProps) {
       <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#464feb22', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Sparkles size={20} color="#464feb" />
+            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'rgba(46, 232, 107, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Sparkles size={20} color="#2ee86b" />
             </div>
             <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0 }}>Central de Prompts & Conhecimento</h1>
           </div>
@@ -253,7 +270,7 @@ export function PromptsView({ onSelectNodeInCanvas }: PromptsViewProps) {
                                 padding: '10px 12px',
                                 borderRadius: '8px',
                                 border: isSelected ? '2px solid var(--color-bg-accent)' : '1px solid var(--color-border)',
-                                background: isSelected ? '#464feb10' : 'var(--color-bg-secondary)',
+                                background: isSelected ? 'rgba(46, 232, 107, 0.12)' : 'var(--color-bg-secondary)',
                                 cursor: 'pointer',
                                 display: 'flex',
                                 alignItems: 'center',
@@ -261,7 +278,7 @@ export function PromptsView({ onSelectNodeInCanvas }: PromptsViewProps) {
                                 transition: 'all 0.15s',
                               }}
                             >
-                              <span style={{ fontSize: '16px' }}>{item.icon}</span>
+                              <item.icon size={16} style={{ color: isSelected ? 'var(--color-bg-accent)' : 'inherit' }} />
                               <span style={{ fontSize: '12px', fontWeight: isSelected ? 600 : 400, color: isSelected ? 'var(--color-bg-accent)' : 'var(--color-text-primary)' }}>
                                 {item.label}
                               </span>

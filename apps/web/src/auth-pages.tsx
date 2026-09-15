@@ -1,11 +1,17 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Navigate, Link, useLocation, useNavigate } from 'react-router-dom';
+import { Info } from 'lucide-react';
 import { supabase, useSession } from './session';
 import { Button, Input } from './components/ui';
 
 export function AuthGate({ children, admin = false }: { children: ReactNode; admin?: boolean }) {
   const { session, loading, profile } = useSession();
   const location = useLocation();
+
+  if (!supabase) {
+    return <>{children}</>;
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen w-full flex items-center justify-center bg-canvas text-content-muted text-sm">
@@ -14,7 +20,8 @@ export function AuthGate({ children, admin = false }: { children: ReactNode; adm
     );
   }
   if (!session) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
-  if (!profile || profile.status !== 'active' || (admin && profile.role !== 'admin')) return <Navigate to="/404" replace />;
+  if (!profile || profile.status !== 'active') return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (admin && profile.role !== 'admin') return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
 
@@ -23,10 +30,18 @@ function AuthCard({ title, children }: { title: string; children: ReactNode }) {
     <main className="min-h-screen w-full flex items-center justify-center bg-canvas p-4">
       <div className="w-full max-w-md bg-surface border border-border rounded-2xl p-8 shadow-xl flex flex-col gap-6">
         <div className="flex flex-col items-center text-center gap-2">
-          <div className="w-10 h-10 rounded-xl bg-brand/10 border border-brand/20 flex items-center justify-center text-brand font-bold text-base shadow-xs">
-            SDR
+          <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-baseline font-black text-2xl tracking-tight select-none">
+              <span className="text-content-primary font-black">pro</span>
+              <span className="text-content-muted font-mono font-normal">(</span>
+              <span className="text-[#2ee86b] font-black drop-shadow-[0_0_12px_rgba(46,232,107,0.4)]">digi</span>
+              <span className="text-content-muted font-mono font-normal">)</span>
+            </div>
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#2ee86b]/10 text-[#2ee86b] border border-[#2ee86b]/30">
+              SDR Flow
+            </span>
           </div>
-          <h1 className="text-xl font-bold text-content tracking-tight m-0">{title}</h1>
+          <h1 className="text-lg font-semibold text-content-secondary tracking-tight m-0">{title}</h1>
         </div>
         {children}
       </div>
@@ -35,7 +50,7 @@ function AuthCard({ title, children }: { title: string; children: ReactNode }) {
 }
 
 export function LoginPage() {
-  const { session } = useSession();
+  const { session, devLogin } = useSession();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState('');
@@ -48,7 +63,10 @@ export function LoginPage() {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!supabase) {
-      setError('Serviço de autenticação não configurado no cliente.');
+      devLogin?.(email || 'admin@sdrflow.local');
+      const from = (location.state as { from?: string } | null)?.from;
+      const dest = from && from.startsWith('/') && !from.startsWith('//') && from !== '/' && from !== '/login' && from !== '/404' ? from : '/dashboard';
+      navigate(dest, { replace: true });
       return;
     }
     setBusy(true);
@@ -67,11 +85,17 @@ export function LoginPage() {
   return (
     <AuthCard title="Entrar no SDR Flow">
       <form onSubmit={submit} className="flex flex-col gap-4">
+        {!supabase && (
+          <div className="p-3 bg-brand/10 border border-brand/20 text-brand text-xs rounded-lg flex items-center gap-2">
+            <Info className="w-4 h-4 text-brand shrink-0" />
+            <span>Modo Local (Sem Supabase conectado). Digite qualquer e-mail e senha ou clique em <strong>Entrar</strong> para navegar no painel.</span>
+          </div>
+        )}
         <Input
           label="E-mail"
           type="email"
           autoComplete="email"
-          required
+          required={Boolean(supabase)}
           value={email}
           onChange={e => setEmail(e.target.value)}
           placeholder="seu@email.com"
@@ -80,7 +104,7 @@ export function LoginPage() {
           label="Senha"
           type="password"
           autoComplete="current-password"
-          required
+          required={Boolean(supabase)}
           value={password}
           onChange={e => setPassword(e.target.value)}
           placeholder="••••••••"
@@ -91,7 +115,7 @@ export function LoginPage() {
           </div>
         )}
         <Button type="submit" variant="primary" loading={busy} className="w-full mt-1">
-          {busy ? 'Entrando…' : 'Entrar'}
+          {busy ? 'Entrando…' : !supabase ? 'Entrar (Modo Local)' : 'Entrar'}
         </Button>
       </form>
       <div className="flex items-center justify-center gap-3 text-xs text-content-muted pt-2 border-t border-border/60">
@@ -108,6 +132,8 @@ export function LoginPage() {
 }
 
 export function RegisterPage() {
+  const { devLogin } = useSession();
+  const navigate = useNavigate();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -121,8 +147,13 @@ export function RegisterPage() {
       setMessage('As senhas não coincidem.');
       return;
     }
+    if (!supabase) {
+      devLogin?.(email || 'admin@sdrflow.local');
+      navigate('/dashboard', { replace: true });
+      return;
+    }
     setBusy(true);
-    const { error } = await supabase!.auth.signUp({
+    const { error } = await supabase.auth.signUp({
       email,
       password,
       options: { data: { display_name: name }, emailRedirectTo: `${location.origin}/auth/callback` },

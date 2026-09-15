@@ -57,6 +57,17 @@ function Editor() {
   const [selectedEdges, setSelectedEdges] = useState<string[]>([]);
   const { activeInstance, activeInstanceName, currentInstance, setActiveInstance } = useInstance();
   const targetInstance = activeInstanceName || currentInstance?.name || '';
+  const [appColorMode, setAppColorMode] = useState<'light' | 'dark'>(() =>
+    document.documentElement.classList.contains('light') ? 'light' : 'dark'
+  );
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setAppColorMode(document.documentElement.classList.contains('light') ? 'light' : 'dark');
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
   const [activeBindings, setActiveBindings] = useState<Record<string, { flowId: string; flow?: any }>>({});
   const [liveError, setLiveError] = useState<{ nodeId: string; error: string; timestamp: string } | null>(null);
 
@@ -301,10 +312,10 @@ function Editor() {
         const pubData = (await pubRes.json()) as { version: number; targetInstance?: string };
         const isTest = Boolean(graph.testMode?.enabled);
         setNotice(
-          `🎉 Versão ${pubData.version} publicada e ATIVADA no WhatsApp "${targetInstance}"! (${isTest ? '⚠️ MODO TESTE ATIVO para ' + (graph.testMode?.phone || 'número autorizado') : '🟢 MODO PRODUÇÃO'})`
+          `Versão ${pubData.version} publicada e ativada no WhatsApp "${targetInstance}" (${isTest ? 'Modo Teste restrito a ' + (graph.testMode?.phone || 'número autorizado') : 'Modo Produção ativo'}).`
         );
       } else {
-        setNotice('✅ Fluxo e configurações salvos com sucesso!');
+        setNotice('Fluxo e configurações salvos com sucesso.');
       }
 
       await refreshData();
@@ -357,17 +368,18 @@ function Editor() {
 
   return (
     <div className="builder-page flex flex-col h-full bg-canvas text-content-primary">
-      <header className="bg-surface border-b border-border px-6 py-3.5 flex-shrink-0">
+      <header className="builder-workspace-header bg-surface border-b border-border px-6 py-3 flex-shrink-0">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <Link
               to="/flows"
-              className="p-1.5 rounded-lg text-content-muted hover:text-content-primary hover:bg-surface-elevated transition-colors"
+              className="builder-back p-1.5 rounded-lg text-content-muted hover:text-content-primary hover:bg-surface-elevated transition-colors"
               title="Voltar aos Fluxos"
             >
               <ArrowLeft size={16} />
             </Link>
             <div className="flex flex-col min-w-0">
+              <span className="builder-kicker"><Network size={12} /> EDITOR DE AUTOMAÇÃO</span>
               <div className="flex items-center gap-2">
                 <input
                   aria-label="Nome do fluxo"
@@ -391,7 +403,7 @@ function Editor() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="builder-header-actions flex items-center gap-2 flex-shrink-0">
             <Button
               size="sm"
               variant="outline"
@@ -436,11 +448,11 @@ function Editor() {
       </header>
 
       {/* Abas Superiores do Builder (Visual, Prompts, Variáveis) */}
-      <div className="bg-surface border-b border-border px-6 flex items-center gap-2 flex-shrink-0">
+      <div className="builder-tabs bg-surface border-b border-border px-6 flex items-center gap-1 flex-shrink-0">
         <button
           type="button"
           onClick={() => setActiveTab('canvas')}
-          className={`flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-all duration-150 -mb-[1px] ${
+          className={`builder-tab flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-all duration-150 -mb-[1px] ${
             activeTab === 'canvas'
               ? 'border-brand text-brand font-semibold'
               : 'border-transparent text-content-secondary hover:text-content-primary hover:border-border'
@@ -453,7 +465,7 @@ function Editor() {
         <button
           type="button"
           onClick={() => setActiveTab('prompts')}
-          className={`flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-all duration-150 -mb-[1px] ${
+          className={`builder-tab flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-all duration-150 -mb-[1px] ${
             activeTab === 'prompts'
               ? 'border-brand text-brand font-semibold'
               : 'border-transparent text-content-secondary hover:text-content-primary hover:border-border'
@@ -469,7 +481,7 @@ function Editor() {
         <button
           type="button"
           onClick={() => setActiveTab('variables')}
-          className={`flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-all duration-150 -mb-[1px] ${
+          className={`builder-tab flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-all duration-150 -mb-[1px] ${
             activeTab === 'variables'
               ? 'border-brand text-brand font-semibold'
               : 'border-transparent text-content-secondary hover:text-content-primary hover:border-border'
@@ -478,6 +490,27 @@ function Editor() {
           <Network size={14} />
           <span>Mapa de Variáveis</span>
         </button>
+
+        {activeTab === 'canvas' && !graph.testMode?.enabled && (
+          <div className="builder-inline-mode ml-auto" role="status" aria-label="Modo de operação">
+            <span className="builder-inline-mode-badge">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              Produção Livre
+            </span>
+            <span className="builder-inline-mode-copy hidden lg:inline">
+              Responde a qualquer contato no WhatsApp
+            </span>
+            <button
+              type="button"
+              className="builder-test-trigger"
+              onClick={() => state.replace({ ...graph, testMode: { enabled: true, phone: graph.testMode?.phone || '' } })}
+              title="Ativar trava de segurança para restringir respostas a um único número"
+            >
+              <ShieldAlert size={12} />
+              <span>Trava de teste</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {activeTab === 'prompts' && (
@@ -495,53 +528,77 @@ function Editor() {
       {activeTab === 'canvas' && (
         <>
           {/* Barra de Configuração do Modo Teste */}
-          <section
-            aria-label="Configuração do Modo Teste"
-            className={`flex items-center flex-wrap gap-3 px-6 py-2.5 border-b text-xs transition-all flex-shrink-0 ${
-              graph.testMode?.enabled
-                ? 'bg-warning-bg border-warning-border text-warning'
-                : 'bg-surface-elevated/40 border-border text-content-secondary'
-            }`}
-          >
-            <label className="flex items-center gap-2 m-0 font-semibold cursor-pointer">
-              <input
-                type="checkbox"
-                role="switch"
-                checked={graph.testMode?.enabled ?? false}
-                onChange={event => state.replace({ ...graph, testMode: { enabled: event.target.checked, phone: graph.testMode?.phone || '' } })}
-                className="w-4 h-4 accent-brand cursor-pointer"
-              />
-              <span>{graph.testMode?.enabled ? '⚠️ Modo Teste Ativado' : 'Modo Teste'}</span>
-            </label>
-            {graph.testMode?.enabled && (
-              <>
-                <label htmlFor="flow-test-phone" className="m-0 font-medium">Número autorizado:</label>
-                <input
-                  id="flow-test-phone"
-                  type="tel"
-                  autoComplete="off"
-                  maxLength={50}
-                  placeholder="+55 55 99999-9999"
-                  value={graph.testMode.phone}
-                  aria-invalid={!flowTestModeSchema.safeParse(graph.testMode).success}
-                  aria-describedby="flow-test-help"
-                  onChange={event => state.replace({ ...graph, testMode: { enabled: true, phone: event.target.value } })}
-                  className="w-48 py-1 px-2.5 rounded-lg border border-warning-border bg-surface text-content-primary text-xs outline-none focus:ring-1 focus:ring-warning"
-                />
-                <span id="flow-test-help" className="text-xs font-semibold flex items-center gap-1.5 text-warning">
-                  <ShieldAlert size={14} /> Responde EXCLUSIVAMENTE a este número. Outros contatos serão ignorados.
+          {graph.testMode?.enabled ? (
+            <div
+              role="region"
+              aria-label="Configuração do Modo Teste"
+                className="builder-mode-strip builder-mode-strip-test bg-amber-950/25 border-b border-amber-500/30 px-6 py-2 flex items-center justify-between gap-3 text-xs flex-shrink-0"
+            >
+              <div className="flex items-center flex-wrap gap-2.5">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-semibold text-[11px]">
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                  Trava de Teste Ativa
                 </span>
-              </>
-            )}
-            {!graph.testMode?.enabled && (
-              <span className="text-xs text-content-muted">
-                Restrinja este fluxo a um único número do WhatsApp para testar com segurança antes de abrir para o público.
-              </span>
-            )}
-          </section>
+                <span className="h-4 w-px bg-amber-500/30" />
+                <div className="flex items-center gap-2">
+                  <label htmlFor="flow-test-phone" className="text-[11px] font-semibold text-amber-200">
+                    Número autorizado:
+                  </label>
+                  <input
+                    id="flow-test-phone"
+                    type="tel"
+                    autoComplete="off"
+                    maxLength={50}
+                    placeholder="+55 55 99999-9999"
+                    value={graph.testMode.phone}
+                    aria-invalid={!flowTestModeSchema.safeParse(graph.testMode).success}
+                    onChange={event => state.replace({ ...graph, testMode: { enabled: true, phone: event.target.value } })}
+                    className="w-48 py-1 px-2.5 rounded-lg border border-amber-500/40 bg-black/60 text-amber-100 text-xs font-mono outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 placeholder:text-amber-500/40"
+                  />
+                </div>
+                <span className="text-[11px] text-amber-300/80 hidden md:inline">
+                  Responde <strong>exclusivamente</strong> a este contato. Demais são ignorados.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => state.replace({ ...graph, testMode: { enabled: false, phone: graph.testMode?.phone || '' } })}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-amber-300 hover:text-white hover:bg-amber-500/20 border border-amber-500/30 transition-colors"
+                title="Desativar trava de teste e voltar ao modo produção"
+              >
+                <X size={13} />
+                <span>Desativar</span>
+              </button>
+            </div>
+          ) : (
+            <div
+              role="region"
+              aria-label="Configuração do Modo Teste"
+                className="builder-mode-strip builder-mode-strip-normal bg-surface-elevated/30 border-b border-border px-6 py-2 flex items-center justify-between gap-4 text-xs flex-shrink-0"
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-semibold text-[11px]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  Produção Livre
+                </span>
+                <span className="text-[11px] text-content-muted hidden sm:inline">
+                  O fluxo responderá a qualquer contato que enviar mensagem no WhatsApp.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => state.replace({ ...graph, testMode: { enabled: true, phone: graph.testMode?.phone || '' } })}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold text-content-secondary bg-surface-elevated hover:bg-surface border border-border hover:border-brand/40 hover:text-content-primary transition-all cursor-pointer"
+                title="Ativar trava de segurança para restringir respostas a um único número"
+              >
+                <ShieldAlert size={13} className="text-amber-400" />
+                <span>Ativar Trava de Teste</span>
+              </button>
+            </div>
+          )}
 
-          <div className="bg-surface border-b border-border px-6 py-2 flex items-center justify-between gap-2 text-xs flex-shrink-0">
-            <div className="flex items-center gap-1.5">
+          <div className="builder-toolbar bg-surface border-b border-border px-6 py-2 flex items-center justify-between gap-2 text-xs flex-shrink-0">
+            <div className="builder-tool-group flex items-center gap-1.5">
               <Button size="sm" variant="ghost" title="Desfazer (Ctrl+Z)" aria-label="Desfazer" disabled={state.cursor === 0} onClick={state.undo}>
                 <Undo2 size={14} />
               </Button>
@@ -556,9 +613,10 @@ function Editor() {
                 <FileJson size={14} /> JSON
               </Button>
               <span className="h-4 w-px bg-border mx-1" />
-              <label title="Máximo de vezes que cada nó pode ser executado em loops" className="flex items-center gap-1.5 text-content-secondary text-xs font-medium cursor-default">
+              <label title="Máximo de vezes que cada nó pode ser executado em loops" className="builder-loop-control text-content-secondary text-xs font-medium cursor-default">
                 <Repeat size={13} /> Loop:
                 <input
+                  aria-label="Limite de loop"
                   type="number"
                   min={1}
                   max={20}
@@ -568,7 +626,7 @@ function Editor() {
                 />
               </label>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="builder-tool-group flex items-center gap-1.5">
               <Button
                 size="sm"
                 variant="outline"
@@ -613,59 +671,99 @@ function Editor() {
           </div>
 
       <div className="editor-body">
-        <aside className="node-library">
-          <div className="library-heading">
-            <h2>Biblioteca de nós</h2>
-            <span>{Object.keys(catalog).length}</span>
+        <aside className="node-library w-[260px] bg-surface border-r border-border flex-shrink-0 flex flex-col p-4 select-none" aria-label="Biblioteca de nós">
+          <div className="flex items-center justify-between mb-2">
+            <div className="library-heading-copy">
+              <span className="library-kicker">BLOCOS</span>
+              <h2 className="text-xs font-bold uppercase tracking-wider text-content-primary">Biblioteca de nós</h2>
+            </div>
+            <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-surface-elevated text-[#2ee86b]">
+              {Object.keys(catalog).length}
+            </span>
           </div>
-          <p className="muted">Arraste para o canvas ou clique.</p>
-          <div className="search-input">
-            <Search size={15} />
-            <input aria-label="Buscar nós" placeholder="Buscar nós…" value={query} onChange={event => setQuery(event.target.value)} />
+          <p className="text-[11px] text-content-muted mb-3">Arraste para o canvas ou clique para adicionar.</p>
+
+          <div className="relative mb-3">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-content-muted" />
+            <input
+              aria-label="Buscar nós"
+              placeholder="Buscar blocos…"
+              value={query}
+              onChange={event => setQuery(event.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-surface-elevated border border-border text-xs text-content-primary placeholder:text-content-muted focus:border-brand outline-none transition-colors"
+            />
           </div>
-          <div className="library-scroll">
+
+          <div className="library-scroll flex-1 overflow-y-auto space-y-4 pr-1">
             {Object.entries(categories).map(([category, label]) => {
               const entries = Object.values(catalog).filter(
                 node => node.category === category && `${node.label} ${node.type}`.toLowerCase().includes(query.toLowerCase())
               );
               return (
                 entries.length > 0 && (
-                  <section key={category}>
-                    <h3>{label}</h3>
-                    {entries.map(node => (
-                      <button
-                        key={node.type}
-                        className="library-node"
-                        draggable
-                        onDragStart={event => {
-                          event.dataTransfer.setData('application/sdr-node', node.type);
-                          event.dataTransfer.effectAllowed = 'move';
-                        }}
-                        onClick={() => {
-                          const bounds = canvas.current?.getBoundingClientRect();
-                          state.add(
-                            node.type,
-                            screenToFlowPosition({
-                              x: (bounds?.left ?? 300) + (bounds?.width ?? 600) / 2,
-                              y: (bounds?.top ?? 200) + (bounds?.height ?? 400) / 2,
-                            })
-                          );
-                        }}
-                      >
-                        <span className="category-dot" style={{ background: categoryColors[node.category] }} />
-                        {node.label}
-                        <Plus size={13} />
-                      </button>
-                    ))}
+                  <section key={category} className="space-y-1.5">
+                    <h3 className="text-[10px] font-bold tracking-wider uppercase text-content-muted px-1">
+                      {label}
+                    </h3>
+                    <div className="space-y-1">
+                      {entries.map(node => (
+                        <button
+                          key={node.type}
+                          className="w-full flex items-center justify-between p-2 rounded-lg bg-surface-elevated/60 hover:bg-surface-elevated border border-border/40 hover:border-brand/40 text-left text-xs font-medium text-content-primary transition-all cursor-grab active:cursor-grabbing group shadow-sm"
+                          draggable
+                          onDragStart={event => {
+                            event.dataTransfer.setData('application/sdr-node', node.type);
+                            event.dataTransfer.effectAllowed = 'move';
+                          }}
+                          onClick={() => {
+                            const bounds = canvas.current?.getBoundingClientRect();
+                            state.add(
+                              node.type,
+                              screenToFlowPosition({
+                                x: (bounds?.left ?? 300) + (bounds?.width ?? 600) / 2,
+                                y: (bounds?.top ?? 200) + (bounds?.height ?? 400) / 2,
+                              })
+                            );
+                          }}
+                        >
+                          <span className="flex items-center gap-2 truncate">
+                            <span
+                              className="w-2 h-2 rounded-full flex-shrink-0"
+                              style={{ background: categoryColors[node.category] }}
+                            />
+                            <span className="truncate">{node.label}</span>
+                          </span>
+                          <Plus size={13} className="text-content-muted group-hover:text-brand transition-colors flex-shrink-0 ml-1" />
+                        </button>
+                      ))}
+                    </div>
                   </section>
                 )
               );
             })}
           </div>
-          <div className="library-footer">
-            <button onClick={() => newGraph('sdr')}>Usar modelo SDR<ChevronRight size={14} /></button>
-            <button onClick={() => newGraph('blank')}>Novo fluxo<Plus size={14} /></button>
-            <button onClick={restoreLocal}>Recuperar rascunho local</button>
+
+          <div className="library-footer pt-3 mt-2 border-t border-border space-y-1.5 flex-shrink-0">
+            <button
+              onClick={() => newGraph('sdr')}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold text-brand bg-brand/10 hover:bg-brand/15 border border-brand/30 transition-colors cursor-pointer"
+            >
+              <span>Usar Modelo SDR</span>
+              <ChevronRight size={14} />
+            </button>
+            <button
+              onClick={() => newGraph('blank')}
+              className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium text-content-secondary hover:text-content-primary bg-surface-elevated/40 hover:bg-surface-elevated border border-border/40 transition-colors cursor-pointer"
+            >
+              <span>Novo Fluxo</span>
+              <Plus size={13} />
+            </button>
+            <button
+              onClick={restoreLocal}
+              className="w-full text-center px-3 py-1.5 rounded-lg text-[11px] text-content-muted hover:text-content-secondary transition-colors cursor-pointer"
+            >
+              Recuperar rascunho local
+            </button>
           </div>
         </aside>
 
@@ -682,10 +780,18 @@ function Editor() {
             if (type.success) state.add(type.data, screenToFlowPosition({ x: event.clientX, y: event.clientY }));
           }}
         >
+          <div className="canvas-chrome" aria-hidden="true">
+            <div>
+              <span className="canvas-chrome-kicker">WORKSPACE</span>
+              <strong>Fluxo de conversa</strong>
+            </div>
+            <span className="canvas-chrome-count">{graph.nodes.length} nós <i /> {graph.edges.length} conexões</span>
+          </div>
           <ReactFlow<CanvasNode>
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
+            colorMode={appColorMode}
             fitView
             minZoom={0.08}
             maxZoom={2}
@@ -743,15 +849,22 @@ function Editor() {
               }
             }}
           >
-            <Background gap={20} size={1} />
+            <Background gap={24} size={1.2} color="rgba(255, 255, 255, 0.08)" />
             <Controls showInteractive={false} />
             <MiniMap
-              style={{ width: 140, height: 96 }}
+              style={{
+                width: 140,
+                height: 96,
+                backgroundColor: '#141414',
+                border: '1px solid #242424',
+                borderRadius: 8,
+              }}
+              maskColor="rgba(10, 10, 10, 0.75)"
               pannable
               zoomable
               nodeColor={node => {
                 const found = graph.nodes.find(item => item.id === node.id);
-                return found ? categoryColors[catalog[found.type].category] : '#94a3b8';
+                return found ? categoryColors[catalog[found.type].category] : '#2ee86b';
               }}
             />
           </ReactFlow>
@@ -780,41 +893,105 @@ function Editor() {
           )}
         </div>
 
-        <aside className="inspector">
+        <aside className="inspector w-[300px] bg-surface border-l border-border flex-shrink-0 flex flex-col p-5 overflow-y-auto" aria-label="Inspector do fluxo">
           {selected ? (
-            <>
-              <div className="inspector-heading">
-                <span className="eyebrow">CONFIGURAÇÃO DO NÓ</span>
-                <button aria-label="Fechar configuração" onClick={() => state.select(null)}><X size={16} /></button>
+            <div className="space-y-4">
+              <div className="inspector-heading flex items-center justify-between pb-3 border-b border-border">
+                <span className="inspector-kicker text-[10px] font-bold uppercase tracking-wider text-brand">
+                  Configuração do Nó
+                </span>
+                <button
+                  aria-label="Fechar configuração"
+                  onClick={() => state.select(null)}
+                  className="p-1 rounded text-content-muted hover:text-content-primary hover:bg-surface-elevated transition-colors cursor-pointer"
+                >
+                  <X size={15} />
+                </button>
               </div>
-              <h2>{catalog[selected.type].label}</h2>
-              <code className="node-type">{selected.type}</code>
-              <SchemaForm key={selected.id} node={selected} />
-              <button className="danger" onClick={() => state.remove([selected.id])}><Trash2 size={15} />Excluir nó</button>
-            </>
+
+              <div>
+                <h2 className="text-base font-bold text-content-primary tracking-tight">
+                  {catalog[selected.type].label}
+                </h2>
+                <code className="text-[10px] font-mono text-content-muted bg-surface-elevated px-2 py-0.5 rounded mt-1 inline-block">
+                  {selected.type}
+                </code>
+              </div>
+
+              <div className="pt-1">
+                <SchemaForm key={selected.id} node={selected} />
+              </div>
+
+              <div className="pt-4 border-t border-border">
+                <button
+                  onClick={() => state.remove([selected.id])}
+                  className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold text-red-400 bg-red-500/10 hover:bg-red-500/15 border border-red-500/20 transition-colors cursor-pointer"
+                >
+                  <Trash2 size={14} />
+                  <span>Excluir Nó</span>
+                </button>
+              </div>
+            </div>
           ) : (
-            <>
-              <span className="eyebrow">SEU FLUXO</span>
-              <h2>Uma conversa, passo a passo</h2>
-              <p className="muted">Selecione um nó para editar suas instruções, regras e saídas.</p>
-              <div className="flow-stats">
-                <div><strong>{graph.nodes.length}</strong><span>nós</span></div>
-                <div><strong>{graph.edges.length}</strong><span>conexões</span></div>
-              </div>
-              <div className="info-card">
-                <strong>Instância Vinculada:</strong>
-                <p style={{ marginTop: 4, fontWeight: 600, color: targetInstance ? '#16a34a' : 'inherit' }}>
-                  {targetInstance ? `WhatsApp: ${targetInstance}` : 'Nenhuma (Selecione na barra lateral)'}
+            <div className="space-y-5">
+              <div className="inspector-heading pb-3 border-b border-border">
+                <div>
+                <span className="inspector-kicker text-[10px] font-bold uppercase tracking-wider text-content-muted">
+                  Visão Geral do Fluxo
+                </span>
+                <h2 className="text-sm font-bold text-content-primary mt-1">
+                  Editor de Conversas
+                </h2>
+                <p className="text-[11px] text-content-muted mt-0.5">
+                  Selecione um bloco no canvas para configurar suas instruções e regras.
                 </p>
-                <button onClick={() => newGraph('sdr')}>Abrir modelo SDR<ChevronRight size={14} /></button>
+                </div>
               </div>
-            </>
+
+              <div className="flow-stats grid grid-cols-2 gap-2">
+                <div className="flow-stat-card p-3 rounded-xl bg-surface-elevated/60 border border-border/50 text-center">
+                  <strong className="block text-xl font-bold text-content-primary">{graph.nodes.length}</strong>
+                  <span className="text-[10px] text-content-muted uppercase tracking-wider">Nós</span>
+                </div>
+                <div className="flow-stat-card p-3 rounded-xl bg-surface-elevated/60 border border-border/50 text-center">
+                  <strong className="block text-xl font-bold text-brand">{graph.edges.length}</strong>
+                  <span className="text-[10px] text-content-muted uppercase tracking-wider">Conexões</span>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-surface-elevated/40 border border-border/40 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-content-secondary">Instância WhatsApp:</span>
+                  <span className={`font-mono text-[11px] font-bold ${targetInstance ? 'text-[#2ee86b]' : 'text-amber-400'}`}>
+                    {targetInstance || 'Não vinculada'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-content-muted leading-relaxed">
+                  {targetInstance
+                    ? `Este fluxo responderá mensagens recebidas pela instância "${targetInstance}".`
+                    : 'Selecione uma instância na barra superior para vincular e publicar.'}
+                </p>
+                <button
+                  onClick={() => newGraph('sdr')}
+                  className="w-full mt-2 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold text-brand bg-brand/10 hover:bg-brand/20 border border-brand/20 transition-colors cursor-pointer"
+                >
+                  <span>Carregar Modelo SDR</span>
+                  <ChevronRight size={13} />
+                </button>
+              </div>
+            </div>
           )}
 
           {savedFlows.length > 0 && (
-            <label className="saved-flow-select" style={{ marginTop: 20 }}>
-              Abrir Fluxo Salvo
-              <select value={flowId ?? ''} onChange={event => handleSelectSavedFlow(event.target.value)}>
+            <div className="mt-5 pt-4 border-t border-border">
+              <label className="text-[11px] font-semibold text-content-muted block mb-1.5">
+                Abrir Outro Fluxo Salvo
+              </label>
+              <select
+                value={flowId ?? ''}
+                onChange={event => handleSelectSavedFlow(event.target.value)}
+                className="w-full p-2 rounded-lg bg-surface-elevated border border-border text-xs text-content-primary outline-none focus:border-brand"
+              >
                 <option value="">-- Selecionar fluxo salvo --</option>
                 {savedFlows.map(flow => (
                   <option key={flow.id} value={flow.id}>
@@ -822,18 +999,27 @@ function Editor() {
                   </option>
                 ))}
               </select>
-            </label>
+            </div>
           )}
 
           {showValidation && (
-            <div className="validation-panel">
-              <h3>{validation.valid ? 'Tudo certo com o grafo' : 'Revisar antes de publicar'}</h3>
+            <div className="mt-5 p-3.5 rounded-xl bg-surface-elevated/60 border border-border space-y-2">
+              <h3 className="text-xs font-bold text-content-primary">
+                {validation.valid ? 'Tudo certo com o grafo' : 'Pontos de Atenção'}
+              </h3>
               {validation.valid ? (
-                <p>Gatilho único, saídas conectadas e caminhos com término.</p>
+                <p className="text-[11px] text-brand">Gatilho conectado e todos os caminhos possuem término válido.</p>
               ) : (
-                <ul>
+                <ul className="space-y-1.5 text-[11px]">
                   {validation.issues.map((issue, index) => (
-                    <li key={index}><button onClick={() => state.select(issue.nodeId ?? null)}>{issue.message}</button></li>
+                    <li key={index}>
+                      <button
+                        onClick={() => state.select(issue.nodeId ?? null)}
+                        className="text-left text-red-400 hover:underline hover:text-red-300"
+                      >
+                        • {issue.message}
+                      </button>
+                    </li>
                   ))}
                 </ul>
               )}

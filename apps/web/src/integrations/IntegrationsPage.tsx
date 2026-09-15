@@ -197,13 +197,11 @@ export function IntegrationsPage() {
 
   return (
     <div className="h-full overflow-y-auto p-6 md:p-8 bg-canvas text-content">
-      <div className="max-w-5xl mx-auto space-y-6">
+      <div className="max-w-6xl mx-auto space-y-6">
         {/* Header com Seletor de Instância */}
         <div>
-          <div className="flex items-center gap-1.5 text-xs text-content-muted mb-2">
-            <span>Painel</span>
-            <ChevronRight className="w-3 h-3" />
-            <span className="text-content font-medium">Conexões Externas & Integrações</span>
+          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand mb-1">
+            <Link2 className="w-3.5 h-3.5" /> CONEXÕES EXTERNAS & INTEGRAÇÕES
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">

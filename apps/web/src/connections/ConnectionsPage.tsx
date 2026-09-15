@@ -355,25 +355,26 @@ export function ConnectionsPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto p-8 bg-canvas">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-        <div>
-          <span className="text-[10px] font-bold uppercase tracking-wider text-content-muted">
-            TRANSPORTE & MENSAGERIA
-          </span>
-          <h1 className="text-xl font-bold text-content tracking-tight mt-1 mb-1">
-            Conexões de WhatsApp
-          </h1>
-          <p className="text-xs text-content-muted m-0">
-            Conecte números via Evolution API (QR Code ao vivo) ou Meta Cloud API oficial com isolamento por organização.
-          </p>
+    <div className="h-full overflow-y-auto p-6 md:p-8 bg-canvas text-content">
+      <div className="max-w-6xl mx-auto space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand mb-1">
+              <Radio className="w-3.5 h-3.5" /> TRANSPORTE & MENSAGERIA
+            </div>
+            <h1 className="text-2xl font-bold text-content tracking-tight">
+              Conexões de WhatsApp
+            </h1>
+            <p className="text-sm text-content-secondary max-w-2xl mt-1">
+              Conecte números via Evolution API (QR Code ao vivo) ou Meta Cloud API oficial com isolamento por organização.
+            </p>
+          </div>
+          {!wizardOpen && (
+            <Button variant="primary" size="sm" onClick={startWizard}>
+              <Plus className="w-4 h-4" /> Nova Conexão
+            </Button>
+          )}
         </div>
-        {!wizardOpen && (
-          <Button variant="primary" size="sm" onClick={startWizard}>
-            <Plus className="w-4 h-4" /> Nova Conexão
-          </Button>
-        )}
-      </div>
 
       {message && (
         <div className="p-3.5 mb-6 rounded-lg bg-brand/10 border border-brand/20 text-brand text-xs flex items-center gap-2">
@@ -805,9 +806,17 @@ export function ConnectionsPage() {
                       <Badge
                         variant={isTest ? 'warning' : 'success'}
                         size="sm"
-                        className="font-bold"
+                        className="font-bold flex items-center gap-1.5"
                       >
-                        {isTest ? '⚠️ MODO TESTE' : '🟢 PRODUÇÃO'}
+                        {isTest ? (
+                          <>
+                            <ShieldAlert className="w-3 h-3" /> MODO TESTE
+                          </>
+                        ) : (
+                          <>
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> PRODUÇÃO
+                          </>
+                        )}
                       </Badge>
                     </div>
 
@@ -904,5 +913,6 @@ export function ConnectionsPage() {
         </div>
       )}
     </div>
+  </div>
   );
 }

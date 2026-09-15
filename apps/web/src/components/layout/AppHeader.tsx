@@ -1,6 +1,6 @@
 import React from 'react';
 import { useLocation, Link } from 'react-router-dom';
-import { ChevronRight, Radio } from 'lucide-react';
+import { ChevronDown, ChevronRight, Radio, Sparkles } from 'lucide-react';
 import { useInstance } from '../../context/InstanceContext';
 
 export function AppHeader() {
@@ -26,45 +26,54 @@ export function AppHeader() {
   const isConnected = current?.status === 'connected';
 
   return (
-    <header className="h-12 bg-surface border-b border-border flex items-center justify-between px-5 flex-shrink-0 z-10 select-none">
-      <div className="flex items-center gap-2 text-xs">
-        <span className="font-semibold text-content-secondary tracking-tight">SDR Flow</span>
+    <header className="app-header h-14 bg-surface border-b border-border flex items-center justify-between px-5 flex-shrink-0 z-10 select-none">
+      <div className="app-header-breadcrumb flex items-center gap-2 text-xs min-w-0">
+        <Link to="/flows/new" className="app-header-home flex items-center gap-2 font-semibold text-content-primary tracking-tight">
+          <span className="app-header-mark" aria-hidden="true"><Sparkles size={13} /></span>
+          <span>SDR Flow</span>
+        </Link>
         <ChevronRight size={13} className="text-content-muted" />
-        <span className="text-content-muted font-medium">{pageInfo.category}</span>
+        <span className="app-header-category text-content-muted font-medium">{pageInfo.category}</span>
         <ChevronRight size={13} className="text-content-muted" />
-        <span className="font-semibold text-content-primary">{pageInfo.title}</span>
+        <span className="app-header-title font-semibold text-content-primary truncate">{pageInfo.title}</span>
       </div>
 
-      <div className="flex items-center gap-3">
-        {/* Instance Selector Pill */}
-        <div className="flex items-center gap-2 bg-surface-elevated border border-border px-3 py-1 rounded-lg text-xs transition-colors hover:border-border-strong">
+      <div className="app-header-context flex items-center gap-2">
+        <div className="app-header-connection flex items-center gap-2 bg-surface-elevated border border-border px-2.5 py-1 rounded-xl text-xs transition-colors hover:border-border-strong">
           <span
-            className={`w-2 h-2 rounded-full flex-shrink-0 transition-all ${
+            className={`app-header-status w-2 h-2 rounded-full flex-shrink-0 transition-all ${
               isConnected
                 ? 'bg-success shadow-[0_0_8px_rgba(16,185,129,0.7)] animate-pulse'
                 : 'bg-content-muted'
             }`}
             title={isConnected ? 'WhatsApp Conectado' : 'Instância Desconectada'}
           />
-          <span className="text-[11px] font-medium text-content-secondary">Instância:</span>
-          <select
-            value={activeInstance}
-            onChange={(e) => setActiveInstance(e.target.value)}
-            className="bg-transparent font-semibold text-xs text-content-primary cursor-pointer outline-none border-none p-0 pr-1"
-          >
-            {instances.length === 0 ? (
-              <option value="">Nenhuma instância</option>
-            ) : (
-              instances.map((inst) => (
-                <option key={inst.id} value={inst.id}>
-                  {inst.name || inst.id} {inst.phone ? `(${inst.phone})` : ''} {inst.status === 'connected' ? '●' : '○'}
-                </option>
-              ))
-            )}
-          </select>
+          <div className="app-header-connection-copy">
+            <span>Canal ativo</span>
+            <strong>{current?.name || 'Nenhuma instância'}</strong>
+          </div>
+          <div className="app-header-select-wrap">
+            <select
+              aria-label="Instância ativa"
+              value={activeInstance}
+              onChange={(e) => setActiveInstance(e.target.value)}
+              className="bg-transparent font-semibold text-xs text-content-primary cursor-pointer outline-none border-none p-0 pr-4"
+            >
+              {instances.length === 0 ? (
+                <option value="">Selecionar</option>
+              ) : (
+                instances.map((inst) => (
+                  <option key={inst.id} value={inst.id}>
+                    {inst.name || inst.id} {inst.phone ? `(${inst.phone})` : ''} {inst.status === 'connected' ? '●' : '○'}
+                  </option>
+                ))
+              )}
+            </select>
+            <ChevronDown size={13} aria-hidden="true" />
+          </div>
           <Link
             to="/connections"
-            className="text-content-muted hover:text-brand transition-colors ml-1 p-0.5"
+            className="app-header-connection-action text-content-muted hover:text-brand transition-colors ml-1 p-1"
             title="Gerenciar Conexões WhatsApp"
           >
             <Radio size={12} />

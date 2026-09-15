@@ -44,51 +44,58 @@ export const FlowNode = memo(({ data, selected }: NodeProps<CanvasNode>) => {
       ? Calendar
       : Workflow;
 
-  const categoryColor = categoryColors[definition.category] || 'var(--accent-primary)';
+  const categoryColor = categoryColors[definition.category] || '#2ee86b';
+  const isTrigger = node.type.startsWith('trigger.');
+  const isEnd = node.type === 'output.end';
 
   return (
     <div
-      className={`relative w-[260px] bg-surface rounded-xl border transition-all duration-150 select-none shadow-subtle ${
+      className={`flow-node-card relative w-[244px] bg-surface rounded-2xl border transition-all duration-150 select-none shadow-elevated ${
         selected
-          ? 'border-brand ring-2 ring-brand/30 shadow-elevated'
+          ? 'border-[#2ee86b] ring-1 ring-[#2ee86b]/40 shadow-[0_0_24px_-4px_rgba(46,232,107,0.35)]'
           : invalid
-          ? 'border-danger ring-2 ring-danger/20'
+          ? 'border-danger ring-1 ring-danger/30'
           : liveError
-          ? 'border-danger ring-2 ring-danger/30 animate-pulse'
-          : 'border-border hover:border-border-strong hover:shadow-subtle'
+          ? 'border-danger ring-2 ring-danger/40 animate-pulse'
+          : 'border-border hover:border-border-strong hover:shadow-[0_8px_24px_rgba(0,0,0,0.28)]'
       }`}
       style={{ '--node-color': categoryColor } as React.CSSProperties}
-      title={liveError ? `Falha na última execução real: ${liveError}` : undefined}
+      title={liveError ? `Falha na execução: ${liveError}` : undefined}
     >
-      {/* Top Category Accent Line */}
+      {/* Top Accent Line */}
       <div
         className="h-1 w-full rounded-t-xl"
-        style={{ backgroundColor: categoryColor }}
+        style={{
+          background: selected
+            ? 'linear-gradient(90deg, #2ee86b, #10b981)'
+            : categoryColor,
+        }}
       />
 
       {/* Runtime Error Badge */}
       {liveError && (
-        <div className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-danger text-white flex items-center justify-center shadow-sm z-10 animate-bounce">
+        <div className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-danger text-white flex items-center justify-center shadow-md z-10 animate-bounce">
           <AlertTriangle size={11} />
         </div>
       )}
 
       {/* Target Handle (Left Input) */}
-      {!node.type.startsWith('trigger.') && (
+      {!isTrigger && (
         <Handle
           type="target"
           position={Position.Left}
           id="input"
-          className="!w-3 !h-3 !-left-1.5 !bg-brand !border-2 !border-surface !rounded-full transition-transform hover:!scale-125"
+          className="!w-3 !h-3 !-left-1.5 !bg-brand !border-2 !border-surface !rounded-full transition-transform hover:!scale-125 shadow-[0_0_8px_rgba(46,232,107,0.6)] cursor-crosshair"
+          title="Entrada do nó"
         />
       )}
 
-      {/* Node Body */}
-      <div className="p-3.5 space-y-2">
-        {/* Category Header Tag */}
+      {/* Node Content */}
+      <div className="flow-node-content p-3.5 space-y-2.5">
+        {/* Header Tag + Status Badge */}
         <div className="flex items-center justify-between">
           <div
-            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-semibold tracking-wide"
+            className="flow-node-category inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-semibold tracking-wide"
             style={{
               backgroundColor: `${categoryColor}18`,
               color: categoryColor,
@@ -97,30 +104,66 @@ export const FlowNode = memo(({ data, selected }: NodeProps<CanvasNode>) => {
             <Icon size={12} />
             <span>{categories[definition.category]}</span>
           </div>
-          <span className="text-[9px] font-mono text-content-muted">#{node.id.slice(0, 5)}</span>
+
+          {isTrigger && (
+            <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-[#2ee86b] bg-[#2ee86b]/10 px-1.5 py-0.5 rounded">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#2ee86b] animate-pulse" />
+              Início
+            </span>
+          )}
+
+          {isEnd && (
+            <span className="text-[9px] font-semibold text-content-muted bg-surface-elevated px-1.5 py-0.5 rounded">
+              Fim
+            </span>
+          )}
         </div>
 
         {/* Node Labels */}
         <div>
-          <strong className="block text-xs font-semibold text-content-primary tracking-tight truncate">
+          <strong className="flow-node-title block text-sm font-semibold text-content-primary tracking-tight line-clamp-2 leading-snug">
             {node.label}
           </strong>
-          <p className="text-[11px] text-content-secondary line-clamp-1 mt-0.5">
-            {definition.label}
-          </p>
+          {node.label.trim().toLowerCase() !== definition.label.trim().toLowerCase() && (
+            <p className="text-[11px] text-content-secondary line-clamp-1 mt-0.5">
+              {definition.label}
+            </p>
+          )}
         </div>
 
-        {/* Ports / Output Handles */}
+        {/* Output Ports with Aligned Handles */}
         {ports.length > 0 && (
-          <div className="pt-2 border-t border-border/60 flex flex-wrap gap-1.5 justify-end">
+          <div className="pt-2 border-t border-border/70 space-y-1">
             {ports.map((port) => (
-              <span
+              <div
                 key={port}
-                className="inline-flex items-center gap-1 text-[10px] font-medium text-content-secondary bg-surface-elevated px-2 py-0.5 rounded"
+                  className="flow-node-port relative flex items-center justify-between pl-2 pr-1.5 py-1 rounded-lg bg-surface-elevated border border-border/60 text-[10px] font-medium text-content-secondary group hover:border-brand/40 hover:text-content-primary transition-colors"
               >
-                {port}
-                <ArrowRight size={10} className="text-content-muted" />
-              </span>
+                <span className="truncate pr-1">
+                  {port === 'next'
+                    ? 'Próximo passo'
+                    : port === 'pass'
+                    ? 'Permitido'
+                    : port === 'blocked'
+                    ? 'Bloqueado'
+                    : port === 'true'
+                    ? 'Verdadeiro'
+                    : port === 'false'
+                    ? 'Falso'
+                    : port}
+                </span>
+                <span className="flex items-center gap-1 text-content-muted group-hover:text-[#2ee86b] transition-colors text-[9px] font-mono">
+                  {port}
+                  <ArrowRight size={10} />
+                </span>
+                <Handle
+                  id={port}
+                  type="source"
+                  position={Position.Right}
+                  className="!w-2.5 !h-2.5 !-right-2.5 !bg-brand !border-2 !border-surface !rounded-full transition-transform hover:!scale-125 shadow-[0_0_8px_rgba(46,232,107,0.6)] cursor-crosshair"
+                  title={`Saída: ${port}`}
+                />
+              </div>
             ))}
           </div>
         )}
@@ -132,19 +175,6 @@ export const FlowNode = memo(({ data, selected }: NodeProps<CanvasNode>) => {
           </div>
         )}
       </div>
-
-      {/* Source Handles (Right Outputs) */}
-      {ports.map((port, index) => (
-        <Handle
-          key={`${port}-${index}`}
-          id={port}
-          type="source"
-          position={Position.Right}
-          style={{ top: `${((index + 1) / (ports.length + 1)) * 100}%` }}
-          className="!w-3 !h-3 !-right-1.5 !bg-brand !border-2 !border-surface !rounded-full transition-transform hover:!scale-125"
-          title={port}
-        />
-      ))}
     </div>
   );
 });

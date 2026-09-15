@@ -173,7 +173,7 @@ const labels: Record<NodeType, string> = {
   'output.send_text': 'Enviar mensagem', 'output.send_media': 'Enviar mídia', 'output.send_template': 'Enviar template', 'output.smart_message': 'Mensagem inteligente', 'output.end': 'Encerrar fluxo',
 };
 export const categories = { trigger: 'Gatilhos', guard: 'Guardas', input: 'Entrada', context: 'Contexto', agent: 'Inteligência', flow: 'Controle', action: 'Ações', integration: 'Integrações', calendar: 'Agenda', output: 'Saída' };
-export const categoryColors = { trigger: '#0d9488', guard: '#d97706', input: '#0284c7', context: '#7c3aed', agent: '#464feb', flow: '#c026d3', action: '#ea580c', integration: '#2563eb', calendar: '#0891b2', output: '#16a34a' };
+export const categoryColors = { trigger: '#2ee86b', guard: '#f59e0b', input: '#10b981', context: '#059669', agent: '#2ee86b', flow: '#14b8a6', action: '#34d399', integration: '#10b981', calendar: '#0d9488', output: '#22c55e' };
 export type Category = keyof typeof categories;
 export function portsFor(type: NodeType, config: Record<string, unknown>): string[] {
   if (type === 'output.end') return [];

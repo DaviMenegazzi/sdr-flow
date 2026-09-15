@@ -138,22 +138,23 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto p-8 bg-canvas">
-      {/* Top Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-        <div>
-          <span className="text-[10px] font-bold uppercase tracking-wider text-content-muted">
-            INDICADORES DE DESEMPENHO
-          </span>
-          <h1 className="text-xl font-bold text-content tracking-tight mt-1 mb-1">
-            Painel Gerencial SDR
-          </h1>
-          <p className="text-xs text-content-muted m-0">
-            Taxas de conversão, tempo de resposta e custos consolidados em tempo real.
-          </p>
-        </div>
+    <div className="h-full overflow-y-auto p-6 md:p-8 bg-canvas text-content">
+      <div className="max-w-6xl mx-auto space-y-6">
+        {/* Top Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand mb-1">
+              <BarChart3 className="w-3.5 h-3.5" /> INDICADORES DE DESEMPENHO
+            </div>
+            <h1 className="text-2xl font-bold text-content tracking-tight">
+              Painel Gerencial SDR
+            </h1>
+            <p className="text-sm text-content-secondary max-w-2xl mt-1">
+              Taxas de conversão, tempo de resposta, funil e custos consolidados em tempo real.
+            </p>
+          </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
           <Button
             onClick={handleRollup}
             disabled={consolidating}
@@ -347,12 +348,12 @@ export function DashboardPage() {
                 <AreaChart data={metrics.dailyTrends} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorConv" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#464feb" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="#464feb" stopOpacity={0.0} />
+                      <stop offset="5%" stopColor="#2ee86b" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="#2ee86b" stopOpacity={0.0} />
                     </linearGradient>
                     <linearGradient id="colorQual" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                      <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
@@ -366,8 +367,8 @@ export function DashboardPage() {
                       fontSize: '11px',
                     }}
                   />
-                  <Area type="monotone" dataKey="conversations" name="Conversas" stroke="#464feb" fillOpacity={1} fill="url(#colorConv)" />
-                  <Area type="monotone" dataKey="qualified" name="Qualificados" stroke="#10b981" fillOpacity={1} fill="url(#colorQual)" />
+                  <Area type="monotone" dataKey="conversations" name="Conversas" stroke="#2ee86b" fillOpacity={1} fill="url(#colorConv)" />
+                  <Area type="monotone" dataKey="qualified" name="Qualificados" stroke="#38bdf8" fillOpacity={1} fill="url(#colorQual)" />
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
@@ -429,5 +430,6 @@ export function DashboardPage() {
         )}
       </Card>
     </div>
+  </div>
   );
 }

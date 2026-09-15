@@ -63,9 +63,10 @@ class RouteErrorBoundary extends React.Component<{ children: ReactNode }, { fail
 function ProtectedApp() {
   const [dark, setDark] = useState(() => {
     try {
-      return localStorage.getItem('sdr-flow:theme') === 'dark';
+      const saved = localStorage.getItem('sdr-flow:theme');
+      return saved ? saved === 'dark' : true;
     } catch {
-      return false;
+      return true;
     }
   });
 

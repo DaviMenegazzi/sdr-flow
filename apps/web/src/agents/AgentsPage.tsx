@@ -104,20 +104,21 @@ export function AgentsPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto p-8 bg-canvas">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-        <div>
-          <span className="text-[10px] font-bold uppercase tracking-wider text-content-muted">
-            AGENTES
-          </span>
-          <h1 className="text-xl font-bold text-content tracking-tight mt-1 mb-1">
-            Agentes de IA
-          </h1>
-          <p className="text-xs text-content-muted m-0">
-            {agents.length} de {max} agentes ativos. Cada instância usa exatamente um agente.
-          </p>
+    <div className="h-full overflow-y-auto p-6 md:p-8 bg-canvas text-content">
+      <div className="max-w-6xl mx-auto space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand mb-1">
+              <Bot className="w-3.5 h-3.5" /> AGENTES DE IA & PROVEDORES
+            </div>
+            <h1 className="text-2xl font-bold text-content tracking-tight">
+              Agentes de Atendimento
+            </h1>
+            <p className="text-sm text-content-secondary max-w-2xl mt-1">
+              {agents.length} de {max} agentes ativos. Cada instância do WhatsApp pode utilizar um agente dedicado com personalidade e diretrizes exclusivas.
+            </p>
+          </div>
         </div>
-      </div>
 
       {error && (
         <div className="p-3.5 mb-6 rounded-lg bg-danger/10 border border-danger/20 text-danger text-xs flex items-center gap-2" role="alert">
@@ -259,5 +260,6 @@ export function AgentsPage() {
         </div>
       </Card>
     </div>
+  </div>
   );
 }

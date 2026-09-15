@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { useSession } from '../session';
+import { supabase, useSession } from '../session';
 import { Button, Badge, Card, Input } from '../components/ui';
 import { Users, Mail, UserPlus, AlertCircle, CheckCircle2, Shield, Settings } from 'lucide-react';
 
@@ -34,7 +34,7 @@ export function AdminPage() {
     void load();
   }, [session?.access_token]);
 
-  if (profile?.role !== 'admin') return <Navigate to="/404" replace />;
+  if (supabase && profile?.role !== 'admin') return <Navigate to="/dashboard" replace />;
 
   const invite = async (e: FormEvent) => {
     e.preventDefault();
@@ -62,20 +62,21 @@ export function AdminPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto p-8 bg-canvas">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-        <div>
-          <span className="text-[10px] font-bold uppercase tracking-wider text-content-muted">
-            ADMINISTRAÇÃO
-          </span>
-          <h1 className="text-xl font-bold text-content tracking-tight mt-1 mb-1">
-            Gestão de Contas
-          </h1>
-          <p className="text-xs text-content-muted m-0">
-            Gerencie organizações, acessos de clientes e limites de recursos.
-          </p>
+    <div className="h-full overflow-y-auto p-6 md:p-8 bg-canvas text-content">
+      <div className="max-w-6xl mx-auto space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand mb-1">
+              <Shield className="w-3.5 h-3.5" /> PAINEL DE CONTROLE ADMINISTRATIVO
+            </div>
+            <h1 className="text-2xl font-bold text-content tracking-tight">
+              Gestão de Contas & Organizações
+            </h1>
+            <p className="text-sm text-content-secondary max-w-2xl mt-1">
+              Gerencie organizações, acessos de clientes, permissões e cotas de recursos.
+            </p>
+          </div>
         </div>
-      </div>
 
       {/* Invite Form Card */}
       <Card className="p-5 bg-surface border-border max-w-xl mb-6">
@@ -171,5 +172,6 @@ export function AdminPage() {
         </div>
       </Card>
     </div>
+  </div>
   );
 }

@@ -32,16 +32,16 @@ interface Property {
 const enumLabels: Record<string, Record<string, string>> = {
   collection: {
     default: 'Todas as coleções',
-    pricing: '💳 Preços & Planos',
-    catalog: '🩺 Catálogo & Serviços',
-    faq: '❓ Dúvidas & FAQ',
-    objections: '🛡️ Objeções Comerciais',
-    documents: '📋 Políticas & Diretrizes',
+    pricing: 'Preços & Planos',
+    catalog: 'Catálogo & Serviços',
+    faq: 'Dúvidas & FAQ',
+    objections: 'Objeções Comerciais',
+    documents: 'Políticas & Diretrizes',
   },
   targetMode: {
-    active_lead: '👤 Lead ativo da conversa (Padrão)',
-    specific_targets: '🎯 Apenas Destinatários Específicos',
-    both: '👥 Ambos (Lead ativo + Notificar Destinatários)',
+    active_lead: 'Lead ativo da conversa (Padrão)',
+    specific_targets: 'Apenas Destinatários Específicos',
+    both: 'Ambos (Lead ativo + Notificar Destinatários)',
   },
 };
 
@@ -51,8 +51,8 @@ function ChipListInput({
   onChange,
   placeholder = 'Digitar e pressionar Enter...',
   icon,
-  badgeBg = '#464feb12',
-  badgeColor = '#464feb',
+  badgeBg = 'rgba(46, 232, 107, 0.12)',
+  badgeColor = '#2ee86b',
   inputName = 'chip-filter-input',
 }: {
   values: string[];
@@ -79,50 +79,35 @@ function ChipListInput({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div className="flex flex-col gap-2">
       {values.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        <div className="flex flex-wrap gap-1.5">
           {values.map(val => (
             <span
               key={val}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border break-all"
               style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '3px 8px',
-                borderRadius: 6,
                 background: badgeBg,
                 color: badgeColor,
-                fontSize: 11,
-                fontWeight: 600,
-                border: '1px solid rgba(0,0,0,0.06)',
-                wordBreak: 'break-all',
+                borderColor: `${badgeColor}33`,
               }}
             >
               {icon}
-              {val}
+              <span>{val}</span>
               <button
                 type="button"
                 onClick={() => handleRemove(val)}
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  cursor: 'pointer',
-                  padding: 1,
-                  display: 'flex',
-                  color: 'inherit',
-                  minHeight: 'auto',
-                  opacity: 0.7,
-                }}
+                className="hover:opacity-100 opacity-60 ml-0.5 p-0.5 cursor-pointer text-inherit"
+                title="Remover"
               >
-                <X size={12} />
+                <X size={11} />
               </button>
             </span>
           ))}
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 6 }}>
+      <div className="flex gap-1.5">
         <input
           type="text"
           name={inputName}
@@ -141,15 +126,16 @@ function ChipListInput({
               handleAdd();
             }
           }}
-          style={{ flex: 1, fontSize: 12, padding: '6px 8px' }}
+          className="flex-1 py-1.5 px-2.5 rounded-lg bg-[#1a1a1a] border border-[#262626] text-xs text-white placeholder:text-content-muted outline-none focus:border-[#2ee86b]"
         />
         <button
           type="button"
           onClick={handleAdd}
           disabled={!inputValue.trim()}
-          style={{ fontSize: 11, padding: '6px 10px', minHeight: 32 }}
+          className="px-2.5 py-1.5 rounded-lg bg-surface-elevated hover:bg-[#222] border border-border text-xs font-semibold text-content-primary disabled:opacity-40 transition-colors flex items-center gap-1 cursor-pointer"
         >
-          <Plus size={13} /> Adicionar
+          <Plus size={12} />
+          <span>Add</span>
         </button>
       </div>
     </div>
@@ -216,53 +202,24 @@ function InstanceTargetPicker({
   }, [targets.contacts, search, typeFilter]);
 
   return (
-    <div style={{ position: 'relative', marginTop: 6 }}>
+    <div className="relative mt-1.5">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        style={{
-          width: '100%',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          fontSize: 12,
-          padding: '6px 10px',
-          background: 'var(--color-bg-secondary)',
-          borderColor: 'var(--color-border)',
-        }}
+        className="w-full flex justify-between items-center text-xs p-2 rounded-lg bg-[#1a1a1a] border border-[#262626] text-content-secondary hover:text-content-primary hover:border-[#2ee86b]/40 transition-colors cursor-pointer"
       >
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {typeFilter === 'groups' ? <Users size={13} color="#d97706" /> : <Radio size={13} color="#16a34a" />}
-          {open ? 'Fechar lista da instância' : `Selecionar da instância (${selectedInstance || 'conectada'})`}
+        <span className="flex items-center gap-2">
+          {typeFilter === 'groups' ? <Users size={13} className="text-amber-400" /> : <Radio size={13} className="text-[#2ee86b]" />}
+          <span>{open ? 'Fechar lista da instância' : `Selecionar da instância (${selectedInstance || 'conectada'})`}</span>
         </span>
-        <ChevronDown size={13} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+        <ChevronDown size={13} className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            zIndex: 50,
-            background: 'var(--color-bg-primary)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 8,
-            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
-            padding: 10,
-            marginTop: 4,
-            maxHeight: 280,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-          }}
-        >
-
-
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <div style={{ display: 'flex', flex: 1, alignItems: 'center', gap: 6, border: '1px solid var(--color-border)', borderRadius: 6, padding: '4px 8px' }}>
-              <Search size={13} color="var(--color-text-secondary)" />
+        <div className="absolute top-full left-0 right-0 z-50 bg-[#161616] border border-[#2a2a2a] rounded-xl shadow-2xl p-2.5 mt-1 max-h-72 flex flex-col gap-2">
+          <div className="flex gap-1.5 items-center">
+            <div className="flex flex-1 items-center gap-1.5 border border-[#262626] rounded-lg px-2 py-1 bg-[#1a1a1a]">
+              <Search size={13} className="text-content-muted" />
               <input
                 type="text"
                 name="search-instance-targets"
@@ -275,7 +232,7 @@ function InstanceTargetPicker({
                 placeholder="Buscar contato ou grupo..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                style={{ border: 'none', padding: 0, fontSize: 11, width: '100%', outline: 'none' }}
+                className="border-none p-0 text-xs w-full outline-none bg-transparent text-white placeholder:text-content-muted"
               />
             </div>
             <button
@@ -283,36 +240,26 @@ function InstanceTargetPicker({
               title="Atualizar lista de grupos e contatos"
               onClick={() => loadTargets(true)}
               disabled={loading}
-              style={{
-                padding: '5px 8px',
-                fontSize: 11,
-                minHeight: 'auto',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                background: 'var(--color-bg-secondary)',
-                border: '1px solid var(--color-border)',
-                cursor: 'pointer',
-              }}
+              className="p-1.5 rounded-lg text-xs bg-[#1a1a1a] border border-[#262626] hover:bg-[#222] text-content-secondary hover:text-white transition-colors cursor-pointer flex items-center gap-1"
             >
-              <RefreshCw size={12} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+              <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
             </button>
           </div>
 
-          <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div className="overflow-y-auto flex-1 flex flex-col gap-1 pr-1">
             {loading ? (
-              <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', padding: 10, textAlign: 'center' }}>
+              <div className="text-xs text-content-muted p-2.5 text-center">
                 Buscando contatos e grupos...
               </div>
             ) : filteredGroups.length === 0 && filteredContacts.length === 0 ? (
-              <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', padding: 10, textAlign: 'center' }}>
+              <div className="text-xs text-content-muted p-2.5 text-center">
                 Nenhum destino encontrado na instância.
               </div>
             ) : (
               <>
                 {filteredGroups.length > 0 && (
                   <div>
-                    <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)', display: 'block', padding: '4px 2px' }}>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-content-muted block px-1 py-1">
                       Grupos ({filteredGroups.length})
                     </span>
                     {filteredGroups.map(g => (
@@ -323,24 +270,14 @@ function InstanceTargetPicker({
                           onSelect(g.id, g.name);
                           setOpen(false);
                         }}
-                        style={{
-                          width: '100%',
-                          textAlign: 'left',
-                          justifyContent: 'flex-start',
-                          fontSize: 11,
-                          padding: '5px 8px',
-                          border: 'none',
-                          background: 'transparent',
-                          gap: 6,
-                          borderRadius: 4,
-                        }}
+                        className="w-full text-left flex items-center gap-2 text-xs p-1.5 rounded-lg hover:bg-white/5 transition-colors cursor-pointer text-content-primary"
                       >
-                        <Users size={12} color="#d97706" />
-                        <span style={{ fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <Users size={12} className="text-amber-400 flex-shrink-0" />
+                        <span className="font-medium flex-1 truncate">
                           {g.name}
                         </span>
                         {typeof g.size === 'number' && (
-                          <span style={{ fontSize: 10, opacity: 0.6 }}>{g.size} membros</span>
+                          <span className="text-[10px] text-content-muted">{g.size} membros</span>
                         )}
                       </button>
                     ))}
@@ -348,8 +285,8 @@ function InstanceTargetPicker({
                 )}
 
                 {filteredContacts.length > 0 && (
-                  <div style={{ marginTop: filteredGroups.length > 0 ? 6 : 0 }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)', display: 'block', padding: '4px 2px' }}>
+                  <div className={filteredGroups.length > 0 ? 'mt-1.5' : ''}>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-content-muted block px-1 py-1">
                       Contatos ({filteredContacts.length})
                     </span>
                     {filteredContacts.map(c => (
@@ -360,23 +297,13 @@ function InstanceTargetPicker({
                           onSelect(c.id, c.name);
                           setOpen(false);
                         }}
-                        style={{
-                          width: '100%',
-                          textAlign: 'left',
-                          justifyContent: 'flex-start',
-                          fontSize: 11,
-                          padding: '5px 8px',
-                          border: 'none',
-                          background: 'transparent',
-                          gap: 6,
-                          borderRadius: 4,
-                        }}
+                        className="w-full text-left flex items-center gap-2 text-xs p-1.5 rounded-lg hover:bg-white/5 transition-colors cursor-pointer text-content-primary"
                       >
-                        <Phone size={12} color="#16a34a" />
-                        <span style={{ fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <Phone size={12} className="text-[#2ee86b] flex-shrink-0" />
+                        <span className="font-medium flex-1 truncate">
                           {c.name}
                         </span>
-                        <span style={{ fontSize: 10, opacity: 0.6 }}>{c.id}</span>
+                        <span className="text-[10px] font-mono text-content-muted">{c.id}</span>
                       </button>
                     ))}
                   </div>
@@ -450,19 +377,19 @@ export function SchemaForm({ node }: { node: FlowNode }) {
           />
         </label>
 
-        <div style={{ background: isEnabled ? 'rgba(234, 179, 8, 0.08)' : 'var(--color-bg-secondary)', border: `1px solid ${isEnabled ? '#eab308' : 'var(--color-border)'}`, borderRadius: 8, padding: 12 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0, fontWeight: 700, color: isEnabled ? '#b45309' : 'inherit' }}>
+        <div className={`p-3 rounded-xl border ${isEnabled ? 'bg-amber-500/10 border-amber-500/30' : 'bg-surface-elevated border-border'}`}>
+          <label className={`flex items-center gap-2 m-0 font-bold text-xs ${isEnabled ? 'text-amber-300' : 'text-content-secondary'}`}>
             <input
               type="checkbox"
               checked={isEnabled}
               onChange={e => field('enabled', e.target.checked)}
-              style={{ width: 'auto', accentColor: '#eab308' }}
+              className="w-auto accent-amber-500 cursor-pointer"
             />
-            {isEnabled ? 'Portão de Teste / Filtro Ativo' : 'Filtro Desativado (Livre)'}
+            {isEnabled ? 'Filtro de Teste Ativo' : 'Filtro Desativado (Livre)'}
           </label>
-          <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', margin: '6px 0 0', lineHeight: 1.4 }}>
+          <p className="text-[11px] text-content-muted mt-1.5 leading-relaxed">
             {isEnabled
-              ? 'Apenas remetentes presentes nas listas abaixo avançam no fluxo. Qualquer outro contato ou grupo terá a mensagem interrompida aqui (não responderá).'
+              ? 'Apenas remetentes presentes nas listas abaixo avançam no fluxo. Qualquer outro contato ou grupo terá a mensagem interrompida aqui.'
               : 'Qualquer remetente que enviar mensagem avançará normalmente para os próximos blocos.'}
           </p>
         </div>
@@ -594,17 +521,16 @@ export function SchemaForm({ node }: { node: FlowNode }) {
             onChange={e => field('targetMode', e.target.value)}
             style={{ fontSize: 12 }}
           >
-            <option value="active_lead">👤 Lead que enviou a mensagem (Padrão)</option>
-            <option value="specific_targets">🎯 Apenas Destinatários Específicos (Contatos / Grupos)</option>
-            <option value="both">👥 Ambos (Lead ativo + Notificar Destinatários Específicos)</option>
+            <option value="active_lead">Lead que enviou a mensagem (Padrão)</option>
+            <option value="specific_targets">Apenas Destinatários Específicos (Contatos / Grupos)</option>
+            <option value="both">Ambos (Lead ativo + Notificar Destinatários Específicos)</option>
           </select>
         </div>
 
-        {/* Seletor de Destinatários Específicos */}
         {(targetMode === 'specific_targets' || targetMode === 'both') && (
-          <div style={{ background: 'var(--color-bg-secondary)', borderRadius: 8, padding: 12, border: '1px solid var(--color-border)' }}>
-            <label style={{ fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-              <Send size={13} color="#464feb" /> Destinos Notificados ({targets.length})
+          <div className="p-3 rounded-xl bg-surface-elevated border border-border space-y-2">
+            <label className="text-xs font-semibold flex items-center gap-1.5 text-content-primary">
+              <Send size={13} className="text-[#2ee86b]" /> Destinos Notificados ({targets.length})
             </label>
             <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', margin: '0 0 8px' }}>
               Selecione contatos ou grupos da sua instância WhatsApp para receber este disparo:
@@ -616,8 +542,8 @@ export function SchemaForm({ node }: { node: FlowNode }) {
               placeholder="Ex: 5511999998888 ou 120363...@g.us"
               inputName="send-targets-filter"
               icon={<Send size={11} />}
-              badgeBg="#464feb15"
-              badgeColor="#464feb"
+              badgeBg="rgba(46, 232, 107, 0.12)"
+              badgeColor="#2ee86b"
             />
 
             <InstanceTargetPicker

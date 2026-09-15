@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode, type FormEvent } from 'react';
 import { createClient, type Session } from '@supabase/supabase-js';
-import { Calendar, Cpu, Users, Copy, Check } from 'lucide-react';
+import { Calendar, Cpu, Users, Copy, Check, CheckCircle2, XCircle, Info, Sliders } from 'lucide-react';
 import type { MemberRole } from '@sdr/shared';
 
 const url = import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL;
@@ -50,6 +50,7 @@ interface SessionContextType {
   loading: boolean;
   profile: { role: 'admin'|'client'; status: string; organizationId: string } | null;
   signOut(): Promise<void>;
+  devLogin?: (email?: string) => void;
 }
 
 const Context = createContext<SessionContextType>({
@@ -62,17 +63,62 @@ const Context = createContext<SessionContextType>({
   loading: true,
   profile: null,
   signOut: async () => {},
+  devLogin: () => {},
 });
 
 export const useSession = () => useContext(Context);
 
+export const DEFAULT_DEV_SESSION: Session = {
+  access_token: 'local-dev-token',
+  token_type: 'bearer',
+  expires_in: 3600,
+  refresh_token: 'local-dev-refresh',
+  user: {
+    id: '00000000-0000-4000-8000-000000000001',
+    email: 'admin@sdrflow.local',
+    app_metadata: {},
+    user_metadata: { name: 'Admin Local' },
+    aud: 'authenticated',
+    created_at: new Date().toISOString(),
+  },
+};
+
+export const DEFAULT_DEV_PROFILE: SessionContextType['profile'] = {
+  role: 'admin',
+  status: 'active',
+  organizationId: 'standalone-org',
+};
+
+export const DEFAULT_DEV_ORGS: Org[] = [
+  { id: 'standalone-org', name: 'SDR Flow Local', role: 'owner' },
+];
+
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [organizations, setOrganizations] = useState<Org[]>([]);
-  const [activeOrg, setActiveOrg] = useState('');
-  const [activeRole, setActiveRole] = useState<MemberRole | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [profile, setProfile] = useState<SessionContextType['profile']>(null);
+  const [session, setSession] = useState<Session | null>(() => (!supabase ? DEFAULT_DEV_SESSION : null));
+  const [organizations, setOrganizations] = useState<Org[]>(() => (!supabase ? DEFAULT_DEV_ORGS : []));
+  const [activeOrg, setActiveOrg] = useState(() => (!supabase ? 'standalone-org' : ''));
+  const [activeRole, setActiveRole] = useState<MemberRole | null>(() => (!supabase ? 'owner' : null));
+  const [loading, setLoading] = useState(() => Boolean(supabase));
+  const [profile, setProfile] = useState<SessionContextType['profile']>(() => (!supabase ? DEFAULT_DEV_PROFILE : null));
+
+  const devLogin = (customEmail?: string) => {
+    const devUserEmail = customEmail || 'admin@sdrflow.local';
+    const mockSession: Session = {
+      ...DEFAULT_DEV_SESSION,
+      user: {
+        ...DEFAULT_DEV_SESSION.user,
+        email: devUserEmail,
+      },
+    };
+    setSession(mockSession);
+    setProfile(DEFAULT_DEV_PROFILE);
+    setOrganizations(DEFAULT_DEV_ORGS);
+    setActiveOrg('standalone-org');
+    setActiveRole('owner');
+    try {
+      localStorage.setItem('sdr-flow:dev-session', JSON.stringify({ email: devUserEmail }));
+    } catch {}
+  };
 
   const reload = async () => {
     if (!supabase || !session) return;
@@ -103,13 +149,26 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    if (!supabase) { setLoading(false); return; }
+    if (!supabase) {
+      try {
+        const saved = localStorage.getItem('sdr-flow:dev-session');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.email && parsed.email !== session?.user?.email) {
+            devLogin(parsed.email);
+          }
+        }
+      } catch {}
+      setLoading(false);
+      return;
+    }
     void supabase.auth.getSession().then(({ data }) => { setSession(data.session); setLoading(false); });
     const { data } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
     return () => data.subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
+    if (!supabase) return;
     if (!session) { setProfile(null); return; }
     setLoading(true);
     void fetch('/api/me',{headers:{Authorization:`Bearer ${session.access_token}`}}).then(async response => {
@@ -118,9 +177,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }).finally(()=>setLoading(false));
   },[session?.access_token]);
 
-  const signOut=async()=>{setOrganizations([]);setActiveOrg('');setActiveRole(null);setProfile(null);try{localStorage.removeItem('sdr-flow:active-instance')}catch{}await supabase?.auth.signOut();};
+  const signOut=async()=>{
+    setOrganizations([]);
+    setActiveOrg('');
+    setActiveRole(null);
+    setProfile(null);
+    setSession(null);
+    try{localStorage.removeItem('sdr-flow:active-instance');localStorage.removeItem('sdr-flow:dev-session')}catch{}
+    await supabase?.auth.signOut();
+  };
 
   useEffect(() => {
+    if (!supabase) return;
     setOrganizations([]);
     setActiveOrg('');
     setActiveRole(null);
@@ -142,7 +210,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [activeOrg]);
 
   return (
-    <Context.Provider value={{ session, organizations, activeOrg, activeRole, setActiveOrg, reload, loading, profile, signOut }}>
+    <Context.Provider value={{ session, organizations, activeOrg, activeRole, setActiveOrg, reload, loading, profile, signOut, devLogin }}>
       {children}
     </Context.Provider>
   );
@@ -238,7 +306,7 @@ export function PlatformSettingsSection() {
 
   return (
     <div style={{ maxWidth: 640 }}>
-      <div className="info-card" style={{ marginBottom: 24, borderLeft: '4px solid #4f46e5' }}>
+      <div className="info-card" style={{ marginBottom: 24, borderLeft: '4px solid #2ee86b' }}>
         <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>Configurações de Inteligência Artificial & Provedores</h3>
         <p style={{ margin: 0, fontSize: 13 }}>
           Gerencie as credenciais que alimentam as respostas do SDR, decisões dos agentes e a conexão com o WhatsApp.
@@ -275,8 +343,8 @@ export function PlatformSettingsSection() {
         </div>
 
         {testResult && (
-          <div style={{ padding: '8px 12px', borderRadius: 6, marginBottom: 16, fontSize: 12, background: testResult.ok ? '#16a34a15' : '#ef444415', color: testResult.ok ? '#15803d' : '#b91c1c', border: testResult.ok ? '1px solid #16a34a' : '1px solid #ef4444' }}>
-            {testResult.ok ? '✅ ' : '❌ '}{testResult.message}
+          <div style={{ padding: '8px 12px', borderRadius: 6, marginBottom: 16, fontSize: 12, background: testResult.ok ? '#16a34a15' : '#ef444415', color: testResult.ok ? '#15803d' : '#b91c1c', border: testResult.ok ? '1px solid #16a34a' : '1px solid #ef4444', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {testResult.ok ? <CheckCircle2 size={14} color="#15803d" /> : <XCircle size={14} color="#b91c1c" />}{testResult.message}
           </div>
         )}
 
@@ -354,8 +422,8 @@ export function PlatformSettingsSection() {
         </label>
 
         <div style={{ background: 'var(--color-bg-secondary)', padding: '12px 14px', borderRadius: 8, fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 18 }}>
-          <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 6 }}>
-            💡 URI de redirecionamento autorizada para o Google Cloud Console:
+          <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Info size={14} color="#2ee86b" /> URI de redirecionamento autorizada para o Google Cloud Console:
           </div>
           <p style={{ margin: '0 0 8px', fontSize: 11, lineHeight: 1.5 }}>
             Copie este endereço e cole em <em>URIs de redirecionamento autorizados</em> no seu cliente OAuth 2.0 no Google Cloud:
@@ -688,30 +756,45 @@ export function Settings() {
   }
 
   return (
-    <div className="page-content">
-      <span className="eyebrow">ADMINISTRAÇÃO & AJUSTES</span>
-      <h1>Configurações da Plataforma</h1>
-      <p className="muted">Gerencie as chaves de inteligência artificial, WhatsApp, Google Calendar e acessos de equipe.</p>
+    <div className="h-full overflow-y-auto p-6 md:p-8 bg-canvas text-content">
+      <div className="max-w-6xl mx-auto space-y-6">
+        <div>
+          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand mb-1">
+            <Sliders size={14} /> ADMINISTRAÇÃO & AJUSTES
+          </div>
+          <h1 className="text-2xl font-bold text-content tracking-tight">
+            Configurações da Plataforma
+          </h1>
+          <p className="text-sm text-content-secondary max-w-2xl mt-1">
+            Gerencie as chaves de inteligência artificial, WhatsApp, Google Calendar e acessos de equipe.
+          </p>
+        </div>
 
-      {/* Tabs Principais de Navegação em Configurações */}
-      <div style={{ display: 'flex', gap: 10, margin: '22px 0 26px', borderBottom: '1px solid var(--color-border-secondary)', paddingBottom: 14 }}>
-        <button
-          type="button"
-          className={viewTab === 'ai-keys' ? 'primary' : ''}
-          onClick={() => setViewTab('ai-keys')}
-          style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600 }}
-        >
-          <Cpu size={16} /> IA & Provedores (Plataforma)
-        </button>
-        <button
-          type="button"
-          className={viewTab === 'account' ? 'primary' : ''}
-          onClick={() => setViewTab('account')}
-          style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600 }}
-        >
-          <Users size={16} /> Organizações & Equipe (Supabase)
-        </button>
-      </div>
+        {/* Tabs Principais de Navegação em Configurações */}
+        <div className="flex gap-2 border-b border-border pb-3">
+          <button
+            type="button"
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all border ${
+              viewTab === 'ai-keys'
+                ? 'bg-brand text-black border-brand shadow-xs'
+                : 'bg-surface border-border text-content-secondary hover:text-content hover:bg-surface-hover'
+            }`}
+            onClick={() => setViewTab('ai-keys')}
+          >
+            <Cpu size={14} /> IA & Provedores (Plataforma)
+          </button>
+          <button
+            type="button"
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all border ${
+              viewTab === 'account'
+                ? 'bg-brand text-black border-brand shadow-xs'
+                : 'bg-surface border-border text-content-secondary hover:text-content hover:bg-surface-hover'
+            }`}
+            onClick={() => setViewTab('account')}
+          >
+            <Users size={14} /> Organizações & Equipe (Supabase)
+          </button>
+        </div>
 
       {viewTab === 'ai-keys' && (
         <PlatformSettingsSection />
@@ -1188,6 +1271,7 @@ export function Settings() {
         </p>
       )}
     </div>
+  </div>
   );
 }
 

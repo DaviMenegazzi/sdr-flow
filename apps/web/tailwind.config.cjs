@@ -17,9 +17,19 @@ module.exports = {
           strong: 'var(--border-strong)',
         },
         content: {
+          DEFAULT: 'var(--text-primary)',
           primary: 'var(--text-primary)',
           secondary: 'var(--text-secondary)',
           muted: 'var(--text-muted)',
+        },
+        prodigi: {
+          green: '#2ee86b',
+          hover: '#4dfb85',
+          dim: 'rgba(46, 232, 107, 0.12)',
+          border: 'rgba(46, 232, 107, 0.3)',
+          ink: '#0a0a0a',
+          surface: '#141414',
+          elevated: '#1e1e1e',
         },
         brand: {
           DEFAULT: 'var(--accent-primary)',

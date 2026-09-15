@@ -15,6 +15,12 @@ import {
   HelpCircle,
   Check,
   Layers,
+  CreditCard,
+  Stethoscope,
+  ShieldAlert,
+  Folder,
+  Lightbulb,
+  type LucideIcon,
 } from 'lucide-react';
 import { useSession } from '../session';
 import { useInstance } from '../context/InstanceContext';
@@ -41,7 +47,7 @@ interface SearchHit {
 interface CollectionMeta {
   id: string;
   name: string;
-  icon: string;
+  icon: LucideIcon;
   tagColor: string;
   badgeBg: string;
   description: string;
@@ -53,9 +59,9 @@ const COLLECTIONS: CollectionMeta[] = [
   {
     id: 'pricing',
     name: 'Preços & Planos',
-    icon: '💳',
-    tagColor: '#10b981',
-    badgeBg: 'rgba(16, 185, 129, 0.12)',
+    icon: CreditCard,
+    tagColor: '#2ee86b',
+    badgeBg: 'rgba(46, 232, 107, 0.12)',
     description: 'Tabelas de mensalidades, taxas de adesão, coparticipação e condições de pagamento.',
     placeholderTitle: 'Ex: Tabela de Preços Vida Card Individual e Familiar 2026',
     exampleContent: `Plano Familiar Vida Card:
@@ -69,9 +75,9 @@ const COLLECTIONS: CollectionMeta[] = [
   {
     id: 'catalog',
     name: 'Catálogo & Serviços',
-    icon: '🩺',
-    tagColor: '#3b82f6',
-    badgeBg: 'rgba(59, 130, 246, 0.12)',
+    icon: Stethoscope,
+    tagColor: '#38bdf8',
+    badgeBg: 'rgba(56, 189, 248, 0.12)',
     description: 'Especialidades médicas disponíveis, exames laboratoriais e procedimentos cobertos.',
     placeholderTitle: 'Ex: Especialidades Médicas e Exames Atendidos na Região',
     exampleContent: `Especialidades e Cobertura de Atendimento:
@@ -83,9 +89,9 @@ const COLLECTIONS: CollectionMeta[] = [
   {
     id: 'faq',
     name: 'Dúvidas & FAQ',
-    icon: '❓',
-    tagColor: '#8b5cf6',
-    badgeBg: 'rgba(139, 92, 246, 0.12)',
+    icon: HelpCircle,
+    tagColor: '#a855f7',
+    badgeBg: 'rgba(168, 85, 247, 0.12)',
     description: 'Carências, agendamento de consultas, dependentes permitidos e horários.',
     placeholderTitle: 'Ex: Regras de Carência para Consultas e Procedimentos',
     exampleContent: `Prazos de Carência e Regras de Agendamento:
@@ -98,7 +104,7 @@ const COLLECTIONS: CollectionMeta[] = [
   {
     id: 'objections',
     name: 'Objeções de Vendas',
-    icon: '🛡️',
+    icon: ShieldAlert,
     tagColor: '#f59e0b',
     badgeBg: 'rgba(245, 158, 11, 0.12)',
     description: 'Respostas persuasivas para "está caro", "já tenho convênio", "vou pensar".',
@@ -113,9 +119,9 @@ const COLLECTIONS: CollectionMeta[] = [
   {
     id: 'documents',
     name: 'Políticas & Diretrizes',
-    icon: '📋',
-    tagColor: '#64748b',
-    badgeBg: 'rgba(100, 116, 139, 0.12)',
+    icon: FileText,
+    tagColor: '#94a3b8',
+    badgeBg: 'rgba(148, 163, 184, 0.12)',
     description: 'Termos contratuais, horários de plantão, unidades físicas e cancelamento.',
     placeholderTitle: 'Ex: Horários de Atendimento e Política de Cancelamento',
     exampleContent: `Informações Institucionais e Diretrizes:
@@ -302,12 +308,12 @@ export function KnowledgePage() {
 
   // Helpers
   const totalTokens = documents.reduce((sum, d) => sum + (d.token_count || 0), 0);
-  const getCollectionMeta = (colId: string) => COLLECTIONS.find(c => c.id === colId) || {
+  const getCollectionMeta = (colId: string): CollectionMeta => COLLECTIONS.find(c => c.id === colId) || {
     id: colId,
     name: colId,
-    icon: '📄',
-    tagColor: '#64748b',
-    badgeBg: 'rgba(100, 116, 139, 0.12)',
+    icon: FileText,
+    tagColor: '#94a3b8',
+    badgeBg: 'rgba(148, 163, 184, 0.12)',
     description: 'Documentos gerais',
     placeholderTitle: 'Título do documento',
     exampleContent: '',
@@ -456,7 +462,7 @@ export function KnowledgePage() {
                       >
                         <div className="flex justify-between items-center mb-2">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm">{meta.icon}</span>
+                            <meta.icon className="w-3.5 h-3.5" style={{ color: meta.tagColor }} />
                             <strong className="text-xs text-content">{hit.title}</strong>
                             <span
                               className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded"
@@ -488,12 +494,13 @@ export function KnowledgePage() {
             onClick={() => setSelectedCollection('all')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${
               selectedCollection === 'all'
-                ? 'bg-brand text-white shadow-sm'
+                ? 'bg-brand text-black font-semibold shadow-xs'
                 : 'bg-surface border border-border text-content-secondary hover:text-content hover:bg-surface-hover'
             }`}
           >
-            <span>📁 Todas as Coleções</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedCollection === 'all' ? 'bg-white/20 text-white' : 'bg-surface-secondary text-content-muted'}`}>
+            <Folder className="w-3.5 h-3.5" />
+            <span>Todas as Coleções</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedCollection === 'all' ? 'bg-black/20 text-black font-bold' : 'bg-surface-secondary text-content-muted'}`}>
               {documents.length}
             </span>
           </button>
@@ -501,6 +508,7 @@ export function KnowledgePage() {
           {COLLECTIONS.map(col => {
             const isSelected = selectedCollection === col.id;
             const count = documents.filter(d => d.collection.toLowerCase() === col.id.toLowerCase()).length;
+            const ColIcon = col.icon;
             return (
               <button
                 key={col.id}
@@ -508,12 +516,13 @@ export function KnowledgePage() {
                 onClick={() => setSelectedCollection(col.id)}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors flex items-center gap-2 ${
                   isSelected
-                    ? 'bg-brand text-white shadow-sm'
+                    ? 'bg-brand text-black font-semibold shadow-xs'
                     : 'bg-surface border border-border text-content-secondary hover:text-content hover:bg-surface-hover'
                 }`}
               >
-                <span>{col.icon} {col.name}</span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-surface-secondary text-content-muted'}`}>
+                <ColIcon className="w-3.5 h-3.5" />
+                <span>{col.name}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-black/20 text-black font-bold' : 'bg-surface-secondary text-content-muted'}`}>
                   {count}
                 </span>
               </button>
@@ -562,7 +571,7 @@ export function KnowledgePage() {
                         className="text-[11px] font-semibold uppercase px-2 py-0.5 rounded flex items-center gap-1.5"
                         style={{ background: meta.badgeBg, color: meta.tagColor }}
                       >
-                        <span>{meta.icon}</span> {meta.name}
+                        <meta.icon className="w-3 h-3" /> {meta.name}
                       </span>
                       <span className="text-xs text-content-muted">
                         ~{doc.token_count} tokens
@@ -666,10 +675,10 @@ export function KnowledgePage() {
                           }`}
                         >
                           <div className="flex justify-between items-center">
-                            <span className="text-lg">{col.icon}</span>
+                            <col.icon className="w-5 h-5 text-brand" />
                             {isSelected && (
-                              <span className="w-4 h-4 rounded-full bg-brand text-white flex items-center justify-center text-[10px]">
-                                <Check className="w-3 h-3" />
+                              <span className="w-4 h-4 rounded-full bg-brand text-black flex items-center justify-center text-[10px]">
+                                <Check className="w-3 h-3 stroke-[2.5]" />
                               </span>
                             )}
                           </div>
@@ -681,8 +690,9 @@ export function KnowledgePage() {
 
                   {/* Selected category tip */}
                   <div className="mt-2.5 p-2.5 bg-surface-secondary border border-border/60 rounded-lg text-xs text-content-secondary flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <span>
-                      💡 <strong className="text-content">{currentMeta.name}:</strong> {currentMeta.description}
+                    <span className="flex items-center gap-1.5">
+                      <Lightbulb className="w-3.5 h-3.5 text-brand shrink-0" />
+                      <span><strong className="text-content">{currentMeta.name}:</strong> {currentMeta.description}</span>
                     </span>
                     {!editingDocId && (
                       <button
