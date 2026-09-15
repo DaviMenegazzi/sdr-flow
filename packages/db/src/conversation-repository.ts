@@ -204,7 +204,29 @@ export class ConversationRepository {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      // Lost the race: another concurrent call for the same lead (routine with WhatsApp
+      // group chatter arriving in a burst) already inserted the active conversation between
+      // our SELECT above and this INSERT. conversations_one_active_per_lead_idx (see
+      // supabase/migrations/202609151001_conversations_one_active_per_lead.sql) turns that
+      // into a unique_violation instead of letting both requests create a row — reuse the
+      // winner's row rather than duplicating it or failing the turn.
+      if ((error as { code?: string }).code === '23505') {
+        const { data: winner, error: winnerError } = await this.db
+          .from('conversations')
+          .select('*')
+          .eq('organization_id', organizationId)
+          .eq('connection_id', connectionId)
+          .eq('lead_id', leadId)
+          .not('stage', 'in', '("CONVERTED","CLOSED")')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+        if (winnerError || !winner) throw winnerError || error;
+        return { ...winner, created: false };
+      }
+      throw error;
+    }
     // `created` lets callers (turn-processor) emit inbox:conversation.created only once, instead
     // of guessing from timestamps — the prior CLOSED-and-superseded branch above also inserts a
     // fresh row, so this is a genuinely new conversation either way.
