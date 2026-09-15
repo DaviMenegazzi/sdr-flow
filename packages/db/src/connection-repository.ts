@@ -113,15 +113,27 @@ export class ConnectionRepository {
       .limit(1)
       .maybeSingle();
     if (ownerError || !owner) throw ownerError || new Error('Proprietário ativo não encontrado.');
+
+    // Every connection gets its own dedicated agent, never a shared/default one. Two
+    // instances (e.g. a client's production WhatsApp and a personal test number) must
+    // never be able to affect each other's active flow just because one of them gets
+    // published — see incident where publishing a flow for one instance silently
+    // took over another instance still pointing at the same agent.
     const { data: agent, error: agentError } = await client
       .from('ai_agents')
+      .insert({
+        organization_id: organizationId,
+        owner_user_id: owner.user_id,
+        name: `Agente - ${input.name.trim()}`,
+        provider: 'openai',
+        model: 'gpt-4.1-mini',
+        system_prompt: '',
+        status: 'active',
+        is_default: false,
+      })
       .select('id')
-      .eq('organization_id', organizationId)
-      .eq('owner_user_id', owner.user_id)
-      .eq('is_default', true)
-      .eq('status', 'active')
-      .maybeSingle();
-    if (agentError || !agent) throw agentError || new Error('Agente padrão não encontrado.');
+      .single();
+    if (agentError || !agent) throw agentError || new Error('Não foi possível criar o agente dedicado da conexão.');
 
     const { data: conn, error: connErr } = await client
       .from('connections')

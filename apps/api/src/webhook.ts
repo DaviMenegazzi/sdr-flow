@@ -56,6 +56,10 @@ export function parseEvolutionWebhook(payload: any): InboundMessageEvent | null 
   const fromMe = Boolean(key.fromMe);
   const senderName = data.pushName || '';
 
+  // No usable sender/thread identifier at all (protocol messages, malformed payloads):
+  // nothing downstream can attribute this to a lead or conversation, so don't create one.
+  if (!remoteJid) return null;
+
   const textContent =
     message.conversation ||
     message.extendedTextMessage?.text ||
@@ -80,9 +84,16 @@ export function parseEvolutionWebhook(payload: any): InboundMessageEvent | null 
     mediaUrl = message.documentMessage.url;
   }
 
-  // Use remoteJidAlt as fallback when remoteJid is in LID format (@lid)
+  // Group JIDs are the lead/conversation key for that group (packages/runtime's turn
+  // processor already derives isGroup/groupId from the raw remoteJid below). Legacy groups
+  // use a hyphenated "<creator-phone>-<created-at>@g.us" format; running that through
+  // normalizePhoneDigits strips the hyphen and fuses both numbers into one meaningless
+  // digit blob that also happens to collide across groups. Keep the JID's local part as-is
+  // instead — it's already a stable, unique identifier and was never a phone number.
   const phoneSource = remoteJid.endsWith('@lid') && remoteJidAlt ? remoteJidAlt : remoteJid;
-  const cleanPhone = normalizePhoneDigits(phoneSource);
+  const cleanPhone = remoteJid.endsWith('@g.us')
+    ? remoteJid.replace(/@g\.us$/, '')
+    : normalizePhoneDigits(phoneSource);
 
   return {
     messageId,
