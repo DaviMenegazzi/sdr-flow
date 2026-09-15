@@ -7,6 +7,24 @@ export function AppHeader() {
   const { activeInstance, setActiveInstance, instances } = useInstance();
   const location = useLocation();
   const current = instances.find((i) => i.name === activeInstance || i.id === activeInstance);
+  const [instanceMenuOpen, setInstanceMenuOpen] = React.useState(false);
+  const instanceMenuRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!instanceMenuOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!instanceMenuRef.current?.contains(event.target as Node)) setInstanceMenuOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setInstanceMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [instanceMenuOpen]);
 
   const getPageInfo = (path: string) => {
     if (path.startsWith('/flows')) return { title: 'Construtor de Fluxos', category: 'Automação' };
@@ -52,24 +70,49 @@ export function AppHeader() {
             <span>Canal ativo</span>
             <strong>{current?.name || 'Nenhuma instância'}</strong>
           </div>
-          <div className="app-header-select-wrap">
-            <select
+          <div className="app-header-select-wrap" ref={instanceMenuRef}>
+            <button
+              type="button"
+              className="app-header-instance-trigger"
               aria-label="Instância ativa"
-              value={activeInstance}
-              onChange={(e) => setActiveInstance(e.target.value)}
-              className="bg-transparent font-semibold text-xs text-content-primary cursor-pointer outline-none border-none p-0 pr-4"
+              aria-haspopup="listbox"
+              aria-expanded={instanceMenuOpen}
+              disabled={instances.length === 0}
+              onClick={() => setInstanceMenuOpen((open) => !open)}
             >
-              {instances.length === 0 ? (
-                <option value="">Selecionar</option>
-              ) : (
-                instances.map((inst) => (
-                  <option key={inst.id} value={inst.id}>
-                    {inst.name || inst.id} {inst.phone ? `(${inst.phone})` : ''} {inst.status === 'connected' ? '●' : '○'}
-                  </option>
-                ))
-              )}
-            </select>
-            <ChevronDown size={13} aria-hidden="true" />
+              <span className="app-header-instance-value">{current?.name || 'Selecionar instância'}</span>
+              <ChevronDown size={13} aria-hidden="true" />
+            </button>
+            {instanceMenuOpen && instances.length > 0 && (
+              <div className="app-header-instance-menu" role="listbox" aria-label="Selecionar instância WhatsApp">
+                {instances.map((inst) => {
+                  const selected = activeInstance === inst.id || activeInstance === inst.name;
+                  const connected = inst.status === 'connected';
+                  return (
+                    <button
+                      key={inst.id}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      className={`app-header-instance-option ${selected ? 'is-selected' : ''}`}
+                      onClick={() => {
+                        setActiveInstance(inst.id);
+                        setInstanceMenuOpen(false);
+                      }}
+                    >
+                      <span className="app-header-instance-option-main">
+                        <span className={`app-header-instance-option-dot ${connected ? 'is-connected' : ''}`} />
+                        <span className="app-header-instance-option-copy">
+                          <strong>{inst.name || inst.id}</strong>
+                          <small>{inst.phone || 'Número não informado'}</small>
+                        </span>
+                      </span>
+                      <span className="app-header-instance-option-mark">{selected ? '✓' : connected ? 'Ativo' : ''}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
           <Link
             to="/connections"
