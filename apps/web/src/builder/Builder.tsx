@@ -69,6 +69,7 @@ function Editor() {
     return () => observer.disconnect();
   }, []);
   const [activeBindings, setActiveBindings] = useState<Record<string, { flowId: string; flow?: any }>>({});
+  const autoOpenSuppressedRef = useRef(false);
   const [liveError, setLiveError] = useState<{ nodeId: string; error: string; timestamp: string } | null>(null);
 
   const upload = useRef<HTMLInputElement>(null);
@@ -111,11 +112,13 @@ function Editor() {
 
   const refreshData = async () => {
     try {
+      let activeData: Record<string, { flowId: string; flow?: SavedFlow }> = {};
       const activeRes = await fetch('/api/flows/active');
       if (activeRes.ok) {
         const active = await activeRes.json();
         if (typeof active === 'object' && active !== null) {
-          setActiveBindings(active);
+          activeData = active as Record<string, { flowId: string; flow?: SavedFlow }>;
+          setActiveBindings(activeData);
         }
       }
 
@@ -128,15 +131,14 @@ function Editor() {
           if (queryId) {
             const flowToOpen = flows.find((f: any) => f.id === queryId);
             if (flowToOpen) {
-              const candidateGraph = flowToOpen.graph || flowToOpen.draft;
-              const parsed = flowGraphSchema.safeParse(candidateGraph);
-              if (parsed.success) {
-                state.replace(parsed.data);
-                state.setName(flowToOpen.name);
-                setFlowId(flowToOpen.id);
-                if (flowToOpen.targetInstance) setActiveInstance(flowToOpen.targetInstance);
-                layout(parsed.data);
-                setNotice(`Fluxo "${flowToOpen.name}" carregado.`);
+              autoOpenSuppressedRef.current = true;
+              openFlow(flowToOpen, `Fluxo "${flowToOpen.name}" carregado.`);
+            }
+          } else {
+            const activeFlow = resolveActiveBinding(activeData)?.flow;
+            if (activeFlow && !autoOpenSuppressedRef.current) {
+              if (openFlow(activeFlow, `Fluxo ativo "${activeFlow.name}" carregado.`)) {
+                autoOpenSuppressedRef.current = true;
               }
             }
           }
@@ -150,6 +152,15 @@ function Editor() {
   useEffect(() => {
     void refreshData();
   }, []);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('id') || autoOpenSuppressedRef.current) return;
+    const activeFlow = resolveActiveBinding(activeBindings)?.flow;
+    if (!activeFlow) return;
+    if (openFlow(activeFlow, `Fluxo ativo "${activeFlow.name}" carregado.`)) {
+      autoOpenSuppressedRef.current = true;
+    }
+  }, [activeBindings, activeInstance, targetInstance, currentInstance?.id, currentInstance?.name]);
 
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
@@ -225,6 +236,28 @@ function Editor() {
     setFitRequested(true);
   };
 
+  function resolveActiveBinding(bindings: Record<string, { flowId: string; flow?: SavedFlow }>) {
+    const keys = Array.from(
+      new Set([targetInstance, activeInstance, currentInstance?.name, currentInstance?.id].filter((key): key is string => Boolean(key)))
+    );
+    return keys.map(key => bindings[key]).find(Boolean);
+  }
+
+  function openFlow(flow: SavedFlow, message: string) {
+    const parsed = flowGraphSchema.safeParse(flow.graph || flow.draft);
+    if (!parsed.success) {
+      setNotice('O fluxo salvo tem um formato incompatível.');
+      return false;
+    }
+    state.replace(parsed.data);
+    state.setName(flow.name);
+    setFlowId(flow.id);
+    if (flow.targetInstance) setActiveInstance(flow.targetInstance);
+    layout(parsed.data);
+    setNotice(message);
+    return true;
+  }
+
   const connect = (connection: Connection) => {
     if (!connection.sourceHandle || connection.source === connection.target) return;
     if (graph.edges.some(edge => edge.source === connection.source && edge.sourcePort === connection.sourceHandle)) {
@@ -241,6 +274,8 @@ function Editor() {
   };
 
   const newGraph = (kind: 'blank' | 'sdr') => {
+    autoOpenSuppressedRef.current = true;
+    window.history.replaceState(null, '', window.location.pathname);
     state.replace(kind === 'sdr' ? createSdrTemplate() : createBlankFlow());
     state.setName(kind === 'sdr' ? 'Qualificação SDR' : 'Novo fluxo');
     setFlowId(null);
@@ -349,19 +384,10 @@ function Editor() {
   const handleSelectSavedFlow = (selectedFlowId: string) => {
     const flow = savedFlows.find(item => item.id === selectedFlowId);
     if (!flow) return;
-    const candidateGraph = flow.graph || flow.draft;
-    const parsed = flowGraphSchema.safeParse(candidateGraph);
-    if (!parsed.success) {
-      setNotice('O fluxo salvo tem um formato incompatível.');
-      return;
-    }
-    state.replace(parsed.data);
-    state.setName(flow.name);
-    setFlowId(flow.id);
+    autoOpenSuppressedRef.current = true;
+    if (!openFlow(flow, `Fluxo "${flow.name}" aberto para edição.`)) return;
     if (flow.targetInstance) setActiveInstance(flow.targetInstance);
     window.history.replaceState(null, '', `?id=${flow.id}`);
-    layout(parsed.data);
-    setNotice(`Fluxo "${flow.name}" aberto para edição.`);
   };
 
   const isInstanceActiveWithThisFlow = targetInstance && activeBindings[targetInstance]?.flowId === flowId;
@@ -598,33 +624,57 @@ function Editor() {
           )}
 
           <div className="builder-toolbar bg-surface border-b border-border px-6 py-2 flex items-center justify-between gap-2 text-xs flex-shrink-0">
-            <div className="builder-tool-group flex items-center gap-1.5">
-              <Button size="sm" variant="ghost" title="Desfazer (Ctrl+Z)" aria-label="Desfazer" disabled={state.cursor === 0} onClick={state.undo}>
-                <Undo2 size={14} />
-              </Button>
-              <Button size="sm" variant="ghost" title="Refazer (Ctrl+Shift+Z)" aria-label="Refazer" disabled={state.cursor === state.history.length - 1} onClick={state.redo}>
-                <Redo2 size={14} />
-              </Button>
-              <span className="h-4 w-px bg-border mx-1" />
-              <Button size="sm" variant="ghost" onClick={() => layout()}>
-                <LayoutGrid size={14} /> Organizar
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setShowJson(!showJson)}>
-                <FileJson size={14} /> JSON
-              </Button>
-              <span className="h-4 w-px bg-border mx-1" />
-              <label title="Máximo de vezes que cada nó pode ser executado em loops" className="builder-loop-control text-content-secondary text-xs font-medium cursor-default">
-                <Repeat size={13} /> Loop:
-                <input
-                  aria-label="Limite de loop"
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={graph.loopLimit ?? 5}
-                  onChange={event => state.replace({ ...graph, loopLimit: Math.max(1, Math.min(20, Number(event.target.value) || 5)) })}
-                  className="w-12 py-0.5 px-1.5 rounded-md border border-border bg-surface text-center text-xs font-mono outline-none focus:ring-1 focus:ring-brand"
-                />
-              </label>
+            <div className="builder-toolbar-start">
+              {savedFlows.length > 0 && (
+                <div className="builder-flow-picker">
+                  <label htmlFor="builder-flow-picker">
+                    <span className="builder-flow-picker-dot" />
+                    Fluxo ativo
+                  </label>
+                  <select
+                    id="builder-flow-picker"
+                    aria-label="Abrir fluxo salvo"
+                    value={flowId ?? ''}
+                    onChange={event => handleSelectSavedFlow(event.target.value)}
+                  >
+                    <option value="">Selecionar fluxo salvo</option>
+                    {savedFlows.map(flow => (
+                      <option key={flow.id} value={flow.id}>
+                        {flow.name} {flow.published ? `(v${flow.publishedVersion || 1})` : '(rascunho)'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="builder-tool-group flex items-center gap-1.5">
+                <Button size="sm" variant="ghost" title="Desfazer (Ctrl+Z)" aria-label="Desfazer" disabled={state.cursor === 0} onClick={state.undo}>
+                  <Undo2 size={14} />
+                </Button>
+                <Button size="sm" variant="ghost" title="Refazer (Ctrl+Shift+Z)" aria-label="Refazer" disabled={state.cursor === state.history.length - 1} onClick={state.redo}>
+                  <Redo2 size={14} />
+                </Button>
+                <span className="h-4 w-px bg-border mx-1" />
+                <Button size="sm" variant="ghost" onClick={() => layout()}>
+                  <LayoutGrid size={14} /> Organizar
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setShowJson(!showJson)}>
+                  <FileJson size={14} /> JSON
+                </Button>
+                <span className="h-4 w-px bg-border mx-1" />
+                <label title="Máximo de vezes que cada nó pode ser executado em loops" className="builder-loop-control text-content-secondary text-xs font-medium cursor-default">
+                  <Repeat size={13} /> Loop:
+                  <input
+                    aria-label="Limite de loop"
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={graph.loopLimit ?? 5}
+                    onChange={event => state.replace({ ...graph, loopLimit: Math.max(1, Math.min(20, Number(event.target.value) || 5)) })}
+                    className="w-12 py-0.5 px-1.5 rounded-md border border-border bg-surface text-center text-xs font-mono outline-none focus:ring-1 focus:ring-brand"
+                  />
+                </label>
+              </div>
             </div>
             <div className="builder-tool-group flex items-center gap-1.5">
               <Button
@@ -979,26 +1029,6 @@ function Editor() {
                   <ChevronRight size={13} />
                 </button>
               </div>
-            </div>
-          )}
-
-          {savedFlows.length > 0 && (
-            <div className="mt-5 pt-4 border-t border-border">
-              <label className="text-[11px] font-semibold text-content-muted block mb-1.5">
-                Abrir Outro Fluxo Salvo
-              </label>
-              <select
-                value={flowId ?? ''}
-                onChange={event => handleSelectSavedFlow(event.target.value)}
-                className="w-full p-2 rounded-lg bg-surface-elevated border border-border text-xs text-content-primary outline-none focus:border-brand"
-              >
-                <option value="">-- Selecionar fluxo salvo --</option>
-                {savedFlows.map(flow => (
-                  <option key={flow.id} value={flow.id}>
-                    {flow.name} {flow.published ? `(v${flow.publishedVersion || 1})` : '(rascunho)'}
-                  </option>
-                ))}
-              </select>
             </div>
           )}
 

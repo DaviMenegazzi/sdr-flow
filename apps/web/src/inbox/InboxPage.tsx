@@ -709,9 +709,9 @@ export function InboxPage() {
   const memoryEntries = selectedConv?.lead.memory ? Object.entries(selectedConv.lead.memory) : [];
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-canvas">
+    <div className="inbox-page flex h-full w-full overflow-hidden bg-canvas">
       {/* LEFT COLUMN: Filters & Conversation List */}
-      <div className="w-80 border-r border-border flex flex-col flex-shrink-0 bg-surface">
+      <div className="inbox-conversation-list w-80 border-r border-border flex flex-col flex-shrink-0 bg-surface">
         {/* Inbox Header */}
         <div className="p-3.5 border-b border-border flex flex-col gap-2.5">
           <div className="flex items-center justify-between">
@@ -845,7 +845,7 @@ export function InboxPage() {
         {selectedConv ? (
           <>
             {/* Active Conversation Top Bar */}
-            <div className="h-14 px-6 border-b border-border flex items-center justify-between gap-4 bg-surface flex-shrink-0">
+            <div className="inbox-conversation-header h-14 px-6 border-b border-border flex items-center justify-between gap-4 bg-surface flex-shrink-0">
               <div className="min-w-0">
                 <h2 className="text-sm font-semibold text-content m-0 flex items-center gap-2 truncate">
                   {selectedConv.lead.name || 'Lead sem nome'}
@@ -860,8 +860,9 @@ export function InboxPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 flex-shrink-0">
+              <div className="inbox-conversation-actions flex items-center gap-2 flex-shrink-0">
                 <Button
+                  className="inbox-conversation-action"
                   onClick={() => void openDebug()}
                   disabled={debugLoading}
                   variant={debugOpen ? 'primary' : 'outline'}
@@ -876,7 +877,7 @@ export function InboxPage() {
                 <select
                   value={selectedConv.stage}
                   onChange={e => handleStageChange(e.target.value)}
-                  className="text-xs py-1.5 px-2 bg-surface border border-border rounded-lg text-content focus:outline-none focus:ring-1 focus:ring-brand"
+                  className="inbox-stage-select text-xs py-1.5 px-2 bg-surface border border-border rounded-lg text-content focus:outline-none focus:ring-1 focus:ring-brand"
                 >
                   {Object.entries(STAGE_CONFIG).map(([k, v]) => (
                     <option key={k} value={k}>
@@ -888,6 +889,7 @@ export function InboxPage() {
                 {/* Takeover / Release Button */}
                 {selectedConv.handled_by === 'HUMAN' ? (
                   <Button
+                    className="inbox-conversation-action"
                     onClick={handleRelease}
                     disabled={actionLoading}
                     variant="accent"
@@ -899,6 +901,7 @@ export function InboxPage() {
                   </Button>
                 ) : (
                   <Button
+                    className="inbox-conversation-action"
                     onClick={handleTakeover}
                     disabled={actionLoading}
                     variant="success"
@@ -1178,7 +1181,7 @@ export function InboxPage() {
 
       {/* RIGHT COLUMN: Lead & Commercial Context */}
       {selectedConv && !debugOpen && (
-        <div className="w-72 border-l border-border p-4 overflow-y-auto flex-shrink-0 bg-surface flex flex-col gap-4">
+        <div className="inbox-context-panel w-64 border-l border-border p-4 overflow-y-auto flex-shrink-0 bg-surface flex flex-col gap-4">
           <span className="text-[10px] font-bold uppercase tracking-wider text-content-muted">
             CONTEXTO DO LEAD
           </span>
