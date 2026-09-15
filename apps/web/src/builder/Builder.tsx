@@ -57,6 +57,9 @@ function Editor() {
   const [selectedEdges, setSelectedEdges] = useState<string[]>([]);
   const { activeInstance, activeInstanceName, currentInstance, setActiveInstance } = useInstance();
   const targetInstance = activeInstanceName || currentInstance?.name || '';
+  const managedFlowApi = Boolean(activeOrg && activeOrg !== 'standalone-org' && session?.access_token);
+  const flowApiBase = managedFlowApi ? `/api/organizations/${activeOrg}/flows` : '/api/flows';
+  const flowApiHeaders: Record<string, string> = session ? { Authorization: `Bearer ${session.access_token}` } : {};
   const [appColorMode, setAppColorMode] = useState<'light' | 'dark'>(() =>
     document.documentElement.classList.contains('light') ? 'light' : 'dark'
   );
@@ -112,6 +115,54 @@ function Editor() {
 
   const refreshData = async () => {
     try {
+      if (managedFlowApi) {
+        const flowsRes = await fetch(flowApiBase, { headers: flowApiHeaders });
+        if (!flowsRes.ok) return;
+        const rawFlows = await flowsRes.json();
+        if (!Array.isArray(rawFlows)) return;
+
+        const flows = rawFlows.map((flow: any): SavedFlow => ({
+          ...flow,
+          graph: flow.draft,
+          published: Boolean(flow.published_version_id),
+        }));
+        setSavedFlows(flows);
+
+        const activeData: Record<string, { flowId: string; flow?: SavedFlow }> = {};
+        if (currentInstance?.agent_id) {
+          const agentRes = await fetch(`/api/me/agents/${currentInstance.agent_id}`, { headers: flowApiHeaders });
+          if (agentRes.ok) {
+            const agent = await agentRes.json();
+            const activeFlow = agent.flow_id
+              ? flows.find(flow => flow.id === agent.flow_id && flow.published_version_id)
+              : flows.find(flow => flow.published_version_id);
+            if (activeFlow) {
+              const keys = [targetInstance, activeInstance, currentInstance.id, currentInstance.name]
+                .filter((key): key is string => Boolean(key));
+              for (const key of new Set(keys)) {
+                activeData[key] = { flowId: activeFlow.id, flow: activeFlow };
+              }
+            }
+          }
+        }
+        setActiveBindings(activeData);
+
+        const queryId = new URLSearchParams(window.location.search).get('id');
+        if (queryId) {
+          const flowToOpen = flows.find(flow => flow.id === queryId);
+          if (flowToOpen) {
+            autoOpenSuppressedRef.current = true;
+            openFlow(flowToOpen, `Fluxo "${flowToOpen.name}" carregado.`);
+          }
+        } else {
+          const activeFlow = resolveActiveBinding(activeData)?.flow;
+          if (activeFlow && !autoOpenSuppressedRef.current && openFlow(activeFlow, `Fluxo ativo "${activeFlow.name}" carregado.`)) {
+            autoOpenSuppressedRef.current = true;
+          }
+        }
+        return;
+      }
+
       let activeData: Record<string, { flowId: string; flow?: SavedFlow }> = {};
       const activeRes = await fetch('/api/flows/active');
       if (activeRes.ok) {
@@ -151,7 +202,7 @@ function Editor() {
 
   useEffect(() => {
     void refreshData();
-  }, []);
+  }, [managedFlowApi, activeOrg, session?.access_token, currentInstance?.agent_id, targetInstance]);
 
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('id') || autoOpenSuppressedRef.current) return;
@@ -222,15 +273,15 @@ function Editor() {
   const layout = (input = graph) => {
     const dag = new dagre.graphlib.Graph();
     dag.setDefaultEdgeLabel(() => ({}));
-    dag.setGraph({ rankdir: 'LR', nodesep: 80, ranksep: 90 });
-    input.nodes.forEach(node => dag.setNode(node.id, { width: 240, height: 145 }));
+    dag.setGraph({ rankdir: 'LR', nodesep: 64, ranksep: 76 });
+    input.nodes.forEach(node => dag.setNode(node.id, { width: 224, height: 132 }));
     input.edges.forEach(edge => dag.setEdge(edge.source, edge.target));
     dagre.layout(dag);
     state.replace({
       ...input,
       nodes: input.nodes.map(node => ({
         ...node,
-        position: { x: dag.node(node.id).x - 120, y: dag.node(node.id).y - 72 },
+        position: { x: dag.node(node.id).x - 112, y: dag.node(node.id).y - 66 },
       })),
     });
     setFitRequested(true);
@@ -302,16 +353,13 @@ function Editor() {
     setBusy(true);
     try {
       // 1. Salva o fluxo na API
-      const payload = {
-        id: flowId || undefined,
-        name: state.name,
-        graph,
-        targetInstance: targetInstance || undefined,
-      };
+      const payload = managedFlowApi
+        ? { name: state.name, graph }
+        : { id: flowId || undefined, name: state.name, graph, targetInstance: targetInstance || undefined };
 
-      const saveRes = await fetch(flowId ? `/api/flows/${flowId}` : '/api/flows', {
+      const saveRes = await fetch(flowId ? `${flowApiBase}/${flowId}` : flowApiBase, {
         method: flowId ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...flowApiHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
@@ -333,9 +381,9 @@ function Editor() {
 
       // 2. Se for publicar, aciona rota de publicação
       if (publish) {
-        const pubRes = await fetch(`/api/flows/${saved.id}/publish`, {
+        const pubRes = await fetch(`${flowApiBase}/${saved.id}/publish`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { ...flowApiHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify({ graph, targetInstance }),
         });
 
@@ -344,10 +392,10 @@ function Editor() {
           throw new Error(errJson?.error || `Erro ao publicar (${pubRes.status})`);
         }
 
-        const pubData = (await pubRes.json()) as { version: number; targetInstance?: string };
+        const pubData = (await pubRes.json()) as { version?: number; targetInstance?: string };
         const isTest = Boolean(graph.testMode?.enabled);
         setNotice(
-          `Versão ${pubData.version} publicada e ativada no WhatsApp "${targetInstance}" (${isTest ? 'Modo Teste restrito a ' + (graph.testMode?.phone || 'número autorizado') : 'Modo Produção ativo'}).`
+          `Versão ${pubData.version ?? 'nova'} publicada e ativada no WhatsApp "${targetInstance}" (${isTest ? 'Modo Teste restrito a ' + (graph.testMode?.phone || 'número autorizado') : 'Modo Produção ativo'}).`
         );
       } else {
         setNotice('Fluxo e configurações salvos com sucesso.');

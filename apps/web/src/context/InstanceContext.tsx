@@ -4,6 +4,7 @@ import { useSession } from '../session';
 export interface InstanceItem {
   id: string;
   name: string;
+  agent_id?: string | null;
   status: 'connected' | 'connecting' | 'disconnected';
   phone: string | null;
   provider: string;

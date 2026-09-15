@@ -1,12 +1,9 @@
 import type { MessagingService } from './types.js';
 
 /**
- * Delegates to the same lenient matcher used by the app.ts pre-check
- * (handles the Brazilian 8-vs-9-digit mobile variation, DDI/DDD suffixes,
- * and comma/semicolon-separated multiple numbers). Previously this used a
- * strict exact-match comparison, which caused messages that passed the
- * app.ts gate to be silently blocked again here whenever the sender's
- * number and the configured test phone differed only by the extra "9".
+ * Test mode deliberately uses one normalized, exact number. A formatted
+ * version of the same configured number is accepted, but nearby numbers or
+ * Brazilian 8/9-digit variations are not authorized by accident.
  */
 export function matchesTestPhone(incoming: string | undefined, allowed: string): boolean {
   if (!incoming || (incoming.includes('@') && !/@s\.whatsapp\.net$/.test(incoming))) return false;

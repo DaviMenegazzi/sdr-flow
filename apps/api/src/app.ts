@@ -2726,12 +2726,62 @@ export function createApp(config: ApiConfig = {}): Express {
   });
   orgRoutes.post('/flows/:flowId/publish', checkScope('flows:write'), async (req, res) => {
     const flowId = z.uuid().parse(req.params.flowId);
-    const validation = validateGraph(req.body);
+    // The builder sends { graph, targetInstance } while API clients may send the
+    // graph directly. Accept both shapes so publishing cannot silently discard
+    // the test-mode guard before it reaches the immutable flow version.
+    const body = z.object({ graph: z.unknown(), targetInstance: z.string().trim().min(1).optional() }).strict().safeParse(req.body);
+    const graphInput = body.success ? body.data.graph : req.body;
+    const targetInstance = body.success ? body.data.targetInstance : undefined;
+    const validation = validateGraph(graphInput);
     if (!validation.valid || !validation.graph) { res.status(422).json(validation); return; }
     if (!config.serviceRoleKey) { res.status(503).json({ error: 'Publicação requer a chave de serviço configurada no servidor.' }); return; }
     const db = serviceDatabase(config.supabaseUrl!, config.serviceRoleKey);
+
+    // Resolve the target before creating the immutable version so a typo in the
+    // selected instance cannot leave an orphaned publication behind.
+    let selectedAgentId: string | null = null;
+    if (targetInstance) {
+      let connectionQuery = db
+        .from('connections')
+        .select('id,agent_id')
+        .eq('organization_id', res.locals.organizationId as string);
+      if (uuidParam.safeParse(targetInstance).success) {
+        connectionQuery = connectionQuery.eq('id', targetInstance);
+      } else {
+        connectionQuery = connectionQuery.eq('name', targetInstance);
+      }
+      let { data: connection } = await connectionQuery.maybeSingle();
+      if (!connection && !uuidParam.safeParse(targetInstance).success) {
+        const fallback = await db
+          .from('connections')
+          .select('id,agent_id')
+          .eq('organization_id', res.locals.organizationId as string)
+          .eq('provider_instance_id', targetInstance)
+          .maybeSingle();
+        connection = fallback.data;
+      }
+      if (!connection) {
+        res.status(404).json({ error: 'Instância selecionada não encontrada nesta organização.' });
+        return;
+      }
+      selectedAgentId = connection.agent_id;
+    }
+
     const { data, error } = await db.rpc('publish_flow', { p_org: res.locals.organizationId as string, p_flow: flowId, p_actor: res.locals.userId as string, p_graph: validation.graph });
-    if (error) throw error; res.status(201).json(data);
+    if (error) throw error;
+
+    // A published flow becomes the active flow for the selected connection.
+    // This keeps the builder's “Publicar no WhatsApp” action aligned with the
+    // canonical resolver used by inbound webhooks.
+    if (selectedAgentId && data?.id) {
+      const { error: assignmentError } = await db
+        .from('ai_agents')
+        .update({ flow_id: flowId, active_flow_version_id: data.id, updated_at: new Date().toISOString() })
+        .eq('organization_id', res.locals.organizationId as string)
+        .eq('id', selectedAgentId);
+      if (assignmentError) throw assignmentError;
+    }
+    res.status(201).json(data);
   });
 
   orgRoutes.get('/executions', checkScope('executions:read'), async (_req, res) => {
