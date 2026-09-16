@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { createBlankFlow } from '../packages/flow/src/index.js';
+import { encryptCredentials } from '../packages/db/src/index.js';
 import { processTurn } from '../packages/runtime/src/turns/turn-processor.js';
 import { InMemoryExecutionEventBus } from '../packages/runtime/src/events/event-publisher.js';
 import { InMemoryDebugRegistry } from '../packages/runtime/src/debug/debug-registry.js';
@@ -30,7 +31,7 @@ function chain(result: any) {
   return obj;
 }
 
-function buildMockDb(opts: { organizationId: string; connectionId: string; flowVersionId: string; flowId: string }) {
+function buildMockDb(opts: { organizationId: string; connectionId: string; flowVersionId: string; flowId: string; hasOpenaiKey?: boolean }) {
   const inboundEventsById = new Map<string, any>();
   const messagesByProviderId = new Map<string, { id: string; created_at: string }>();
   let conversationRow: any = null;
@@ -86,6 +87,10 @@ function buildMockDb(opts: { organizationId: string; connectionId: string; flowV
         marks.push({ eventId: args.p_event_id, status: args.p_status });
         return Promise.resolve({ data: null, error: null });
       }
+      if (name === 'get_agent_openai_key') {
+        if (opts.hasOpenaiKey === false) return Promise.resolve({ data: null, error: null });
+        return Promise.resolve({ data: encryptCredentials({ apiKey: 'sk-test-agent-key' }), error: null });
+      }
       throw new Error(`Unexpected rpc in mock: ${name}`);
     },
   };
@@ -107,6 +112,8 @@ function buildMockDb(opts: { organizationId: string; connectionId: string; flowV
 }
 
 describe('processTurn — eventos realtime do inbox (Fase 5)', () => {
+  beforeAll(() => { vi.stubEnv('ENCRYPTION_KEY', 'test-only-credential-encryption-key'); });
+
   it('emits inbox:conversation.created and inbox:message.created for a brand-new conversation', async () => {
     const organizationId = randomUUID();
     const connectionId = randomUUID();
@@ -133,6 +140,7 @@ describe('processTurn — eventos realtime do inbox (Fase 5)', () => {
         organizationId,
         connectionId,
         flowVersionId,
+        agentId: randomUUID(),
         inboundEventIds: [eventId],
         isCurrent: async () => true,
       }
@@ -165,13 +173,14 @@ describe('processTurn — eventos realtime do inbox (Fase 5)', () => {
     });
 
     const deps = { db, runtimeConfig: {}, eventPublisher: eventBus, debugRegistry: new InMemoryDebugRegistry(), traceSink: new InMemoryTraceSink() };
+    const agentId = randomUUID();
     const eventId1 = addInboundEvent('wa-msg-dup');
-    await processTurn(deps, { organizationId, connectionId, flowVersionId, inboundEventIds: [eventId1], isCurrent: async () => true });
+    await processTurn(deps, { organizationId, connectionId, flowVersionId, agentId, inboundEventIds: [eventId1], isCurrent: async () => true });
 
     // Second turn re-delivers the same provider_message_id (e.g. a retried webhook) —
     // save_inbound_message's idempotency means this is not a new row.
     const eventId2 = addInboundEvent('wa-msg-dup');
-    await processTurn(deps, { organizationId, connectionId, flowVersionId, inboundEventIds: [eventId2], isCurrent: async () => true });
+    await processTurn(deps, { organizationId, connectionId, flowVersionId, agentId, inboundEventIds: [eventId2], isCurrent: async () => true });
 
     const messageEvents = received.filter(e => e.type === 'inbox:message.created');
     expect(messageEvents).toHaveLength(1);
@@ -179,5 +188,39 @@ describe('processTurn — eventos realtime do inbox (Fase 5)', () => {
     // The conversation itself is only genuinely "created" once, too.
     const createdEvents = received.filter(e => e.type === 'inbox:conversation.created');
     expect(createdEvents).toHaveLength(1);
+  });
+
+  it('fails the turn instead of falling back to any shared key when the agent has no OpenAI key configured', async () => {
+    const organizationId = randomUUID();
+    const connectionId = randomUUID();
+    const flowVersionId = randomUUID();
+    const flowId = randomUUID();
+    const { db, addInboundEvent } = buildMockDb({ organizationId, connectionId, flowVersionId, flowId, hasOpenaiKey: false });
+    const eventId = addInboundEvent('wa-msg-no-key');
+
+    const result = await processTurn(
+      { db, runtimeConfig: {}, eventPublisher: new InMemoryExecutionEventBus(), debugRegistry: new InMemoryDebugRegistry(), traceSink: new InMemoryTraceSink() },
+      { organizationId, connectionId, flowVersionId, agentId: randomUUID(), inboundEventIds: [eventId], isCurrent: async () => true }
+    );
+
+    expect(result.status).toBe('error');
+    expect((result as any).reason).toBe('missing_openai_key');
+  });
+
+  it('fails the turn when no agentId was pinned at enqueue time (job predates this field)', async () => {
+    const organizationId = randomUUID();
+    const connectionId = randomUUID();
+    const flowVersionId = randomUUID();
+    const flowId = randomUUID();
+    const { db, addInboundEvent } = buildMockDb({ organizationId, connectionId, flowVersionId, flowId });
+    const eventId = addInboundEvent('wa-msg-legacy-job');
+
+    const result = await processTurn(
+      { db, runtimeConfig: {}, eventPublisher: new InMemoryExecutionEventBus(), debugRegistry: new InMemoryDebugRegistry(), traceSink: new InMemoryTraceSink() },
+      { organizationId, connectionId, flowVersionId, inboundEventIds: [eventId], isCurrent: async () => true }
+    );
+
+    expect(result.status).toBe('error');
+    expect((result as any).reason).toBe('no_agent_pinned');
   });
 });

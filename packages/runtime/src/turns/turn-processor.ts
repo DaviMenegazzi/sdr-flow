@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { ConnectionRepository, ConversationRepository, ExecutionRepository } from '@sdr/db';
+import { ConnectionRepository, ConversationRepository, ExecutionRepository, getAgentOpenAIKey } from '@sdr/db';
 import type { FlowContext, FlowExecutionEvent } from '@sdr/shared';
 import { executeFlow, HandoffService, type FlowServices } from '@sdr/flow';
 import { createRuntimeProviders, type RuntimeConfig } from '@sdr/flow/server';
@@ -33,6 +33,8 @@ export interface ProcessTurnInput {
   /** Pinned at enqueue time — never re-resolved here (8.3.5: no version swap mid-turn). */
   flowVersionId?: string;
   flowId?: string;
+  /** Pinned at enqueue time by resolveTurnFlow — which agent, and so which OpenAI key, runs this turn. */
+  agentId?: string;
   inboundEventIds: string[];
   isCurrent: () => Promise<boolean>;
 }
@@ -138,6 +140,32 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
       return { status: 'logged_bot_paused', conversationId: conversation.id };
     }
 
+    // Jobs enqueued before this field existed (24h buffer TTL, up to 12 retry attempts) may
+    // still be in flight right after a deploy — fail loudly instead of guessing an agent.
+    if (!input.agentId) {
+      await debugRegistry.failArmed(input.organizationId, conversation.id, {
+        severity: 'error',
+        code: 'no_agent_pinned',
+        message: 'Este turno foi enfileirado antes da vinculação de agente por chave própria. Será reprocessado ou pode ser reenviado.',
+      });
+      await markAll(db, input.organizationId, input.inboundEventIds, 'failed', 'no_agent_pinned');
+      return { status: 'error', reason: 'no_agent_pinned', conversationId: conversation.id };
+    }
+
+    // Every agent authenticates to OpenAI with its own key — never a platform-wide shared
+    // one (packages/db/src/agent-credentials.ts). No fallback here on purpose: silently
+    // reusing another key would defeat the whole point of per-agent isolation.
+    const openaiApiKey = await getAgentOpenAIKey(db, input.agentId);
+    if (!openaiApiKey) {
+      await debugRegistry.failArmed(input.organizationId, conversation.id, {
+        severity: 'error',
+        code: 'missing_openai_key',
+        message: 'O agente desta instância ainda não tem uma chave da OpenAI configurada. Configure em Agentes antes de continuar.',
+      });
+      await markAll(db, input.organizationId, input.inboundEventIds, 'failed', 'missing_openai_key');
+      return { status: 'error', reason: 'missing_openai_key', conversationId: conversation.id };
+    }
+
     const { data: flowVersion } = await db
       .from('flow_versions')
       .select('*')
@@ -219,7 +247,10 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
       tokens: { input: 0, output: 0 },
     };
 
-    const runtimeProviders = createRuntimeProviders(deps.runtimeConfig, id => new ConnectionRepository(db).resolveMessagingConnection(input.organizationId, id));
+    const runtimeProviders = createRuntimeProviders(
+      { ...deps.runtimeConfig, openaiApiKey },
+      id => new ConnectionRepository(db).resolveMessagingConnection(input.organizationId, id)
+    );
     const assertCurrent = async () => {
       if (!(await input.isCurrent())) throw new Error(SUPERSEDED_TURN_ERROR);
     };

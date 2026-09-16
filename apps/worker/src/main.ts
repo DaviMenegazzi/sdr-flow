@@ -85,6 +85,7 @@ if (!redisUrl) {
           connectionId: turn.job.connectionId,
           flowVersionId: turn.job.flowVersionId,
           flowId: turn.job.flowId,
+          agentId: turn.job.agentId,
           inboundEventIds: turn.inboundEventIds,
           isCurrent: turn.isCurrent,
         }

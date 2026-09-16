@@ -19,6 +19,16 @@ function dependencies(overrides: Partial<RedisTurnBufferDependencies> = {}): Red
   return {
     redis: {
       async eval(script, keyCount, ...args) {
+        if (script.includes('ZCARD')) {
+          state.evalCalls.push('org_priority');
+          const [key, nowStr, member, cutoffStr] = args.map(String);
+          const now = Number(nowStr);
+          const cutoff = Number(cutoffStr);
+          const entries = (state.sortedSets.get(key!) || []).filter(entry => entry.score > cutoff);
+          entries.push({ score: now, member: member! });
+          state.sortedSets.set(key!, entries);
+          return entries.length;
+        }
         if (script.includes("redis.call('INCR'")) {
           state.evalCalls.push('incr_zadd');
           const [generationKey, eventsKey, member] = args.map(String);
@@ -106,6 +116,23 @@ describe('RedisTurnBuffer (canonical queue debounce + lock)', () => {
     expect(oldResult.status).toBe('superseded');
     expect(latestResult.status).toBe('executed');
     expect(handled).toEqual([[eventId1, eventId2]]);
+    await buffer.close();
+  });
+
+  it('deprioritizes an organization that bursts many turns, without penalizing an idle one (cross-org fairness)', async () => {
+    const buffer = new RedisTurnBuffer('redis://localhost:6379/0', 'sdr-turns', async () => ({ status: 'executed' }), dependencies());
+
+    for (let i = 0; i < 4; i++) {
+      await buffer.enqueue({ kind: 'published', organizationId: 'org-busy', connectionId: 'conn-1', conversationKey: `conn-1:lead-${i}`, windowSeconds: 5, inboundEventId: randomUUID() });
+    }
+    await buffer.enqueue({ kind: 'published', organizationId: 'org-idle', connectionId: 'conn-2', conversationKey: 'conn-2:lead-0', windowSeconds: 5, inboundEventId: randomUUID() });
+
+    const priorities = state.jobs.map(job => job.options.priority as number);
+    // org-busy's four turns queue up behind each other (0, 1, 2, 3)...
+    expect(priorities.slice(0, 4)).toEqual([0, 1, 2, 3]);
+    // ...but org-idle's turn — its first in the window — still gets the fast lane (0),
+    // regardless of how much load org-busy has already piled up.
+    expect(priorities[4]).toBe(0);
     await buffer.close();
   });
 

@@ -13,12 +13,24 @@ const DEFAULT_LOCK_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_LOCK_RENEW_INTERVAL_MS = 60 * 1000;
 export const SUPERSEDED_TURN_ERROR = 'conversation_turn_superseded';
 
+// Cross-org fairness (8.x follow-up: the single global TURN_WORKER_CONCURRENCY pool has no
+// per-organization guarantee, so one client's burst can starve every other client's queue).
+// A sliding window of recent enqueues per organization, converted into BullMQ job priority:
+// an org that has enqueued many turns in the last ORG_FAIRNESS_WINDOW_MS gets a higher
+// (lower-precedence) priority number, so an idle org's turns jump the queue ahead of a busy
+// org's backlog once both are ready to run. No per-job decrement bookkeeping is needed —
+// entries simply age out of the window, so this can't leak or drift on a worker crash or a
+// BullMQ retry, unlike a naive increment-at-enqueue/decrement-at-completion counter would.
+const ORG_FAIRNESS_WINDOW_MS = 60_000;
+const MAX_JOB_PRIORITY = 2_097_151;
+
 export interface EnqueueTurnInput {
   kind: 'published';
   organizationId: string;
   connectionId: string;
   conversationKey: string;
   conversationId?: string;
+  agentId?: string;
   flowId?: string;
   flowVersionId?: string;
   windowSeconds: number;
@@ -97,6 +109,10 @@ function redisKeys(conversationKey: string) {
   };
 }
 
+function orgLoadKey(organizationId: string): string {
+  return `sdr:turn:org-load:${organizationId}`;
+}
+
 export function bufferWindowSeconds(graph: { nodes?: Array<{ type?: string; config?: Record<string, unknown> }> }): number {
   const node = graph.nodes?.find(candidate => candidate.type === 'input.buffer');
   if (!node) return 0;
@@ -142,20 +158,46 @@ export class RedisTurnBuffer {
     this.worker?.on?.('error', error => console.error(`[RedisTurnBuffer:${queueName}] Worker error:`, error));
   }
 
+  /**
+   * Recent-load-based BullMQ priority for this organization (see ORG_FAIRNESS_WINDOW_MS
+   * above). Counts this call's own entry, so an org with nothing else in the last window
+   * gets priority 0 — BullMQ's "no explicit priority" fast lane, processed before any
+   * explicitly prioritized job.
+   */
+  private async orgPriority(organizationId: string): Promise<number> {
+    const now = Date.now();
+    const count = Number(await this.redis.eval(
+      `redis.call('ZADD', KEYS[1], ARGV[1], ARGV[2])
+       redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[3])
+       redis.call('EXPIRE', KEYS[1], ARGV[4])
+       return redis.call('ZCARD', KEYS[1])`,
+      1,
+      orgLoadKey(organizationId),
+      now,
+      randomUUID(),
+      now - ORG_FAIRNESS_WINDOW_MS,
+      String(Math.ceil(ORG_FAIRNESS_WINDOW_MS / 1000)),
+    ));
+    return Math.max(0, Math.min(MAX_JOB_PRIORITY, count - 1));
+  }
+
   async enqueue(input: EnqueueTurnInput): Promise<{ generation: number; delayMs: number }> {
     const keys = redisKeys(input.conversationKey);
-    const generation = Number(await this.redis.eval(
-      `local generation = redis.call('INCR', KEYS[1])
-       redis.call('ZADD', KEYS[2], generation, ARGV[1])
-       redis.call('EXPIRE', KEYS[1], ARGV[2])
-       redis.call('EXPIRE', KEYS[2], ARGV[2])
-       return generation`,
-      2,
-      keys.generation,
-      keys.events,
-      input.inboundEventId,
-      String(BUFFER_TTL_SECONDS),
-    ));
+    const [generation, priority] = await Promise.all([
+      this.redis.eval(
+        `local generation = redis.call('INCR', KEYS[1])
+         redis.call('ZADD', KEYS[2], generation, ARGV[1])
+         redis.call('EXPIRE', KEYS[1], ARGV[2])
+         redis.call('EXPIRE', KEYS[2], ARGV[2])
+         return generation`,
+        2,
+        keys.generation,
+        keys.events,
+        input.inboundEventId,
+        String(BUFFER_TTL_SECONDS),
+      ).then(Number),
+      this.orgPriority(input.organizationId),
+    ]);
     const delayMs = Math.max(0, Math.round(input.windowSeconds * 1000));
 
     const job: ConversationTurnJobV1 = {
@@ -165,6 +207,7 @@ export class RedisTurnBuffer {
       connectionId: input.connectionId,
       conversationKey: input.conversationKey,
       conversationId: input.conversationId,
+      agentId: input.agentId,
       flowId: input.flowId,
       flowVersionId: input.flowVersionId,
       generation,
@@ -179,6 +222,7 @@ export class RedisTurnBuffer {
       {
         jobId: `${keys.digest}-${generation}`,
         delay: delayMs,
+        priority,
         attempts: 12,
         backoff: { type: 'exponential', delay: 500 },
         removeOnComplete: { age: 3600, count: 1000 },

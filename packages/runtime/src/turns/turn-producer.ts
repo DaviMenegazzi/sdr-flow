@@ -13,6 +13,8 @@ import type { FlowGraph } from '@sdr/shared';
 
 export interface TurnFlowResolution {
   organizationId: string;
+  /** Pinned alongside flowVersionId: which agent — and so which OpenAI key — runs this turn. */
+  agentId: string;
   flowId: string;
   /** The immutable version the runtime will actually execute for this connection. */
   flowVersionId: string;
@@ -77,6 +79,7 @@ export async function resolveFlowForConnection(
   return {
     status: 'resolved',
     organizationId,
+    agentId: assignedAgent.id,
     flowId: flow.id,
     flowVersionId: flowVersion.id,
     flowName: flow.name,
@@ -100,7 +103,7 @@ export interface ResolveAndEnqueueInput {
 }
 
 export type ResolveAndEnqueueResult =
-  | { status: 'queued'; organizationId: string; flowId: string; flowVersionId: string; generation: number; delayMs: number; conversationKey: string }
+  | { status: 'queued'; organizationId: string; agentId: string; flowId: string; flowVersionId: string; generation: number; delayMs: number; conversationKey: string }
   | { status: 'connection_not_found' | 'assigned_agent_not_found' | 'no_published_flow' | 'invalid_flow_version'; organizationId?: string };
 
 export async function resolveAndEnqueueTurn(deps: TurnProducerDeps, input: ResolveAndEnqueueInput): Promise<ResolveAndEnqueueResult> {
@@ -113,11 +116,12 @@ export async function resolveAndEnqueueTurn(deps: TurnProducerDeps, input: Resol
     organizationId: resolution.organizationId,
     connectionId: input.connectionId,
     conversationKey,
+    agentId: resolution.agentId,
     flowId: resolution.flowId,
     flowVersionId: resolution.flowVersionId,
     windowSeconds: resolution.windowSeconds,
     inboundEventId: input.eventId,
   });
 
-  return { status: 'queued', organizationId: resolution.organizationId, flowId: resolution.flowId, flowVersionId: resolution.flowVersionId, generation, delayMs, conversationKey };
+  return { status: 'queued', organizationId: resolution.organizationId, agentId: resolution.agentId, flowId: resolution.flowId, flowVersionId: resolution.flowVersionId, generation, delayMs, conversationKey };
 }
