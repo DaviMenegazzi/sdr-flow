@@ -42,6 +42,7 @@ export interface ConversationWithLead {
     direction: string;
     content: string;
     created_at: string;
+    message_type?: string | null;
   } | null;
 }
 
@@ -205,53 +206,57 @@ export class InboxRepository {
       return { conversations, total };
     }
 
-    // Supabase query builder
-    let query = this.db
+    // Supabase query builder — list_inbox_threads (202609162001_inbox_group_threads.sql) picks
+    // the page of thread-representative conversation ids: one id per (connection_id, lead_id)
+    // thread, the most recently active session. That's what turns "one card per conversations
+    // row" into "one card per chat" (a group no longer shows once per session-timeout) without
+    // changing what a conversation IS — takeover/release/assign/stage below still target this
+    // same representative id exactly as before.
+    const { data: threadRows, error: threadError } = (await this.db.rpc('list_inbox_threads', {
+      p_organization_id: organizationId,
+      p_connection_id: filters.connectionId ?? null,
+      p_stage: filters.stage && filters.stage !== 'ALL' ? filters.stage : null,
+      p_handled_by: filters.handledBy ?? null,
+      p_assigned_user_id: filters.assignedUserId ?? null,
+      p_unassigned: filters.assignedUserId === null,
+      p_search: filters.search ?? null,
+      p_limit: limit,
+      p_offset: offset,
+    })) as { data: Array<{ id: string; total_count: number }> | null; error: any };
+    if (threadError) throw threadError;
+
+    const total = threadRows?.[0]?.total_count ? Number(threadRows[0].total_count) : 0;
+    const orderedIds = (threadRows || []).map(row => row.id);
+    if (orderedIds.length === 0) return { conversations: [], total };
+
+    const { data, error } = await this.db
       .from('conversations')
-      .select('*, lead:leads(*), connection:connections(id, name, provider, phone)', { count: 'exact' })
-      .eq('organization_id', organizationId);
-
-    if (filters.connectionId) {
-      query = query.eq('connection_id', filters.connectionId);
-    }
-    if (filters.stage && filters.stage !== 'ALL') {
-      query = query.eq('stage', filters.stage);
-    }
-    if (filters.handledBy) {
-      query = query.eq('handled_by', filters.handledBy);
-    }
-    if (filters.assignedUserId !== undefined) {
-      if (filters.assignedUserId === null) {
-        query = query.is('assigned_user_id', null);
-      } else {
-        query = query.eq('assigned_user_id', filters.assignedUserId);
-      }
-    }
-
-    query = query
-      .order('last_message_at', { ascending: false, nullsFirst: false })
-      .range(offset, offset + limit - 1);
-
-    const { data, count, error } = await query;
+      .select('*, lead:leads(*), connection:connections(id, name, provider, phone)')
+      .in('id', orderedIds);
     if (error) throw error;
 
-    const conversations: ConversationWithLead[] = (data || []).map((row: any) => ({
-      ...row,
-      lead: {
-        ...row.lead,
-        memory: (row.lead?.memory || {}) as Record<string, unknown>,
-      },
-      connection: row.connection || null,
-      deal: null,
-      last_message: null,
-    }));
+    // .in() does not preserve order, so re-apply list_inbox_threads' own activity ordering.
+    const byId = new Map((data || []).map((row: any) => [row.id as string, row]));
+    const conversations: ConversationWithLead[] = orderedIds
+      .map(id => byId.get(id))
+      .filter((row: any): row is NonNullable<typeof row> => Boolean(row))
+      .map((row: any) => ({
+        ...row,
+        lead: {
+          ...row.lead,
+          memory: (row.lead?.memory || {}) as Record<string, unknown>,
+        },
+        connection: row.connection || null,
+        deal: null,
+        last_message: null,
+      }));
 
     // Supabase's query builder has no lateral join, so fetch the latest
     // message per conversation in a second pass and merge it in.
     if (conversations.length > 0) {
       const { data: recentMessages } = await this.db
         .from('messages')
-        .select('id, conversation_id, sender, direction, content, created_at')
+        .select('id, conversation_id, sender, direction, content, created_at, message_type')
         .in('conversation_id', conversations.map(c => c.id))
         .order('created_at', { ascending: false });
 
@@ -270,12 +275,13 @@ export class InboxRepository {
             direction: message.direction,
             content: message.content,
             created_at: message.created_at,
+            message_type: message.message_type,
           };
         }
       }
     }
 
-    return { conversations, total: count || conversations.length };
+    return { conversations, total };
   }
 
   async getConversation(
@@ -390,18 +396,17 @@ export class InboxRepository {
       return res.rows;
     }
 
-    const { data, error } = await this.db
-      .from('messages')
-      .select('*')
-      .eq('organization_id', organizationId)
-      .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: false })
-      .limit(limit);
-
+    // get_thread_messages (202609162001_inbox_group_threads.sql) merges history across every
+    // session (conversation row) of this same thread — the "histórico reúne mensagens de todas
+    // as sessões" requirement — instead of just this one session's slice, and already returns
+    // rows in ascending order.
+    const { data, error } = await this.db.rpc('get_thread_messages', {
+      p_organization_id: organizationId,
+      p_conversation_id: conversationId,
+      p_limit: limit,
+    });
     if (error) throw error;
-    const rows = data || [];
-    rows.reverse();
-    return rows;
+    return data || [];
   }
 
   async takeover(

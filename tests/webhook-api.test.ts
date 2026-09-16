@@ -31,6 +31,77 @@ describe('API Webhook & Inbound Gateway', () => {
       senderJid: '5511999999999@s.whatsapp.net',
     });
   });
+  it('falls back to key.participantAlt for the sending participant when others are absent', () => {
+    const event = parseEvolutionWebhook({
+      data: {
+        key: { id: 'group-lid-1', remoteJid: '120363000000000001@g.us', participantAlt: '5511988887777@s.whatsapp.net', fromMe: false },
+        pushName: 'Fulano',
+        chat: { subject: 'Grupo X' },
+        message: { conversation: 'oi' },
+      },
+    });
+    expect(event).toMatchObject({ senderJid: '5511988887777@s.whatsapp.net' });
+  });
+  it('normalizes a sticker message', () => {
+    const event = parseEvolutionWebhook({
+      data: {
+        key: { id: 'sticker-1', remoteJid: '5511999999999@s.whatsapp.net', fromMe: false },
+        pushName: 'Ana',
+        message: { stickerMessage: { url: 'https://example.com/sticker.webp', mimetype: 'image/webp' } },
+      },
+    });
+    expect(event).toMatchObject({ messageType: 'sticker', textContent: '' });
+  });
+  it('normalizes a contact and a location message', () => {
+    const contact = parseEvolutionWebhook({
+      data: {
+        key: { id: 'contact-1', remoteJid: '5511999999999@s.whatsapp.net', fromMe: false },
+        message: { contactMessage: { displayName: 'Fulano', vcard: 'BEGIN:VCARD\nEND:VCARD' } },
+      },
+    });
+    expect(contact).toMatchObject({ messageType: 'contact' });
+
+    const location = parseEvolutionWebhook({
+      data: {
+        key: { id: 'location-1', remoteJid: '5511999999999@s.whatsapp.net', fromMe: false },
+        message: { locationMessage: { degreesLatitude: -29.7, degreesLongitude: -53.7 } },
+      },
+    });
+    expect(location).toMatchObject({ messageType: 'location' });
+  });
+  it('unwraps a view-once (V2) media message to detect its real type and caption', () => {
+    const event = parseEvolutionWebhook({
+      data: {
+        key: { id: 'vo-1', remoteJid: '5511999999999@s.whatsapp.net', fromMe: false },
+        message: { viewOnceMessageV2: { message: { imageMessage: { url: 'https://example.com/a.jpg', caption: 'Olha só' } } } },
+      },
+    });
+    expect(event).toMatchObject({ messageType: 'image', textContent: 'Olha só' });
+  });
+  it('unwraps an ephemeral (disappearing) message to detect its real type', () => {
+    const event = parseEvolutionWebhook({
+      data: {
+        key: { id: 'eph-1', remoteJid: '5511999999999@s.whatsapp.net', fromMe: false },
+        message: { ephemeralMessage: { message: { audioMessage: { url: 'https://example.com/a.ogg' } } } },
+      },
+    });
+    expect(event).toMatchObject({ messageType: 'audio' });
+  });
+  it('falls back to unknown for an unrecognized non-text payload instead of a silently empty text bubble', () => {
+    const event = parseEvolutionWebhook({
+      data: {
+        key: { id: 'reaction-1', remoteJid: '5511999999999@s.whatsapp.net', fromMe: false },
+        message: { reactionMessage: { text: '👍', key: { id: 'other-msg' } } },
+      },
+    });
+    expect(event).toMatchObject({ messageType: 'unknown', textContent: '' });
+  });
+  it('still treats a genuinely empty message payload as text (no regression for protocol-only deliveries)', () => {
+    const event = parseEvolutionWebhook({
+      data: { key: { id: 'empty-1', remoteJid: '5511999999999@s.whatsapp.net', fromMe: false }, message: {} },
+    });
+    expect(event).toMatchObject({ messageType: 'text', textContent: '' });
+  });
   it('authenticates Meta challenge and signed status events before processing', async () => {
     const query: any = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: { id: 'connection' } }) };
     vi.spyOn(database, 'serviceDatabase').mockReturnValue({ from: () => query } as any);

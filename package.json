@@ -21,6 +21,7 @@
     "db:types:check": "tsx scripts/generate-db-types.ts --check",
     "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
     "ops:sync-webhooks": "tsx scripts/sync-evolution-webhooks.ts",
+    "ops:backfill-group-inbox": "tsx scripts/backfill-group-inbox.ts",
     "test:db": "vitest run tests/database.test.ts"
   },
   "devDependencies": {

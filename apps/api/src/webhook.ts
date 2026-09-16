@@ -47,12 +47,26 @@ export interface InboundMessageEvent {
   groupName?: string;
 }
 
+// Baileys/Evolution wrap the real content one (or more) levels deep for disappearing messages
+// and view-once media — unwrapping recursively means a sticker or image sent as view-once is
+// still detected as 'sticker'/'image' below instead of silently falling through to 'unknown'.
+// documentWithCaptionMessage is a similar wrapper Evolution sometimes uses for a captioned file.
+function unwrapEvolutionMessage(message: any, depth = 0): any {
+  if (!message || typeof message !== 'object' || depth > 5) return message || {};
+  if (message.ephemeralMessage?.message) return unwrapEvolutionMessage(message.ephemeralMessage.message, depth + 1);
+  if (message.viewOnceMessageV2Extension?.message) return unwrapEvolutionMessage(message.viewOnceMessageV2Extension.message, depth + 1);
+  if (message.viewOnceMessageV2?.message) return unwrapEvolutionMessage(message.viewOnceMessageV2.message, depth + 1);
+  if (message.viewOnceMessage?.message) return unwrapEvolutionMessage(message.viewOnceMessage.message, depth + 1);
+  if (message.documentWithCaptionMessage?.message) return unwrapEvolutionMessage(message.documentWithCaptionMessage.message, depth + 1);
+  return message;
+}
+
 export function parseEvolutionWebhook(payload: any): InboundMessageEvent | null {
   if (!payload || typeof payload !== 'object') return null;
 
   const data = Array.isArray(payload.data) ? payload.data[0] : payload.data || payload;
   const key = data.key || {};
-  const message = data.message || {};
+  const message = unwrapEvolutionMessage(data.message || {});
 
   const messageId = key.id || '';
   const remoteJid = key.remoteJid || '';
@@ -65,7 +79,7 @@ export function parseEvolutionWebhook(payload: any): InboundMessageEvent | null 
   const groupName = isGroup
     ? data.groupMetadata?.subject || data.group?.subject || data.chat?.subject || data.chat?.name || ''
     : '';
-  const senderJid = isGroup ? key.participant || key.participantPn || data.participant || '' : remoteJid;
+  const senderJid = isGroup ? key.participant || key.participantPn || key.participantAlt || data.participant || '' : remoteJid;
 
   // No usable sender/thread identifier at all (protocol messages, malformed payloads):
   // nothing downstream can attribute this to a lead or conversation, so don't create one.
@@ -76,6 +90,7 @@ export function parseEvolutionWebhook(payload: any): InboundMessageEvent | null 
     message.extendedTextMessage?.text ||
     message.imageMessage?.caption ||
     message.videoMessage?.caption ||
+    message.documentMessage?.caption ||
     '';
 
   let messageType = 'text';
@@ -87,12 +102,24 @@ export function parseEvolutionWebhook(payload: any): InboundMessageEvent | null 
   } else if (message.imageMessage) {
     messageType = 'image';
     mediaUrl = message.imageMessage.url;
+  } else if (message.stickerMessage) {
+    messageType = 'sticker';
+    mediaUrl = message.stickerMessage.url;
   } else if (message.videoMessage) {
     messageType = 'video';
     mediaUrl = message.videoMessage.url;
   } else if (message.documentMessage) {
     messageType = 'document';
     mediaUrl = message.documentMessage.url;
+  } else if (message.contactMessage || message.contactsArrayMessage) {
+    messageType = 'contact';
+  } else if (message.locationMessage || message.liveLocationMessage) {
+    messageType = 'location';
+  } else if (!textContent && Object.keys(message).length > 0) {
+    // A real message payload arrived (reaction, poll, button reply, template, edit, ...) but
+    // matches none of the shapes above — better an explicit "unsupported" marker downstream
+    // than a bubble that silently renders empty.
+    messageType = 'unknown';
   }
 
   // Group JIDs are the lead/conversation key for that group (packages/runtime's turn

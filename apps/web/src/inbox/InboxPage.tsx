@@ -24,6 +24,7 @@ import {
   Square,
   Download,
 } from 'lucide-react';
+import { messagePreview } from '@sdr/shared';
 import { useSession } from '../session';
 import { useInstance } from '../context/InstanceContext';
 import { buildAgentDebugExport, createAgentDebugFilename } from './debug-export';
@@ -847,7 +848,7 @@ export function InboxPage() {
                   </div>
 
                   <p className="text-[11px] text-content-muted truncate m-0">
-                    {c.last_message?.content || 'Nenhuma mensagem recente.'}
+                    {c.last_message ? messagePreview(c.last_message.message_type, c.last_message.content) : 'Nenhuma mensagem recente.'}
                   </p>
                 </div>
               );
@@ -867,9 +868,9 @@ export function InboxPage() {
                   {selectedConv.lead.is_group
                     ? (selectedConv.lead.group_subject || selectedConv.lead.name || 'Grupo sem nome')
                     : (selectedConv.lead.name || 'Lead sem nome')}
-                  {!selectedConv.lead.is_group && <span className="text-xs font-normal text-content-muted">
+                  <span className="text-xs font-normal text-content-muted">
                     {selectedConv.lead.phone}
-                  </span>}
+                  </span>
                 </h2>
                 <div className="flex items-center gap-2 mt-0.5 text-[11px] text-content-muted">
                   {selectedConv.connection && <span>Conexão: {selectedConv.connection.name}</span>}
@@ -1025,7 +1026,7 @@ export function InboxPage() {
                             : 'rounded-2xl rounded-tr-xs bg-brand text-white'
                         }`}
                       >
-                        {m.content}
+                        {messagePreview(m.message_type, m.content)}
                       </div>
                     </div>
                   );

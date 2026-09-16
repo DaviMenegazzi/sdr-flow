@@ -40,6 +40,7 @@ export interface ConversationItem {
     direction: string;
     content: string;
     created_at: string;
+    message_type?: string | null;
   } | null;
 }
 
@@ -51,6 +52,7 @@ export interface MessageItem {
   created_at: string;
   sender_name?: string | null;
   sender_jid?: string | null;
+  message_type?: string | null;
 }
 
 export interface InboxFilters {
@@ -150,14 +152,14 @@ export function applyRealtimeEvent(state: InboxState, event: InboxRealtimeEvent,
     }
   } else if (event.type === 'inbox:message.created') {
     const payload = event.payload as
-      | { id: string; conversationId: string; sender: MessageItem['sender']; direction: MessageItem['direction']; content: string; created_at: string; sender_name?: string | null; sender_jid?: string | null }
+      | { id: string; conversationId: string; sender: MessageItem['sender']; direction: MessageItem['direction']; content: string; created_at: string; sender_name?: string | null; sender_jid?: string | null; message_type?: string | null }
       | undefined;
     if (payload?.conversationId) {
       if (conversations.some(c => c.id === payload.conversationId)) {
         conversations = upsertConversation(conversations, {
           id: payload.conversationId,
           last_message_at: payload.created_at,
-          last_message: { id: payload.id, sender: payload.sender, direction: payload.direction, content: payload.content, created_at: payload.created_at },
+          last_message: { id: payload.id, sender: payload.sender, direction: payload.direction, content: payload.content, created_at: payload.created_at, message_type: payload.message_type ?? null },
         });
       }
       if (state.selectedId === payload.conversationId) {
@@ -169,6 +171,7 @@ export function applyRealtimeEvent(state: InboxState, event: InboxRealtimeEvent,
           created_at: payload.created_at,
           sender_name: payload.sender_name ?? null,
           sender_jid: payload.sender_jid ?? null,
+          message_type: payload.message_type ?? null,
         });
       }
     }
