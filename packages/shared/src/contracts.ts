@@ -12,6 +12,10 @@ export const conversationTurnJobV1Schema = z.strictObject({
   connectionId: z.string().min(1),
   conversationKey: z.string().min(1),
   conversationId: z.uuid().optional(),
+  // Optional: jobs enqueued by an API instance from before this field existed may still be
+  // in flight (24h buffer TTL, up to 12 retry attempts) — processTurn treats a missing
+  // agentId as a hard stop rather than falling back to any shared key.
+  agentId: z.string().optional(),
   flowId: z.string().optional(),
   flowVersionId: z.string().optional(),
   generation: z.number().int().nonnegative(),

@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { useSession } from '../session';
 import { Button, Badge, Card, Input } from '../components/ui';
-import { Bot, Sparkles, Plus, AlertCircle, Edit3, Archive, Check } from 'lucide-react';
+import { Bot, Sparkles, Plus, AlertCircle, Edit3, Archive, Check, KeyRound } from 'lucide-react';
 
 type Agent = {
   id: string;
@@ -10,7 +10,10 @@ type Agent = {
   provider: string;
   model: string;
   system_prompt: string;
+  tool_policy: Record<string, unknown>;
+  model_config: Record<string, unknown>;
   is_default: boolean;
+  hasOpenaiKey: boolean;
 };
 
 type Instance = {
@@ -28,6 +31,9 @@ export function AgentsPage() {
   const [editing, setEditing] = useState<Agent | null>(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [openaiKey, setOpenaiKey] = useState('');
+  const [savingKey, setSavingKey] = useState(false);
+  const [keySaved, setKeySaved] = useState(false);
 
   const headers = session ? { Authorization: `Bearer ${session.access_token}` } : undefined;
 
@@ -64,8 +70,8 @@ export function AgentsPage() {
         provider: a?.provider ?? 'openai',
         model: a?.model ?? 'gpt-4.1-mini',
         systemPrompt: a?.system_prompt ?? '',
-        toolPolicy: {},
-        modelConfig: {},
+        toolPolicy: a?.tool_policy ?? {},
+        modelConfig: a?.model_config ?? {},
       }),
     });
     setSaving(false);
@@ -76,6 +82,27 @@ export function AgentsPage() {
     setName('');
     setEditing(null);
     await load();
+  };
+
+  const saveOpenaiKey = async () => {
+    if (!headers || !editing || !openaiKey.trim()) return;
+    setError('');
+    setKeySaved(false);
+    setSavingKey(true);
+    const r = await fetch(`/api/me/agents/${editing.id}/openai-key`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey: openaiKey.trim() }),
+    });
+    setSavingKey(false);
+    if (!r.ok) {
+      setError((await r.json()).error || 'Falha ao salvar a chave da OpenAI.');
+      return;
+    }
+    setOpenaiKey('');
+    setKeySaved(true);
+    await load();
+    setEditing(a => (a ? { ...a, hasOpenaiKey: true } : a));
   };
 
   const assign = async (instanceId: string, agentId: string) => {
@@ -137,11 +164,16 @@ export function AgentsPage() {
                   <Bot className="w-4 h-4 text-brand" />
                   <strong className="text-sm font-semibold text-content">{a.name}</strong>
                 </div>
-                {a.is_default && (
-                  <Badge variant="accent" size="sm">
-                    Padrão
+                <div className="flex items-center gap-1.5">
+                  {a.is_default && (
+                    <Badge variant="accent" size="sm">
+                      Padrão
+                    </Badge>
+                  )}
+                  <Badge variant={a.hasOpenaiKey ? 'success' : 'danger'} size="sm" title={a.hasOpenaiKey ? 'Este agente tem sua própria chave da OpenAI' : 'Sem chave própria: não vai conseguir responder mensagens até configurar uma'}>
+                    <KeyRound className="w-3 h-3" /> {a.hasOpenaiKey ? 'Chave OK' : 'Sem chave'}
                   </Badge>
-                )}
+                </div>
               </div>
               <p className="text-xs text-content-muted m-0 font-mono">
                 {a.provider} / {a.model}
@@ -157,7 +189,7 @@ export function AgentsPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setEditing({ ...a })}
+                onClick={() => { setEditing({ ...a }); setOpenaiKey(''); setKeySaved(false); }}
                 className="flex-1"
               >
                 <Edit3 className="w-3.5 h-3.5" /> Editar
@@ -211,6 +243,32 @@ export function AgentsPage() {
                   placeholder="Instruções de personalidade e comportamento..."
                 />
               </div>
+
+              <div className="flex flex-col gap-1.5 p-3 rounded-lg bg-surface-muted/40 border border-border">
+                <label className="text-xs font-semibold text-content flex items-center gap-1.5">
+                  <KeyRound className="w-3.5 h-3.5" /> Chave da OpenAI deste agente
+                </label>
+                <p className="text-[11px] text-content-muted m-0">
+                  Cada agente usa sua própria chave — nunca uma chave compartilhada com os demais, e nenhum outro agente consegue lê-la depois de salva.
+                  {editing.hasOpenaiKey ? ' Uma chave já está configurada; salvar um novo valor a substitui.' : ' Este agente ainda não tem chave configurada e não vai conseguir responder mensagens até que uma seja salva.'}
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    className="flex-1 bg-surface text-content border border-border rounded-lg text-xs py-1.5 px-2.5 outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand"
+                    value={openaiKey}
+                    onChange={(e) => { setOpenaiKey(e.target.value); setKeySaved(false); }}
+                    placeholder="sk-..."
+                  />
+                  <Button type="button" variant="outline" size="sm" loading={savingKey} disabled={!openaiKey.trim()} onClick={() => void saveOpenaiKey()}>
+                    Salvar chave
+                  </Button>
+                </div>
+                {keySaved && (
+                  <p className="text-[11px] text-success m-0 flex items-center gap-1"><Check className="w-3 h-3" /> Chave salva.</p>
+                )}
+              </div>
             </>
           )}
 
@@ -251,7 +309,7 @@ export function AgentsPage() {
                 </option>
                 {agents.map((a) => (
                   <option key={a.id} value={a.id}>
-                    {a.name} {a.is_default ? '(Padrão)' : ''}
+                    {a.name} {a.is_default ? '(Padrão)' : ''} {a.hasOpenaiKey ? '' : '⚠ sem chave'}
                   </option>
                 ))}
               </select>

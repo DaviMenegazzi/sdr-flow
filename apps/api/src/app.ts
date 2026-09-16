@@ -12,6 +12,8 @@ import {
   MetricsRepository,
   userDatabase,
   serviceDatabase,
+  setAgentOpenAIKey,
+  agentHasOpenAIKey,
   type EvolutionCredentials,
   type MetaCredentials,
   type ConversationWithLead,
@@ -200,7 +202,12 @@ export function createApp(config: ApiConfig = {}): Express {
       auth.db.from('ai_agents').select('id,name,description,status,provider,model,system_prompt,tool_policy,model_config,is_default,created_at,updated_at').eq('organization_id', auth.organizationId).eq('owner_user_id', auth.userId).neq('status','archived').order('created_at'),
       auth.db.from('account_limits').select('max_agents,max_instances').eq('organization_id', auth.organizationId).eq('owner_user_id', auth.userId).maybeSingle(),
     ]);
-    if (error) throw error; res.json({ agents: data ?? [], limits: limits ?? { max_agents: 2, max_instances: null }, used: data?.length ?? 0 });
+    if (error) throw error;
+    const serviceDb = getServiceDb();
+    const agents = serviceDb
+      ? await Promise.all((data ?? []).map(async agent => ({ ...agent, hasOpenaiKey: await agentHasOpenAIKey(serviceDb, agent.id) })))
+      : (data ?? []).map(agent => ({ ...agent, hasOpenaiKey: false }));
+    res.json({ agents, limits: limits ?? { max_agents: 2, max_instances: null }, used: data?.length ?? 0 });
   });
   app.post('/api/me/agents', async (req, res) => {
     const auth = res.locals.auth!;
@@ -215,7 +222,28 @@ export function createApp(config: ApiConfig = {}): Express {
     if (!agentId.success) { res.status(400).json({ error: 'Identificador inválido.' }); return; }
     const { data, error } = await auth.db.from('ai_agents').select('*').eq('organization_id', auth.organizationId).eq('owner_user_id', auth.userId).eq('id', agentId.data).neq('status', 'archived').maybeSingle();
     if (error || !data) { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
-    res.json(data);
+    const serviceDb = getServiceDb();
+    const hasOpenaiKey = serviceDb ? await agentHasOpenAIKey(serviceDb, data.id) : false;
+    res.json({ ...data, hasOpenaiKey });
+  });
+  app.post('/api/me/agents/:agentId/openai-key', async (req, res) => {
+    const auth = res.locals.auth!; const agentId = uuidParam.safeParse(req.params.agentId);
+    const body = z.object({ apiKey: z.string().trim().min(1).max(400) }).strict().safeParse(req.body);
+    if (!agentId.success || !body.success) { res.status(400).json({ error: 'Dados inválidos.' }); return; }
+    // Ownership check happens against the user-scoped client (RLS) before touching the
+    // service-role client below — the write RPC itself also re-checks org/owner/agent
+    // match server-side (set_agent_openai_key), but this gives a clean 404 either way.
+    const { data: agent, error: agentError } = await auth.db.from('ai_agents').select('id').eq('organization_id', auth.organizationId).eq('owner_user_id', auth.userId).eq('id', agentId.data).neq('status', 'archived').maybeSingle();
+    if (agentError || !agent) { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
+    const serviceDb = getServiceDb();
+    if (!serviceDb) { res.status(503).json({ error: 'Persistência não configurada.' }); return; }
+    try {
+      await setAgentOpenAIKey(serviceDb, auth.organizationId, auth.userId, agentId.data, body.data.apiKey);
+    } catch {
+      res.status(500).json({ error: 'Não foi possível salvar a chave da OpenAI.' });
+      return;
+    }
+    res.status(204).end();
   });
   app.patch('/api/me/agents/:agentId', async (req, res) => {
     const auth = res.locals.auth!; const agentId = uuidParam.safeParse(req.params.agentId);

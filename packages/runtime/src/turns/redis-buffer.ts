@@ -19,6 +19,7 @@ export interface EnqueueTurnInput {
   connectionId: string;
   conversationKey: string;
   conversationId?: string;
+  agentId?: string;
   flowId?: string;
   flowVersionId?: string;
   windowSeconds: number;
@@ -165,6 +166,7 @@ export class RedisTurnBuffer {
       connectionId: input.connectionId,
       conversationKey: input.conversationKey,
       conversationId: input.conversationId,
+      agentId: input.agentId,
       flowId: input.flowId,
       flowVersionId: input.flowVersionId,
       generation,

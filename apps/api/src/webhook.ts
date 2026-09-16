@@ -246,6 +246,7 @@ export async function processInboundWebhook(
         connectionId,
         flowId: resolution.flowId,
         flowVersionId: resolution.flowVersionId,
+        agentId: resolution.agentId,
         inboundEventIds: [accepted.eventId],
         isCurrent: async () => true,
       },

@@ -31,6 +31,7 @@ export * from './conversation-repository.js';
 export * from './organization-repository.js';
 export * from './crypto.js';
 export * from './connection-repository.js';
+export * from './agent-credentials.js';
 export * from './knowledge-repository.js';
 export * from './summary-repository.js';
 export * from './inbox-repository.js';

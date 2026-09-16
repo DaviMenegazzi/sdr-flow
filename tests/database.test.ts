@@ -90,4 +90,56 @@ describe('Postgres migrations, RLS and publication',() => {
     const version=(await db.query<{id:string}>('select * from public.publish_flow($1,$2,$3,$4)',[orgA,other,userA,graph])).rows[0]!.id;
     await expect(db.query('update public.flows set published_version_id=$1 where id=$2',[version,flowA])).rejects.toThrow();
   });
+  it('caps active agents per owner even when inserted directly, bypassing create_agent_for_current_user',async () => {
+    // packages/db/src/connection-repository.ts inserts a dedicated agent per connection
+    // straight into ai_agents, never through that RPC — the cap must hold for both paths.
+    await db.exec('set role service_role');
+    try {
+      const before=await db.query<{count:string}>("select count(*)::text as count from public.ai_agents where organization_id=$1 and owner_user_id=$2 and status='active'",[orgA,userA]);
+      const limit=Number(before.rows[0]!.count)+1;
+      await db.query('update public.account_limits set max_agents=$1 where organization_id=$2 and owner_user_id=$3',[limit,orgA,userA]);
+      await db.query("insert into public.ai_agents(organization_id,owner_user_id,name,provider,model) values($1,$2,'Agente extra','openai','gpt-4.1-mini')",[orgA,userA]);
+      await expect(db.query("insert into public.ai_agents(organization_id,owner_user_id,name,provider,model) values($1,$2,'Agente demais','openai','gpt-4.1-mini')",[orgA,userA])).rejects.toThrow('Agent limit reached');
+    } finally { await db.exec('reset role'); }
+  });
+  it('caps connections per owner once max_instances is set, and never blocks when it is null',async () => {
+    await db.exec('set role service_role');
+    try {
+      const before=await db.query<{count:string}>('select count(*)::text as count from public.connections where organization_id=$1 and owner_user_id=$2',[orgA,userA]);
+      const limit=Number(before.rows[0]!.count)+1;
+      await db.query('update public.account_limits set max_instances=$1 where organization_id=$2 and owner_user_id=$3',[limit,orgA,userA]);
+      await db.query("insert into public.connections(organization_id,name,provider) values($1,'Instância extra','evolution')",[orgA]);
+      await expect(db.query("insert into public.connections(organization_id,name,provider) values($1,'Instância demais','evolution')",[orgA])).rejects.toThrow('Instance limit reached');
+      await db.query('update public.account_limits set max_instances=null where organization_id=$1 and owner_user_id=$2',[orgA,userA]);
+      await db.query("insert into public.connections(organization_id,name,provider) values($1,'Instância sem teto','evolution')",[orgA]);
+    } finally { await db.exec('reset role'); }
+  });
+  it('blocks two connections — even across organizations — from reusing the same provider_instance_id',async () => {
+    await db.exec('set role service_role');
+    try {
+      await db.query("insert into public.connections(organization_id,name,provider,provider_instance_id) values($1,'Dup 1','evolution','wa-shared-instance')",[orgA]);
+      await expect(db.query("insert into public.connections(organization_id,name,provider,provider_instance_id) values($1,'Dup 2','evolution','wa-shared-instance')",[orgB])).rejects.toThrow();
+    } finally { await db.exec('reset role'); }
+  });
+  it("stores each agent's OpenAI key separately: service_role-only, per-agent, invisible to other agents",async () => {
+    await db.exec('set role service_role');
+    try {
+      await db.query('update public.account_limits set max_agents=20 where organization_id=$1 and owner_user_id=$2',[orgA,userA]);
+      const agentId=(await db.query<{id:string}>("insert into public.ai_agents(organization_id,owner_user_id,name,provider,model) values($1,$2,'Agente com chave','openai','gpt-4.1-mini') returning id",[orgA,userA])).rows[0]!.id;
+      const otherAgentId=(await db.query<{id:string}>("insert into public.ai_agents(organization_id,owner_user_id,name,provider,model) values($1,$2,'Outro agente','openai','gpt-4.1-mini') returning id",[orgA,userA])).rows[0]!.id;
+
+      expect((await db.query<{agent_has_openai_key:boolean}>('select public.agent_has_openai_key($1)',[agentId])).rows[0]!.agent_has_openai_key).toBe(false);
+      await db.query('select public.set_agent_openai_key($1,$2,$3,$4)',[orgA,userA,agentId,'cipher-abc']);
+      expect((await db.query<{get_agent_openai_key:string}>('select public.get_agent_openai_key($1)',[agentId])).rows[0]!.get_agent_openai_key).toBe('cipher-abc');
+      expect((await db.query<{agent_has_openai_key:boolean}>('select public.agent_has_openai_key($1)',[agentId])).rows[0]!.agent_has_openai_key).toBe(true);
+      // A sibling agent under the same owner/org never sees this agent's key.
+      expect((await db.query<{get_agent_openai_key:string|null}>('select public.get_agent_openai_key($1)',[otherAgentId])).rows[0]!.get_agent_openai_key).toBeNull();
+      expect((await db.query<{agent_has_openai_key:boolean}>('select public.agent_has_openai_key($1)',[otherAgentId])).rows[0]!.agent_has_openai_key).toBe(false);
+    } finally { await db.exec('reset role'); }
+
+    await asUser(db,userA,async () => {
+      await expect(db.query('select public.set_agent_openai_key($1,$2,$3,$4)',[orgA,userA,randomUUID(),'x'])).rejects.toThrow();
+      await expect(db.query('select public.get_agent_openai_key($1)',[randomUUID()])).rejects.toThrow();
+    });
+  });
 });
