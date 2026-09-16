@@ -86,22 +86,61 @@
       "config": {}
     },
     {
-      "id": "notificar_davi",
-      "type": "output.send_text",
-      "label": "Notificar só o Davi",
+      "id": "verificar_agenda",
+      "type": "calendar.availability",
+      "label": "Checar horário livre amanhã",
       "position": { "x": 2020, "y": 300 },
       "config": {
-        "text": "📋 *Nova demanda identificada*\n\n👤 De: {{lead.name}} ({{lead.phone}})\n📝 Tarefa: {{structured.demand_summary}}\n\n🗓️ Lembrete para você resolver isso até amanhã.",
-        "typing": true,
-        "targetMode": "specific_targets",
-        "targets": ["55999940634"]
+        "calendarId": "760c767fc57e83a77d9a31d417143b6c2324480ce92c606632d09438f8d99053@group.calendar.google.com",
+        "date": "amanhã",
+        "period": "dia inteiro",
+        "durationMinutes": 30,
+        "timezone": "America/Sao_Paulo",
+        "daysAhead": 14
       }
+    },
+    {
+      "id": "end_sem_horario",
+      "type": "output.end",
+      "label": "Sem horário livre / Fim",
+      "position": { "x": 2020, "y": 80 },
+      "config": {}
+    },
+    {
+      "id": "end_erro_agenda",
+      "type": "output.end",
+      "label": "Erro na agenda / Fim",
+      "position": { "x": 2020, "y": 520 },
+      "config": {}
+    },
+    {
+      "id": "criar_evento",
+      "type": "calendar.create_event",
+      "label": "Criar evento da demanda",
+      "position": { "x": 2320, "y": 300 },
+      "config": {
+        "calendarId": "760c767fc57e83a77d9a31d417143b6c2324480ce92c606632d09438f8d99053@group.calendar.google.com",
+        "start": "{{calendar.first_available}}",
+        "durationMinutes": 30,
+        "timezone": "America/Sao_Paulo",
+        "title": "📋 {{structured.demand_summary}}",
+        "description": "Demanda identificada automaticamente pela IA na conversa com {{lead.name}} ({{lead.phone}}).\n\nResumo: {{structured.demand_summary}}",
+        "leadName": "{{lead.name}}",
+        "leadPhone": "{{lead.phone}}"
+      }
+    },
+    {
+      "id": "end_erro_criacao",
+      "type": "output.end",
+      "label": "Erro ao criar evento / Fim",
+      "position": { "x": 2320, "y": 80 },
+      "config": {}
     },
     {
       "id": "salvar_registro",
       "type": "context.storage",
       "label": "Registrar demanda (evitar repetição)",
-      "position": { "x": 2320, "y": 300 },
+      "position": { "x": 2620, "y": 300 },
       "config": {
         "content": "{{demandas_registradas}}\n- {{structured.demand_summary}}",
         "variableName": "demandas_registradas",
@@ -112,7 +151,7 @@
       "id": "end_flow",
       "type": "output.end",
       "label": "Encerrar fluxo",
-      "position": { "x": 2600, "y": 300 },
+      "position": { "x": 2900, "y": 300 },
       "config": {}
     }
   ],
@@ -128,8 +167,12 @@
     { "id": "e_cond_has_demand_false", "source": "cond_has_demand", "target": "end_no_demand", "sourcePort": "false" },
     { "id": "e_cond_has_demand_true", "source": "cond_has_demand", "target": "cond_duplicate", "sourcePort": "true" },
     { "id": "e_cond_duplicate_true", "source": "cond_duplicate", "target": "end_duplicate", "sourcePort": "true" },
-    { "id": "e_cond_duplicate_false", "source": "cond_duplicate", "target": "notificar_davi", "sourcePort": "false" },
-    { "id": "e_notificar_salvar", "source": "notificar_davi", "target": "salvar_registro", "sourcePort": "next" },
+    { "id": "e_cond_duplicate_false", "source": "cond_duplicate", "target": "verificar_agenda", "sourcePort": "false" },
+    { "id": "e_agenda_available", "source": "verificar_agenda", "target": "criar_evento", "sourcePort": "available" },
+    { "id": "e_agenda_unavailable", "source": "verificar_agenda", "target": "end_sem_horario", "sourcePort": "unavailable" },
+    { "id": "e_agenda_error", "source": "verificar_agenda", "target": "end_erro_agenda", "sourcePort": "error" },
+    { "id": "e_evento_created", "source": "criar_evento", "target": "salvar_registro", "sourcePort": "created" },
+    { "id": "e_evento_error", "source": "criar_evento", "target": "end_erro_criacao", "sourcePort": "error" },
     { "id": "e_salvar_end", "source": "salvar_registro", "target": "end_flow", "sourcePort": "next" }
   ],
   "loopLimit": 5
