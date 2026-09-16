@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "nodes": [
+    {
+      "id": "start",
+      "type": "trigger.message_received",
+      "label": "Mensagem recebida",
+      "position": { "x": 0, "y": 300 },
+      "config": {}
+    },
+    {
+      "id": "buffer",
+      "type": "input.buffer",
+      "label": "Agrupar mensagens picadas",
+      "position": { "x": 280, "y": 300 },
+      "config": {
+        "windowSeconds": 15
+      }
+    },
+    {
+      "id": "memory",
+      "type": "context.memory",
+      "label": "Memória da conversa",
+      "position": { "x": 560, "y": 300 },
+      "config": {
+        "recentMessages": 10
+      }
+    },
+    {
+      "id": "read_registry",
+      "type": "context.storage",
+      "label": "Ler demandas já registradas",
+      "position": { "x": 840, "y": 300 },
+      "config": {
+        "content": "",
+        "variableName": "demandas_registradas",
+        "outputPorts": ["next"]
+      }
+    },
+    {
+      "id": "interpretar",
+      "type": "agent.structured",
+      "label": "IA interpreta a demanda",
+      "position": { "x": 1120, "y": 300 },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Você é um interpretador de demandas para o Davi. Você NÃO conversa com o remetente — sua única função é analisar a mensagem mais recente ({{latestLeadMessage}}) usando o histórico recente ({{recentMessages}}) e decidir se ela contém uma demanda real: um pedido, tarefa, cobrança, prazo ou compromisso que o Davi precisa executar ou responder (ex: \"me manda a proposta até amanhã\", \"preciso que você confirme o horário\", \"não esquece de enviar o relatório\", \"você pode revisar isso hoje?\"). Perguntas sociais, agradecimentos, respostas a algo que o Davi já resolveu, ou conversa sem nenhum pedido de ação NÃO contam como demanda.\n\nRetorne exatamente estas chaves:\n- has_demand: \"true\" se a mensagem contém uma demanda de ação para o Davi, \"false\" caso contrário.\n- demand_summary: um resumo curto e objetivo da tarefa, escrito como um lembrete direto para o Davi (ex: \"Enviar a proposta comercial para o cliente Fulano até amanhã\"). Deixe em branco (\"\") se has_demand for \"false\".\n- is_duplicate: \"true\" se a MESMA tarefa (mesmo pedido, mesmo assunto), mesmo com palavras diferentes, já aparecer na lista de demandas já registradas abaixo para este contato. \"false\" se for uma tarefa nova, um novo prazo ou uma atualização relevante de algo antigo. Se has_demand for \"false\", retorne is_duplicate como \"false\".\n\nDemandas já registradas para este contato (não repita nenhuma que já esteja aqui):\n{{demandas_registradas}}",
+        "outputKeys": ["has_demand", "demand_summary", "is_duplicate"]
+      }
+    },
+    {
+      "id": "cond_has_demand",
+      "type": "flow.condition",
+      "label": "Existe demanda?",
+      "position": { "x": 1420, "y": 300 },
+      "config": {
+        "variable": "structured.has_demand",
+        "operator": "equals",
+        "value": "true"
+      }
+    },
+    {
+      "id": "end_no_demand",
+      "type": "output.end",
+      "label": "Sem demanda / Fim",
+      "position": { "x": 1420, "y": 80 },
+      "config": {}
+    },
+    {
+      "id": "cond_duplicate",
+      "type": "flow.condition",
+      "label": "Já foi registrada antes?",
+      "position": { "x": 1720, "y": 300 },
+      "config": {
+        "variable": "structured.is_duplicate",
+        "operator": "equals",
+        "value": "true"
+      }
+    },
+    {
+      "id": "end_duplicate",
+      "type": "output.end",
+      "label": "Duplicada / Fim",
+      "position": { "x": 1720, "y": 80 },
+      "config": {}
+    },
+    {
+      "id": "notificar_davi",
+      "type": "output.send_text",
+      "label": "Notificar só o Davi",
+      "position": { "x": 2020, "y": 300 },
+      "config": {
+        "text": "📋 *Nova demanda identificada*\n\n👤 De: {{lead.name}} ({{lead.phone}})\n📝 Tarefa: {{structured.demand_summary}}\n\n🗓️ Lembrete para você resolver isso até amanhã.",
+        "typing": true,
+        "targetMode": "specific_targets",
+        "targets": ["55999940634"]
+      }
+    },
+    {
+      "id": "salvar_registro",
+      "type": "context.storage",
+      "label": "Registrar demanda (evitar repetição)",
+      "position": { "x": 2320, "y": 300 },
+      "config": {
+        "content": "{{demandas_registradas}}\n- {{structured.demand_summary}}",
+        "variableName": "demandas_registradas",
+        "outputPorts": ["next"]
+      }
+    },
+    {
+      "id": "end_flow",
+      "type": "output.end",
+      "label": "Encerrar fluxo",
+      "position": { "x": 2600, "y": 300 },
+      "config": {}
+    }
+  ],
+  "edges": [
+    { "id": "e_start_buffer", "source": "start", "target": "buffer", "sourcePort": "next" },
+    { "id": "e_buffer_memory", "source": "buffer", "target": "memory", "sourcePort": "next" },
+    { "id": "e_memory_read", "source": "memory", "target": "read_registry", "sourcePort": "next" },
+    { "id": "e_read_interpretar", "source": "read_registry", "target": "interpretar", "sourcePort": "next" },
+    { "id": "e_interpretar_has_demand", "source": "interpretar", "target": "cond_has_demand", "sourcePort": "has_demand" },
+    { "id": "e_interpretar_demand_summary", "source": "interpretar", "target": "cond_has_demand", "sourcePort": "demand_summary" },
+    { "id": "e_interpretar_is_duplicate", "source": "interpretar", "target": "cond_has_demand", "sourcePort": "is_duplicate" },
+    { "id": "e_interpretar_default", "source": "interpretar", "target": "cond_has_demand", "sourcePort": "default" },
+    { "id": "e_cond_has_demand_false", "source": "cond_has_demand", "target": "end_no_demand", "sourcePort": "false" },
+    { "id": "e_cond_has_demand_true", "source": "cond_has_demand", "target": "cond_duplicate", "sourcePort": "true" },
+    { "id": "e_cond_duplicate_true", "source": "cond_duplicate", "target": "end_duplicate", "sourcePort": "true" },
+    { "id": "e_cond_duplicate_false", "source": "cond_duplicate", "target": "notificar_davi", "sourcePort": "false" },
+    { "id": "e_notificar_salvar", "source": "notificar_davi", "target": "salvar_registro", "sourcePort": "next" },
+    { "id": "e_salvar_end", "source": "salvar_registro", "target": "end_flow", "sourcePort": "next" }
+  ],
+  "loopLimit": 5
+}
