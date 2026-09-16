@@ -14,6 +14,7 @@ import {
   Sun,
   LogOut,
   Shield,
+  ScrollText,
 } from 'lucide-react';
 import { useSession } from '../../session';
 
@@ -124,6 +125,10 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
             <NavLink to="/dashboard" className={navItemClass}>
               <BarChart3 size={16} />
               <span>Indicadores (KPIs)</span>
+            </NavLink>
+            <NavLink to="/logs" className={navItemClass}>
+              <ScrollText size={16} />
+              <span>Logs de Execução</span>
             </NavLink>
             <NavLink to="/integrations" className={navItemClass}>
               <Plug size={16} />

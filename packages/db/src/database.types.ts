@@ -410,6 +410,10 @@ export type Database = {
         finished_at: string | null;
         idempotency_key: string | null;
         trace_status: string;
+        connection_id: string | null;
+        lead_id: string | null;
+        agent_id: string | null;
+        model: string | null;
       };
       Insert: {
         id?: string;
@@ -424,6 +428,10 @@ export type Database = {
         finished_at?: string | null;
         idempotency_key?: string | null;
         trace_status?: string;
+        connection_id?: string | null;
+        lead_id?: string | null;
+        agent_id?: string | null;
+        model?: string | null;
       };
       Update: {
         id?: string;
@@ -438,6 +446,10 @@ export type Database = {
         finished_at?: string | null;
         idempotency_key?: string | null;
         trace_status?: string;
+        connection_id?: string | null;
+        lead_id?: string | null;
+        agent_id?: string | null;
+        model?: string | null;
       };
       Relationships: [];
     };

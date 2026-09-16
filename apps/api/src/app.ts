@@ -1395,21 +1395,58 @@ export function createApp(config: ApiConfig = {}): Express {
     res.status(201).json(data);
   });
 
-  orgRoutes.get('/executions', checkScope('executions:read'), async (_req, res) => {
-    const list = await (res.locals.executions as ExecutionRepository).listExecutions(res.locals.organizationId as string);
-    res.json(list);
+  // Admin execution log ("Logs de Execução"): shows full conversation content, prompts and
+  // lead data across every flow run, so — unlike most orgRoutes, which are open to any member
+  // via the JWT scopes=['*'] shortcut above — these three routes require org owner/admin.
+  const listExecutionsQuerySchema = z.object({
+    connectionId: z.uuid().optional(),
+    leadId: z.uuid().optional(),
+    status: z.enum(['queued', 'running', 'waiting', 'completed', 'failed']).optional(),
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'startDate deve estar no formato YYYY-MM-DD.').optional(),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'endDate deve estar no formato YYYY-MM-DD.').optional(),
+    limit: z.coerce.number().int().min(1).max(200).optional(),
+    offset: z.coerce.number().int().min(0).optional(),
+  });
+  orgRoutes.get('/executions', requireAdmin, checkScope('executions:read'), async (req, res) => {
+    const parsedQuery = listExecutionsQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      res.status(400).json({ error: parsedQuery.error.issues[0]?.message || 'Parâmetros inválidos.' });
+      return;
+    }
+    // connections/ai_agents are owner_user_id-scoped by RLS (connection_owner_select,
+    // agents_read_self), not org-scoped — under the requester's own JWT client, the
+    // lead/connection/agent embeds below would silently come back null for any instance the
+    // requesting admin doesn't personally own. Read via service role instead, same fallback
+    // idiom as /connections/:connectionId/qr and friends, safe now that this route is
+    // requireAdmin-gated.
+    const db = getServiceDb() || res.locals.db;
+    const execRepo = new ExecutionRepository(db);
+    const { limit, offset, ...filters } = parsedQuery.data;
+    const result = await execRepo.listExecutions(res.locals.organizationId as string, { ...filters, limit, offset });
+    res.json({ ...result, limit: limit ?? 50, offset: offset ?? 0 });
   });
 
-  orgRoutes.get('/executions/:executionId', checkScope('executions:read'), async (req, res) => {
+  orgRoutes.get('/executions/:executionId', requireAdmin, checkScope('executions:read'), async (req, res) => {
     const executionId = z.uuid().parse(req.params.executionId);
-    const execRepo = res.locals.executions as ExecutionRepository;
-    const execution = await execRepo.getExecution(executionId, res.locals.organizationId as string);
+    const organizationId = res.locals.organizationId as string;
+    const db = getServiceDb() || res.locals.db;
+    const execRepo = new ExecutionRepository(db);
+    const execution = await execRepo.getExecutionDetail(executionId, organizationId);
     if (!execution) { res.status(404).json({ error: 'Execução não encontrada.' }); return; }
-    const steps = await execRepo.getExecutionSteps(executionId, res.locals.organizationId as string);
-    res.json({ execution, steps });
+    const steps = await execRepo.getExecutionSteps(executionId, organizationId);
+    // Strip the raw graph (node positions/edges/config) — the timeline only needs id/type/label
+    // per node, the same shape turn-processor.ts's debugFlow.nodes and the Inbox debug route's
+    // resolveConversationDebugFlow already derive from this same graph.
+    const graph = execution.flow_version?.graph as any;
+    const nodes = (graph?.nodes || []).map((node: any) => ({ id: node.id, type: node.type, label: node.label || node.type }));
+    const { graph: _graph, ...flowVersionWithoutGraph } = execution.flow_version || {};
+    res.json({
+      execution: { ...execution, flow_version: execution.flow_version ? { ...flowVersionWithoutGraph, nodes } : null },
+      steps,
+    });
   });
 
-  orgRoutes.post('/executions/:executionId/replay', checkScope('executions:write'), async (req, res) => {
+  orgRoutes.post('/executions/:executionId/replay', requireAdmin, checkScope('executions:write'), async (req, res) => {
     const executionId = z.uuid().parse(req.params.executionId);
     const execRepo = res.locals.executions as ExecutionRepository;
     const execution = await execRepo.getExecution(executionId, res.locals.organizationId as string);

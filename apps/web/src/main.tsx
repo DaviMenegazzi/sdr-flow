@@ -22,6 +22,7 @@ const IntegrationsPage = lazy(() => import('./integrations/IntegrationsPage').th
 const KnowledgePage = lazy(() => import('./knowledge/KnowledgePage').then(m => ({ default: m.KnowledgePage })));
 const InboxPage = lazy(() => import('./inbox/InboxPage').then(m => ({ default: m.InboxPage })));
 const DashboardPage = lazy(() => import('./metrics/DashboardPage').then(m => ({ default: m.DashboardPage })));
+const ExecutionLogPage = lazy(() => import('./logs/ExecutionLogPage').then(m => ({ default: m.ExecutionLogPage })));
 const Settings = lazy(() => import('./session').then(m => ({ default: m.Settings })));
 
 function RouteLoadingFallback() {
@@ -105,6 +106,7 @@ function ProtectedApp() {
               <Route path="/knowledge" element={<KnowledgePage />} />
               <Route path="/inbox" element={<InboxPage />} />
               <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/logs" element={<ExecutionLogPage />} />
               <Route
                 path="/templates"
                 element={

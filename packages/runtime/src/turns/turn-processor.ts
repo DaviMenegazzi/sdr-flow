@@ -227,6 +227,10 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
       flowVersionId: flowVersion.id,
       status: 'running',
       idempotencyKey: turnIdempotencyKey,
+      connectionId: input.connectionId,
+      leadId: lead.id,
+      agentId: input.agentId,
+      model: openaiModel,
     });
 
     const flowGraph = flowVersion.graph as any;

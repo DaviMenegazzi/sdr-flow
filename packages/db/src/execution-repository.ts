@@ -15,6 +15,14 @@ export interface CreateExecutionInput {
    * logical turn recovers the execution already created instead of creating a duplicate.
    */
   idempotencyKey?: string;
+  /**
+   * Denormalized at creation time (202609162003_flow_execution_context.sql) so the admin
+   * execution log's history is never rewritten by a later reassignment or agent/model change.
+   */
+  connectionId?: string | null;
+  leadId?: string | null;
+  agentId?: string | null;
+  model?: string | null;
 }
 
 export interface UpdateExecutionInput {
@@ -36,6 +44,59 @@ export interface RecordStepInput {
   error?: string | null;
 }
 
+export interface ListExecutionsFilters {
+  connectionId?: string;
+  leadId?: string;
+  status?: 'queued' | 'running' | 'waiting' | 'completed' | 'failed';
+  /** Inclusive, 'YYYY-MM-DD' (matches the dashboard metrics query's date convention). */
+  startDate?: string;
+  endDate?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ExecutionListRow {
+  id: string;
+  organization_id: string;
+  conversation_id: string;
+  flow_version_id: string;
+  connection_id: string | null;
+  lead_id: string | null;
+  agent_id: string | null;
+  model: string | null;
+  status: string;
+  input_tokens: number;
+  output_tokens: number;
+  resume_node_id: string | null;
+  created_at: string;
+  finished_at: string | null;
+  trace_status: string;
+  lead: { id: string; name: string | null; phone: string } | null;
+  connection: { id: string; name: string } | null;
+  agent: { id: string; name: string } | null;
+  flow_version: { id: string; version: number; flow: { id: string; name: string } | null } | null;
+}
+
+export interface ExecutionDetailRow extends ExecutionListRow {
+  flow_version: (NonNullable<ExecutionListRow['flow_version']> & { graph: unknown }) | null;
+}
+
+// Same embed style already shipped in InboxRepository.listConversations/getConversationDetail
+// (packages/db/src/inbox-repository.ts) — the generated database.types.ts never populates
+// per-table Relationships (see scripts/generate-db-types.ts), so Supabase's embed inference
+// can't type these results; ExecutionListRow/ExecutionDetailRow are hand-written instead.
+const EXECUTION_LIST_SELECT = `*,
+  lead:leads(id, name, phone),
+  connection:connections(id, name),
+  agent:ai_agents(id, name),
+  flow_version:flow_versions(id, version, flow:flows(id, name))`;
+
+const EXECUTION_DETAIL_SELECT = `*,
+  lead:leads(id, name, phone),
+  connection:connections(id, name),
+  agent:ai_agents(id, name),
+  flow_version:flow_versions(id, version, graph, flow:flows(id, name))`;
+
 export class ExecutionRepository {
   constructor(private readonly db: AnyDbClient) {}
 
@@ -49,6 +110,10 @@ export class ExecutionRepository {
         status: input.status || 'running',
         resume_node_id: input.resumeNodeId || null,
         idempotency_key: input.idempotencyKey || null,
+        connection_id: input.connectionId ?? null,
+        lead_id: input.leadId ?? null,
+        agent_id: input.agentId ?? null,
+        model: input.model ?? null,
       })
       .select()
       .single();
@@ -120,16 +185,43 @@ export class ExecutionRepository {
     return data;
   }
 
-  async listExecutions(organizationId: string, limit = 50) {
-    const { data, error } = await this.db
+  /** Denormalized detail for the admin execution log — kept separate from getExecution so
+   * POST /executions/:id/replay (getExecution's other caller) never pays for these joins. */
+  async getExecutionDetail(id: string, organizationId: string): Promise<ExecutionDetailRow | null> {
+    const { data, error } = await (this.db as any)
       .from('flow_executions')
-      .select('*')
+      .select(EXECUTION_DETAIL_SELECT)
+      .eq('id', id)
       .eq('organization_id', organizationId)
-      .order('created_at', { ascending: false })
-      .limit(limit);
+      .maybeSingle();
 
     if (error) throw error;
-    return data || [];
+    return (data as ExecutionDetailRow | null) ?? null;
+  }
+
+  async listExecutions(
+    organizationId: string,
+    filters: ListExecutionsFilters = {}
+  ): Promise<{ executions: ExecutionListRow[]; total: number }> {
+    const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
+    const offset = Math.max(filters.offset ?? 0, 0);
+
+    let query = (this.db as any)
+      .from('flow_executions')
+      .select(EXECUTION_LIST_SELECT, { count: 'exact' })
+      .eq('organization_id', organizationId)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (filters.connectionId) query = query.eq('connection_id', filters.connectionId);
+    if (filters.leadId) query = query.eq('lead_id', filters.leadId);
+    if (filters.status) query = query.eq('status', filters.status);
+    if (filters.startDate) query = query.gte('created_at', `${filters.startDate}T00:00:00.000Z`);
+    if (filters.endDate) query = query.lte('created_at', `${filters.endDate}T23:59:59.999Z`);
+
+    const { data, error, count } = await query;
+    if (error) throw error;
+    return { executions: (data || []) as ExecutionListRow[], total: count ?? 0 };
   }
 
   async getExecutionSteps(executionId: string, organizationId: string) {
