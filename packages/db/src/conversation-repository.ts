@@ -300,12 +300,20 @@ export class ConversationRepository {
       p_content: input.content,
       p_message_type: input.messageType || 'text',
       p_provider_message_id: input.providerMessageId || null,
-      p_sender_name: input.senderName || null,
-      p_sender_jid: input.senderJid || null,
     });
     if (error) throw error;
     const row = Array.isArray(data) ? data[0] : data;
     if (!row) throw new Error('save_inbound_message retornou vazio.');
+    // The idempotent RPC owns the message insert. Metadata belongs only to a new inbound row;
+    // never update an existing row when a provider retries the same message id.
+    if (row.is_new && (input.senderName || input.senderJid)) {
+      const { error: metadataError } = await this.db
+        .from('messages')
+        .update({ sender_name: input.senderName || null, sender_jid: input.senderJid || null })
+        .eq('organization_id', input.organizationId)
+        .eq('id', row.id);
+      if (metadataError) throw metadataError;
+    }
     return { id: row.id, created_at: row.created_at, created: row.is_new };
   }
 

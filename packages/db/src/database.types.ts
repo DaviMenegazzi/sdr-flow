@@ -659,9 +659,9 @@ export type Database = {
         sender: string;
         content: string;
         message_type: string;
+        created_at: string;
         sender_name: string | null;
         sender_jid: string | null;
-        created_at: string;
       };
       Insert: {
         id?: string;
@@ -673,9 +673,9 @@ export type Database = {
         sender: string;
         content: string;
         message_type?: string;
+        created_at?: string;
         sender_name?: string | null;
         sender_jid?: string | null;
-        created_at?: string;
       };
       Update: {
         id?: string;
@@ -687,9 +687,9 @@ export type Database = {
         sender?: string;
         content?: string;
         message_type?: string;
+        created_at?: string;
         sender_name?: string | null;
         sender_jid?: string | null;
-        created_at?: string;
       };
       Relationships: [];
     };
@@ -832,7 +832,7 @@ export type Database = {
       rollup_metrics_daily: { Args: { p_org: string; p_target_date: string; p_flow_version?: string | null }; Returns: Database['public']['Tables']['metrics_daily']['Row'] };
       accept_inbound_event: { Args: { p_connection_id: string; p_provider: Database['public']['Enums']['connection_provider']; p_provider_message_id: string | null; p_conversation_key: string; p_normalized_payload: Json }; Returns: { event_id: string; organization_id: string; is_new: boolean; status: string }[] };
       mark_inbound_event_status: { Args: { p_organization_id: string; p_event_id: string; p_status: string; p_error?: string | null }; Returns: undefined };
-      save_inbound_message: { Args: { p_organization_id: string; p_connection_id: string; p_conversation_id: string; p_direction: string; p_sender: string; p_content: string; p_message_type: string; p_provider_message_id: string | null; p_sender_name?: string | null; p_sender_jid?: string | null }; Returns: { id: string; created_at: string; is_new: boolean }[] };
+      save_inbound_message: { Args: { p_organization_id: string; p_connection_id: string; p_conversation_id: string; p_direction: string; p_sender: string; p_content: string; p_message_type: string; p_provider_message_id: string | null }; Returns: { id: string; created_at: string; is_new: boolean }[] };
       find_or_create_lead: { Args: { p_organization_id: string; p_connection_id: string; p_phone: string; p_name: string | null }; Returns: Database['public']['Tables']['leads']['Row'] };
       get_dashboard_metrics: { Args: { p_organization_id: string; p_start_date: string; p_end_date: string }; Returns: Json };
     };
