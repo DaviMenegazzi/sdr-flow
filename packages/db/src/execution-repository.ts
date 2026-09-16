@@ -85,17 +85,21 @@ export interface ExecutionDetailRow extends ExecutionListRow {
 // (packages/db/src/inbox-repository.ts) — the generated database.types.ts never populates
 // per-table Relationships (see scripts/generate-db-types.ts), so Supabase's embed inference
 // can't type these results; ExecutionListRow/ExecutionDetailRow are hand-written instead.
+// flow_versions <-> flows has two FKs (flow_versions_organization_id_flow_id_fkey, the
+// child-to-parent one we want here, and flows_published_version_fk, flows' pointer to its
+// published version) — PostgREST can't pick one on its own (PGRST201) and needs the
+// "flows!constraint_name" hint to disambiguate the embed.
 const EXECUTION_LIST_SELECT = `*,
   lead:leads(id, name, phone),
   connection:connections(id, name),
   agent:ai_agents(id, name),
-  flow_version:flow_versions(id, version, flow:flows(id, name))`;
+  flow_version:flow_versions(id, version, flow:flows!flow_versions_organization_id_flow_id_fkey(id, name))`;
 
 const EXECUTION_DETAIL_SELECT = `*,
   lead:leads(id, name, phone),
   connection:connections(id, name),
   agent:ai_agents(id, name),
-  flow_version:flow_versions(id, version, graph, flow:flows(id, name))`;
+  flow_version:flow_versions(id, version, graph, flow:flows!flow_versions_organization_id_flow_id_fkey(id, name))`;
 
 export class ExecutionRepository {
   constructor(private readonly db: AnyDbClient) {}
