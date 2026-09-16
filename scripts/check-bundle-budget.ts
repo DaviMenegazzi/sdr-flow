@@ -124,7 +124,12 @@ async function main() {
   }
 }
 
-main().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+// Only run when executed directly (`tsx scripts/check-bundle-budget.ts`) — tests/bundle-budget.test.ts
+// imports this module for its pure functions (evaluateBundleBudget etc.) and must not also trigger
+// a real dist/ read, which fails before `pnpm build` has run in the `pnpm check` chain.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch(err => {
+    console.error(err);
+    process.exit(1);
+  });
+}
