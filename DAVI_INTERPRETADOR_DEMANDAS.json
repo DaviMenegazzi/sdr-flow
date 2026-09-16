@@ -86,10 +86,21 @@
       "config": {}
     },
     {
+      "id": "salvar_resumo_atual",
+      "type": "context.storage",
+      "label": "Guardar resumo da demanda atual",
+      "position": { "x": 2020, "y": 300 },
+      "config": {
+        "content": "{{structured.demand_summary}}",
+        "variableName": "demanda_atual",
+        "outputPorts": ["next"]
+      }
+    },
+    {
       "id": "verificar_agenda",
       "type": "calendar.availability",
-      "label": "Checar horário livre amanhã",
-      "position": { "x": 2020, "y": 300 },
+      "label": "Checar horários livres amanhã",
+      "position": { "x": 2320, "y": 300 },
       "config": {
         "calendarId": "760c767fc57e83a77d9a31d417143b6c2324480ce92c606632d09438f8d99053@group.calendar.google.com",
         "date": "amanhã",
@@ -103,28 +114,58 @@
       "id": "end_sem_horario",
       "type": "output.end",
       "label": "Sem horário livre / Fim",
-      "position": { "x": 2020, "y": 80 },
+      "position": { "x": 2320, "y": 80 },
       "config": {}
     },
     {
       "id": "end_erro_agenda",
       "type": "output.end",
       "label": "Erro na agenda / Fim",
-      "position": { "x": 2020, "y": 520 },
+      "position": { "x": 2320, "y": 560 },
+      "config": {}
+    },
+    {
+      "id": "escolher_horario",
+      "type": "agent.structured",
+      "label": "IA escolhe o horário (9h-18h, sem almoço)",
+      "position": { "x": 2620, "y": 300 },
+      "config": {
+        "provider": "openai",
+        "model": "default",
+        "prompt": "Você vai escolher o horário exato para o Davi resolver a demanda \"{{demanda_atual}}\" amanhã. Abaixo estão os horários REALMENTE livres na agenda dele (sem conflito com outros compromissos), em duas listas na mesma ordem — rótulo (hora:minuto) e o valor ISO completo correspondente:\n\nRótulos: {{calendar.slots}}\nValores ISO: {{calendar.slot_starts}}\n\nRegras obrigatórias e inegociáveis:\n1. O Davi só agenda compromissos entre 09:00 e 18:00. Nunca escolha um rótulo antes de \"09:00\".\n2. O Davi nunca agenda nada no horário de almoço, entre 12:00 e 13:30. Não escolha nenhum rótulo dentro desse intervalo (\"12:00\", \"12:30\" e \"13:00\" estão proibidos, pois o compromisso invadiria total ou parcialmente o almoço).\n3. Escolha exatamente um dos valores da lista \"Valores ISO\" acima — copie o valor exatamente como está, não invente nem reformate um horário novo.\n4. Prefira o horário livre mais próximo do início do dia útil (09:00) que respeite as regras 1 e 2, a menos que o teor da demanda indique claramente urgência ou preferência por outro período — nesse caso escolha o horário mais adequado dentro das regras.\n\nRetorne exatamente estas chaves:\n- horario_escolhido: o valor ISO exato escolhido (copiado da lista, respeitando as regras 1 e 2). Deixe em branco (\"\") se nenhum horário da lista respeitar as regras.\n- horario_valido: \"true\" se você encontrou um horário válido dentro das regras, \"false\" se nenhum horário da lista está disponível entre 09:00–18:00 fora do intervalo de almoço.",
+        "outputKeys": ["horario_escolhido", "horario_valido"]
+      }
+    },
+    {
+      "id": "cond_horario_valido",
+      "type": "flow.condition",
+      "label": "IA achou horário válido?",
+      "position": { "x": 2920, "y": 300 },
+      "config": {
+        "variable": "structured.horario_valido",
+        "operator": "equals",
+        "value": "true"
+      }
+    },
+    {
+      "id": "end_sem_horario_valido",
+      "type": "output.end",
+      "label": "Nenhum horário 9h-18h sem almoço / Fim",
+      "position": { "x": 2920, "y": 80 },
       "config": {}
     },
     {
       "id": "criar_evento",
       "type": "calendar.create_event",
       "label": "Criar evento da demanda",
-      "position": { "x": 2320, "y": 300 },
+      "position": { "x": 3220, "y": 300 },
       "config": {
         "calendarId": "760c767fc57e83a77d9a31d417143b6c2324480ce92c606632d09438f8d99053@group.calendar.google.com",
-        "start": "{{calendar.first_available}}",
+        "start": "{{structured.horario_escolhido}}",
         "durationMinutes": 30,
         "timezone": "America/Sao_Paulo",
-        "title": "📋 {{structured.demand_summary}}",
-        "description": "Demanda identificada automaticamente pela IA na conversa com {{lead.name}} ({{lead.phone}}).\n\nResumo: {{structured.demand_summary}}",
+        "title": "📋 {{demanda_atual}}",
+        "description": "Demanda identificada automaticamente pela IA na conversa com {{lead.name}} ({{lead.phone}}).\n\nResumo: {{demanda_atual}}",
         "leadName": "{{lead.name}}",
         "leadPhone": "{{lead.phone}}"
       }
@@ -133,16 +174,16 @@
       "id": "end_erro_criacao",
       "type": "output.end",
       "label": "Erro ao criar evento / Fim",
-      "position": { "x": 2320, "y": 80 },
+      "position": { "x": 3220, "y": 80 },
       "config": {}
     },
     {
       "id": "salvar_registro",
       "type": "context.storage",
       "label": "Registrar demanda (evitar repetição)",
-      "position": { "x": 2620, "y": 300 },
+      "position": { "x": 3520, "y": 300 },
       "config": {
-        "content": "{{demandas_registradas}}\n- {{structured.demand_summary}}",
+        "content": "{{demandas_registradas}}\n- {{demanda_atual}}",
         "variableName": "demandas_registradas",
         "outputPorts": ["next"]
       }
@@ -151,7 +192,7 @@
       "id": "end_flow",
       "type": "output.end",
       "label": "Encerrar fluxo",
-      "position": { "x": 2900, "y": 300 },
+      "position": { "x": 3820, "y": 300 },
       "config": {}
     }
   ],
@@ -167,10 +208,16 @@
     { "id": "e_cond_has_demand_false", "source": "cond_has_demand", "target": "end_no_demand", "sourcePort": "false" },
     { "id": "e_cond_has_demand_true", "source": "cond_has_demand", "target": "cond_duplicate", "sourcePort": "true" },
     { "id": "e_cond_duplicate_true", "source": "cond_duplicate", "target": "end_duplicate", "sourcePort": "true" },
-    { "id": "e_cond_duplicate_false", "source": "cond_duplicate", "target": "verificar_agenda", "sourcePort": "false" },
-    { "id": "e_agenda_available", "source": "verificar_agenda", "target": "criar_evento", "sourcePort": "available" },
+    { "id": "e_cond_duplicate_false", "source": "cond_duplicate", "target": "salvar_resumo_atual", "sourcePort": "false" },
+    { "id": "e_resumo_agenda", "source": "salvar_resumo_atual", "target": "verificar_agenda", "sourcePort": "next" },
+    { "id": "e_agenda_available", "source": "verificar_agenda", "target": "escolher_horario", "sourcePort": "available" },
     { "id": "e_agenda_unavailable", "source": "verificar_agenda", "target": "end_sem_horario", "sourcePort": "unavailable" },
     { "id": "e_agenda_error", "source": "verificar_agenda", "target": "end_erro_agenda", "sourcePort": "error" },
+    { "id": "e_escolher_horario_escolhido", "source": "escolher_horario", "target": "cond_horario_valido", "sourcePort": "horario_escolhido" },
+    { "id": "e_escolher_horario_valido", "source": "escolher_horario", "target": "cond_horario_valido", "sourcePort": "horario_valido" },
+    { "id": "e_escolher_default", "source": "escolher_horario", "target": "cond_horario_valido", "sourcePort": "default" },
+    { "id": "e_cond_horario_true", "source": "cond_horario_valido", "target": "criar_evento", "sourcePort": "true" },
+    { "id": "e_cond_horario_false", "source": "cond_horario_valido", "target": "end_sem_horario_valido", "sourcePort": "false" },
     { "id": "e_evento_created", "source": "criar_evento", "target": "salvar_registro", "sourcePort": "created" },
     { "id": "e_evento_error", "source": "criar_evento", "target": "end_erro_criacao", "sourcePort": "error" },
     { "id": "e_salvar_end", "source": "salvar_registro", "target": "end_flow", "sourcePort": "next" }
