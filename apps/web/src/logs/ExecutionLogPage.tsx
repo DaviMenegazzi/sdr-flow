@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, ChevronLeft, ChevronRight, RefreshCw, ScrollText } from 'lucide-react';
+import { AlertCircle, ChevronLeft, ChevronRight, Download, LoaderCircle, RefreshCw, ScrollText } from 'lucide-react';
 import { useSession } from '../session';
 import { useInstance } from '../context/InstanceContext';
-import { Badge, Card, type BadgeProps } from '../components/ui';
+import { Badge, Button, Card, type BadgeProps } from '../components/ui';
 import { ExecutionDetailModal } from './ExecutionDetailModal';
-import type { ExecutionListItem, ExecutionStatus } from './types';
+import type { ExecutionDetail, ExecutionListItem, ExecutionStatus, ExecutionStep } from './types';
+import {
+  buildExecutionBatchExport,
+  buildExecutionExport,
+  createExecutionBatchFilename,
+  createExecutionExportFilename,
+  downloadJson,
+} from './export';
 
 const PAGE_SIZE = 50;
 
@@ -45,6 +52,9 @@ export function ExecutionLogPage() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [bulkDownloading, setBulkDownloading] = useState(false);
 
   const connectionId = currentInstance?.id;
 
@@ -52,6 +62,72 @@ export function ExecutionLogPage() {
   useEffect(() => {
     setOffset(0);
   }, [connectionId, status, startDate, endDate]);
+
+  const fetchExecutionDetail = useCallback(
+    async (id: string): Promise<{ execution: ExecutionDetail; steps: ExecutionStep[] }> => {
+      if (!activeOrg || !session?.access_token) throw new Error('Sessão indisponível.');
+      const res = await fetch(`/api/organizations/${activeOrg}/executions/${id}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || `Erro ${res.status} ao carregar execução.`);
+      }
+      const data = await res.json();
+      return { execution: data.execution as ExecutionDetail, steps: Array.isArray(data.steps) ? (data.steps as ExecutionStep[]) : [] };
+    },
+    [activeOrg, session?.access_token]
+  );
+
+  async function downloadOne(id: string) {
+    setDownloadingId(id);
+    setError('');
+    try {
+      const { execution, steps } = await fetchExecutionDetail(id);
+      downloadJson(createExecutionExportFilename(execution), buildExecutionExport(execution, steps));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao baixar execução.');
+    } finally {
+      setDownloadingId(null);
+    }
+  }
+
+  async function downloadSelected() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setBulkDownloading(true);
+    setError('');
+    try {
+      const results = await Promise.allSettled(ids.map(id => fetchExecutionDetail(id)));
+      const items = results
+        .filter((r): r is PromiseFulfilledResult<{ execution: ExecutionDetail; steps: ExecutionStep[] }> => r.status === 'fulfilled')
+        .map(r => r.value);
+      if (items.length > 0) {
+        downloadJson(createExecutionBatchFilename(items.length), buildExecutionBatchExport(items));
+      }
+      const failedCount = results.length - items.length;
+      if (failedCount > 0) {
+        setError(`${failedCount} de ${ids.length} execuções selecionadas não puderam ser baixadas.`);
+      }
+      setSelectedIds(new Set());
+    } finally {
+      setBulkDownloading(false);
+    }
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const allVisibleSelected = executions.length > 0 && executions.every(exec => selectedIds.has(exec.id));
+  function toggleSelectAll() {
+    setSelectedIds(allVisibleSelected ? new Set() : new Set(executions.map(exec => exec.id)));
+  }
 
   const loadExecutions = useCallback(async () => {
     if (!activeOrg || !session?.access_token || !connectionId) {
@@ -61,6 +137,7 @@ export function ExecutionLogPage() {
     }
     setLoading(true);
     setError('');
+    setSelectedIds(new Set());
     try {
       const params = new URLSearchParams({ connectionId, limit: String(PAGE_SIZE), offset: String(offset) });
       if (status) params.set('status', status);
@@ -169,11 +246,31 @@ export function ExecutionLogPage() {
               </div>
             )}
 
+            {selectedIds.size > 0 && (
+              <div className="p-2.5 rounded-lg bg-brand/10 border border-brand/20 flex items-center justify-between gap-3">
+                <span className="text-xs font-semibold text-content-primary">
+                  {selectedIds.size} execuç{selectedIds.size === 1 ? 'ão selecionada' : 'ões selecionadas'}
+                </span>
+                <Button variant="primary" size="sm" loading={bulkDownloading} onClick={() => void downloadSelected()}>
+                  <Download size={14} /> Baixar selecionados (JSON)
+                </Button>
+              </div>
+            )}
+
             <Card className="p-0 bg-surface border-border overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-xs text-left border-collapse">
                   <thead>
                     <tr className="bg-surface-muted/50 border-b border-border text-content-muted">
+                      <th className="py-2.5 px-4 font-medium w-8">
+                        <input
+                          type="checkbox"
+                          checked={allVisibleSelected}
+                          onChange={toggleSelectAll}
+                          aria-label="Selecionar todas as execuções desta página"
+                          className="cursor-pointer"
+                        />
+                      </th>
                       <th className="py-2.5 px-4 font-medium">Lead</th>
                       <th className="py-2.5 px-4 font-medium">Data/Hora</th>
                       <th className="py-2.5 px-4 font-medium">Modelo</th>
@@ -181,18 +278,19 @@ export function ExecutionLogPage() {
                       <th className="py-2.5 px-4 font-medium">Status</th>
                       <th className="py-2.5 px-4 font-medium">Fluxo</th>
                       <th className="py-2.5 px-4 font-medium">Duração</th>
+                      <th className="py-2.5 px-4 font-medium text-right">Baixar</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
                     {loading && executions.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="py-6 px-4 text-center text-content-muted">
+                        <td colSpan={9} className="py-6 px-4 text-center text-content-muted">
                           Carregando execuções...
                         </td>
                       </tr>
                     ) : executions.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="py-6 px-4 text-center text-content-muted">
+                        <td colSpan={9} className="py-6 px-4 text-center text-content-muted">
                           Nenhuma execução registrada para esta instância com os filtros atuais.
                         </td>
                       </tr>
@@ -203,6 +301,15 @@ export function ExecutionLogPage() {
                           className="hover:bg-surface-muted/40 transition-colors cursor-pointer"
                           onClick={() => setSelectedExecutionId(exec.id)}
                         >
+                          <td className="py-3 px-4" onClick={e => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(exec.id)}
+                              onChange={() => toggleSelected(exec.id)}
+                              aria-label="Selecionar execução"
+                              className="cursor-pointer"
+                            />
+                          </td>
                           <td className="py-3 px-4 font-semibold text-content">
                             {exec.lead?.name || exec.lead?.phone || '—'}
                           </td>
@@ -225,6 +332,21 @@ export function ExecutionLogPage() {
                           </td>
                           <td className="py-3 px-4 text-content-secondary">
                             {formatDuration(exec.created_at, exec.finished_at)}
+                          </td>
+                          <td className="py-3 px-4 text-right" onClick={e => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => void downloadOne(exec.id)}
+                              disabled={downloadingId === exec.id}
+                              title="Baixar fluxo completo desta execução (JSON)"
+                              className="p-1.5 rounded-lg text-content-muted hover:text-content-primary hover:bg-surface-elevated transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              {downloadingId === exec.id ? (
+                                <LoaderCircle size={14} className="animate-spin" />
+                              ) : (
+                                <Download size={14} />
+                              )}
+                            </button>
                           </td>
                         </tr>
                       ))

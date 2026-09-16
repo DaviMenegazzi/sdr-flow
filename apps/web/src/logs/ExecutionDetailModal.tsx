@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle2, ChevronDown, LoaderCircle } from 'lucide-react';
-import { Modal, Badge, type BadgeProps } from '../components/ui';
+import { AlertCircle, CheckCircle2, ChevronDown, Download, LoaderCircle } from 'lucide-react';
+import { Modal, Badge, Button, type BadgeProps } from '../components/ui';
 import { useSession } from '../session';
 import type { ExecutionDetail, ExecutionStatus, ExecutionStep } from './types';
+import { buildExecutionExport, createExecutionExportFilename, downloadJson } from './export';
 
 interface ExecutionDetailModalProps {
   executionId: string | null;
@@ -76,6 +77,18 @@ export function ExecutionDetailModal({ executionId, onClose }: ExecutionDetailMo
         detail?.flow_version?.flow ? `${detail.flow_version.flow.name} · v${detail.flow_version.version}` : undefined
       }
       maxWidth="4xl"
+      footer={
+        detail && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => downloadJson(createExecutionExportFilename(detail), buildExecutionExport(detail, steps))}
+            title="Inclui o fluxo, todos os passos com entrada/saída e erros"
+          >
+            <Download size={14} /> Baixar fluxo completo (JSON)
+          </Button>
+        )
+      }
     >
       {loading && (
         <div className="flex items-center justify-center gap-2 py-10 text-xs text-content-muted">
