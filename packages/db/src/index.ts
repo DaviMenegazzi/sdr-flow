@@ -36,6 +36,7 @@ export * from './knowledge-repository.js';
 export * from './summary-repository.js';
 export * from './inbox-repository.js';
 export * from './metrics-repository.js';
+export * from './calendar-repository.js';
 export * from './backup.js';
 
 

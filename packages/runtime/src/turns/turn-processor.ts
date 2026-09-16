@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { ConnectionRepository, ConversationRepository, ExecutionRepository, getAgentOpenAIKey } from '@sdr/db';
+import { ConnectionRepository, ConversationRepository, ExecutionRepository, getAgentOpenAIKey, CalendarRepository } from '@sdr/db';
 import type { FlowContext, FlowExecutionEvent } from '@sdr/shared';
-import { executeFlow, HandoffService, type FlowServices } from '@sdr/flow';
+import { executeFlow, HandoffService, type FlowServices, GoogleCalendarClient, type GoogleCalendarCredentials } from '@sdr/flow';
 import { createRuntimeProviders, type RuntimeConfig } from '@sdr/flow/server';
 import { fetchInboundEventsByIds, markInboundEventStatus, type ServiceDb } from '../inbound/inbound-event-repository.js';
 import { resolveGroupSubject } from './group-subject-resolver.js';
@@ -277,16 +277,27 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
       { ...deps.runtimeConfig, openaiApiKey },
       id => new ConnectionRepository(db).resolveMessagingConnection(input.organizationId, id)
     );
+
+    let orgCalendarCreds: GoogleCalendarCredentials | null = null;
+    try {
+      const calRepo = new CalendarRepository(db);
+      orgCalendarCreds = await calRepo.resolveActiveAccountCredentials<GoogleCalendarCredentials>(input.organizationId, db);
+    } catch {
+      // Gracefully fall back to server environment calendar credentials
+    }
+    const activeCalendarClient = orgCalendarCreds
+      ? new GoogleCalendarClient(globalThis.fetch, orgCalendarCreds)
+      : runtimeProviders.calendar;
     const assertCurrent = async () => {
       if (!(await input.isCurrent())) throw new Error(SUPERSEDED_TURN_ERROR);
     };
-    const guardedCalendar = runtimeProviders.calendar
+    const guardedCalendar = activeCalendarClient
       ? {
-          async getCalendarName(...args: Parameters<NonNullable<FlowServices['calendar']>['getCalendarName']>) { await assertCurrent(); return runtimeProviders.calendar!.getCalendarName(...args); },
-          async listEvents(...args: Parameters<NonNullable<FlowServices['calendar']>['listEvents']>) { await assertCurrent(); return runtimeProviders.calendar!.listEvents(...args); },
-          async createEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['createEvent']>) { await assertCurrent(); return runtimeProviders.calendar!.createEvent(...args); },
-          async updateEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['updateEvent']>) { await assertCurrent(); return runtimeProviders.calendar!.updateEvent(...args); },
-          async cancelEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['cancelEvent']>) { await assertCurrent(); return runtimeProviders.calendar!.cancelEvent(...args); },
+          async getCalendarName(...args: Parameters<NonNullable<FlowServices['calendar']>['getCalendarName']>) { await assertCurrent(); return activeCalendarClient!.getCalendarName(...args); },
+          async listEvents(...args: Parameters<NonNullable<FlowServices['calendar']>['listEvents']>) { await assertCurrent(); return activeCalendarClient!.listEvents(...args); },
+          async createEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['createEvent']>) { await assertCurrent(); return activeCalendarClient!.createEvent(...args); },
+          async updateEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['updateEvent']>) { await assertCurrent(); return activeCalendarClient!.updateEvent(...args); },
+          async cancelEvent(...args: Parameters<NonNullable<FlowServices['calendar']>['cancelEvent']>) { await assertCurrent(); return activeCalendarClient!.cancelEvent(...args); },
         }
       : undefined;
     const services: FlowServices = {

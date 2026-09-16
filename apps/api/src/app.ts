@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import express, { type ErrorRequestHandler, type Express } from 'express';
 import { z } from 'zod';
 import {
@@ -5,6 +6,7 @@ import {
   ExecutionRepository,
   OrganizationRepository,
   ConnectionRepository,
+  CalendarRepository,
   ConversationRepository,
   KnowledgeRepository,
   SummaryRepository,
@@ -17,9 +19,10 @@ import {
   type EvolutionCredentials,
   type MetaCredentials,
   type ConversationWithLead,
+  type CalendarAccountEntity,
 } from '@sdr/db';
 import { saveFlowSchema, memberRoleSchema, type FlowGraph, normalizeConversationStage, queueNames } from '@sdr/shared';
-import { catalog, validateGraph, replayFlow, runPlayground } from '@sdr/flow';
+import { catalog, validateGraph, replayFlow, runPlayground, GoogleCalendarClient, type GoogleCalendarCredentials } from '@sdr/flow';
 import { parseEvolutionWebhook, parseMetaWebhook, processInboundWebhook } from './webhook.js';
 import { ConnectionManager } from './whatsapp/connection-manager.js';
 import { EvolutionClient } from './whatsapp/evolution-client.js';
@@ -55,7 +58,34 @@ export interface ApiConfig extends RuntimeConfig {
   evolutionApiKey?: string;
   redisUrl?: string;
   allowedOrigins?: string[];
+  googleOAuthClientId?: string;
+  googleOAuthClientSecret?: string;
+  googleOAuthRedirectUri?: string;
 }
+
+function resolveGoogleOAuthCredentials(config: ApiConfig) {
+  let clientId = config.googleOAuthClientId || process.env.GOOGLE_OAUTH_CLIENT_ID;
+  let clientSecret = config.googleOAuthClientSecret || process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  let redirectUri = config.googleOAuthRedirectUri || process.env.GOOGLE_OAUTH_REDIRECT_URI;
+
+  if ((!clientId || !clientSecret) && config.googleCalendarCredentialsJson) {
+    try {
+      const parsed = JSON.parse(config.googleCalendarCredentialsJson);
+      if (!clientId && parsed.client_id) clientId = parsed.client_id;
+      if (!clientSecret && parsed.client_secret) clientSecret = parsed.client_secret;
+    } catch {
+      // ignore JSON parse error
+    }
+  }
+
+  if (!redirectUri) {
+    const base = config.publicApiUrl || `http://localhost:${process.env.PORT || 3001}`;
+    redirectUri = `${base.replace(/\/+$/, '')}/api/integrations/google/callback`;
+  }
+
+  return { clientId, clientSecret, redirectUri };
+}
+
 export function createApp(config: ApiConfig = {}): Express {
   const app = express();
 
@@ -381,6 +411,129 @@ export function createApp(config: ApiConfig = {}): Express {
     res.status(result.valid ? 200 : 422).json(result);
   });
 
+  // Google OAuth 2.0 Global Callback
+  app.get('/api/integrations/google/callback', async (req, res) => {
+    const code = typeof req.query.code === 'string' ? req.query.code : null;
+    const state = typeof req.query.state === 'string' ? req.query.state : null;
+    const errorParam = typeof req.query.error === 'string' ? req.query.error : null;
+
+    if (errorParam) {
+      logger.warn({ error: errorParam }, 'Google OAuth consent denied or error');
+      res.redirect(`/integrations?error=${encodeURIComponent(errorParam)}`);
+      return;
+    }
+
+    if (!code || !state) {
+      res.status(400).send('Parâmetros inválidos no retorno do Google OAuth (code ou state ausentes).');
+      return;
+    }
+
+    if (!config.supabaseUrl || !config.serviceRoleKey) {
+      res.status(503).send('Supabase não configurado no servidor.');
+      return;
+    }
+
+    const adminDb = serviceDatabase(config.supabaseUrl, config.serviceRoleKey);
+    const repo = new CalendarRepository(adminDb);
+
+    const oauthState = await repo.verifyAndConsumeOAuthState(state, adminDb);
+    if (!oauthState) {
+      res.status(400).send('Estado OAuth inválido ou expirado. Por favor, tente novamente a partir da tela de integrações.');
+      return;
+    }
+
+    const { clientId, clientSecret, redirectUri } = resolveGoogleOAuthCredentials(config);
+    if (!clientId || !clientSecret) {
+      res.status(500).send('Credenciais Google OAuth do aplicativo não configuradas no servidor.');
+      return;
+    }
+
+    try {
+      const tokenRes = await globalThis.fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          code,
+          grant_type: 'authorization_code',
+          redirect_uri: redirectUri,
+        }).toString(),
+      });
+
+      const tokenData = (await tokenRes.json()) as {
+        access_token?: string;
+        refresh_token?: string;
+        error?: string;
+        error_description?: string;
+      };
+
+      if (!tokenRes.ok || !tokenData.access_token) {
+        const errMsg = tokenData.error_description || tokenData.error || `HTTP ${tokenRes.status}`;
+        logger.error({ error: errMsg }, 'Falha na troca de código por token no Google OAuth');
+        res.redirect(`/integrations?error=${encodeURIComponent(errMsg)}`);
+        return;
+      }
+
+      let accountEmail = '';
+      let accountName = '';
+      try {
+        const userInfoRes = await globalThis.fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: { Authorization: `Bearer ${tokenData.access_token}` },
+        });
+        if (userInfoRes.ok) {
+          const userInfo = (await userInfoRes.json()) as { email?: string; name?: string };
+          accountEmail = userInfo.email || '';
+          accountName = userInfo.name || '';
+        }
+      } catch {
+        // userinfo endpoint may fail or be unavailable
+      }
+
+      if (!accountEmail) {
+        try {
+          const calClient = new GoogleCalendarClient(globalThis.fetch, {
+            access_token: tokenData.access_token,
+            refresh_token: tokenData.refresh_token,
+            client_id: clientId,
+            client_secret: clientSecret,
+          });
+          accountEmail = await calClient.getCalendarName('primary');
+        } catch {
+          accountEmail = 'google-calendar';
+        }
+      }
+
+      const credentialsPayload: Record<string, unknown> = {
+        client_id: clientId,
+        client_secret: clientSecret,
+        access_token: tokenData.access_token,
+      };
+      if (tokenData.refresh_token) {
+        credentialsPayload.refresh_token = tokenData.refresh_token;
+      }
+
+      await repo.saveAccount(
+        oauthState.organization_id,
+        oauthState.user_id,
+        {
+          email: accountEmail,
+          name: accountName || accountEmail,
+          status: 'connected',
+          credentials: credentialsPayload,
+        },
+        adminDb,
+      );
+
+      const redirectTarget = oauthState.redirect_url || '/integrations?google=connected';
+      res.redirect(redirectTarget);
+    } catch (err) {
+      logger.error({ err }, 'Erro ao processar callback Google OAuth');
+      res.redirect(`/integrations?error=${encodeURIComponent((err as Error).message)}`);
+    }
+  });
+
+
   // Keep the pure validation endpoint above, but retire every stateful legacy
   // surface before it reaches any application handler. Canonical requests are
   // always scoped below `/api/organizations/:organizationId` and do not match
@@ -592,6 +745,7 @@ export function createApp(config: ApiConfig = {}): Express {
       res.locals.executions = new ExecutionRepository(adminDb);
       res.locals.orgs = orgRepo;
       res.locals.connections = new ConnectionRepository(adminDb);
+      res.locals.calendar = new CalendarRepository(adminDb);
       res.locals.knowledge = new KnowledgeRepository(adminDb);
       res.locals.summaries = new SummaryRepository(adminDb);
       res.locals.inbox = new InboxRepository(adminDb);
@@ -627,6 +781,7 @@ export function createApp(config: ApiConfig = {}): Express {
     res.locals.executions = new ExecutionRepository(db);
     res.locals.orgs = new OrganizationRepository(db);
     res.locals.connections = new ConnectionRepository(db);
+    res.locals.calendar = new CalendarRepository(db);
     res.locals.knowledge = new KnowledgeRepository(db);
     res.locals.summaries = new SummaryRepository(db);
     res.locals.inbox = new InboxRepository(db);
@@ -1025,6 +1180,101 @@ export function createApp(config: ApiConfig = {}): Express {
     }
 
     await connRepo.deleteConnection(res.locals.organizationId as string, connectionId, serviceDb);
+    res.json({ ok: true });
+  });
+
+  // Google Calendar External Accounts
+  orgRoutes.get('/integrations/calendar/accounts', checkScope('integrations:read'), async (_req, res) => {
+    try {
+      const repo = res.locals.calendar as CalendarRepository;
+      const accounts = await repo.listAccounts(res.locals.organizationId as string);
+      res.json(accounts);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  orgRoutes.get('/integrations/google/auth-url', requireAdmin, checkScope('integrations:write'), async (req, res) => {
+    const { clientId, redirectUri } = resolveGoogleOAuthCredentials(config);
+    if (!clientId) {
+      res.status(400).json({ error: 'Google OAuth Client ID não configurado no servidor.' });
+      return;
+    }
+    const state = crypto.randomBytes(32).toString('hex');
+    const serviceDb = getServiceDb() || res.locals.db;
+    const repo = new CalendarRepository(serviceDb);
+
+    try {
+      await repo.createOAuthState(
+        res.locals.organizationId as string,
+        res.locals.userId as string,
+        state,
+        'google_calendar',
+        typeof req.query.redirectUrl === 'string' ? req.query.redirectUrl : undefined,
+        serviceDb,
+      );
+
+      const params = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.email',
+        access_type: 'offline',
+        prompt: 'consent',
+        state,
+      });
+
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+      res.json({ authUrl });
+    } catch (error) {
+      res.status(500).json({ error: `Falha ao gerar URL de autorização Google: ${(error as Error).message}` });
+    }
+  });
+
+  orgRoutes.get('/integrations/calendar/accounts/:accountId/calendars', checkScope('integrations:read'), async (req, res) => {
+    const accountId = z.uuid().safeParse(req.params.accountId);
+    if (!accountId.success) {
+      res.status(400).json({ error: 'ID de conta inválido.' });
+      return;
+    }
+    const serviceDb = getServiceDb() || res.locals.db;
+    const repo = new CalendarRepository(serviceDb);
+    const account = await repo.getAccount(res.locals.organizationId as string, accountId.data);
+    if (!account) {
+      res.status(404).json({ error: 'Conta de calendário não encontrada na organização.' });
+      return;
+    }
+
+    const creds = await repo.getAccountCredentials<GoogleCalendarCredentials>(accountId.data, serviceDb);
+    if (!creds) {
+      res.status(404).json({ error: 'Credenciais da conta não encontradas.' });
+      return;
+    }
+
+    try {
+      const client = new GoogleCalendarClient(globalThis.fetch, creds);
+      const calendars = await client.listCalendarList();
+      res.json(calendars);
+    } catch (error) {
+      res.status(502).json({ error: `Falha ao consultar agendas do Google: ${(error as Error).message}` });
+    }
+  });
+
+  orgRoutes.delete('/integrations/calendar/accounts/:accountId', requireAdmin, checkScope('integrations:write'), async (req, res) => {
+    const accountId = z.uuid().safeParse(req.params.accountId);
+    if (!accountId.success) {
+      res.status(400).json({ error: 'ID de conta inválido.' });
+      return;
+    }
+    const serviceDb = getServiceDb() || res.locals.db;
+    const repo = new CalendarRepository(serviceDb);
+    const account = await repo.getAccount(res.locals.organizationId as string, accountId.data);
+    if (!account) {
+      res.status(404).json({ error: 'Conta de calendário não encontrada.' });
+      return;
+    }
+
+    await repo.deleteAccount(res.locals.organizationId as string, accountId.data, serviceDb);
     res.json({ ok: true });
   });
 

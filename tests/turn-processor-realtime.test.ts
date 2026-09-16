@@ -69,6 +69,9 @@ function buildMockDb(opts: { organizationId: string; connectionId: string; flowV
         // Reports as already caught-up so waitForTraceCompletion never sleeps in this test.
         return { select: () => chain({ count: 999, error: null }) };
       }
+      if (table === 'calendar_accounts') {
+        return { select: () => chain({ data: null, error: null }) };
+      }
       throw new Error(`Unexpected table in mock: ${table}`);
     },
     rpc: (name: string, args: any) => {

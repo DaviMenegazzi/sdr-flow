@@ -8,7 +8,20 @@ import { serviceDatabase, userDatabase } from '@sdr/db';
 config({ path: fileURLToPath(new URL('../../../.env', import.meta.url)), quiet: true });
 const logger = pino({ redact: ['req.headers.authorization', '*.key', '*.token'] });
 if (process.env.NODE_ENV === 'production' && (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY || !process.env.SUPABASE_SERVICE_ROLE_KEY)) throw new Error('Configuração Supabase obrigatória ausente.');
-const app = createApp({ ...runtimeConfigFromEnv(process.env), publicApiUrl: process.env.PUBLIC_API_URL, supabaseUrl: process.env.SUPABASE_URL, anonKey: process.env.SUPABASE_ANON_KEY, serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY, evolutionServerUrl: process.env.EVOLUTION_SERVER_URL, evolutionApiKey: process.env.EVOLUTION_API_KEY, redisUrl: process.env.REDIS_URL, allowedOrigins:(process.env.ALLOWED_ORIGINS||'').split(',').map(v=>v.trim()).filter(Boolean) });
+const app = createApp({
+  ...runtimeConfigFromEnv(process.env),
+  publicApiUrl: process.env.PUBLIC_API_URL,
+  supabaseUrl: process.env.SUPABASE_URL,
+  anonKey: process.env.SUPABASE_ANON_KEY,
+  serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  evolutionServerUrl: process.env.EVOLUTION_SERVER_URL,
+  evolutionApiKey: process.env.EVOLUTION_API_KEY,
+  redisUrl: process.env.REDIS_URL,
+  allowedOrigins: (process.env.ALLOWED_ORIGINS || '').split(',').map(v => v.trim()).filter(Boolean),
+  googleOAuthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID,
+  googleOAuthClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+  googleOAuthRedirectUri: process.env.GOOGLE_OAUTH_REDIRECT_URI,
+});
 const server = app.listen(Number(process.env.PORT ?? 3001),process.env.HOST ?? '127.0.0.1',() => logger.info({ port: process.env.PORT ?? 3001 },'SDR Flow API ready'));
 wsServer.attach(server, {
   async authenticate(token) {

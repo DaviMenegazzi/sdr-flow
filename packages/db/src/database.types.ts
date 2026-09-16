@@ -159,6 +159,42 @@ export type Database = {
       };
       Relationships: [];
     };
+    calendar_accounts: {
+      Row: {
+        id: string;
+        organization_id: string;
+        provider: string;
+        account_email: string;
+        account_name: string | null;
+        status: string;
+        created_at: string;
+        updated_at: string;
+        created_by: string | null;
+      };
+      Insert: {
+        id?: string;
+        organization_id: string;
+        provider?: string;
+        account_email: string;
+        account_name?: string | null;
+        status?: string;
+        created_at?: string;
+        updated_at?: string;
+        created_by?: string | null;
+      };
+      Update: {
+        id?: string;
+        organization_id?: string;
+        provider?: string;
+        account_email?: string;
+        account_name?: string | null;
+        status?: string;
+        created_at?: string;
+        updated_at?: string;
+        created_by?: string | null;
+      };
+      Relationships: [];
+    };
     connections: {
       Row: {
         id: string;
@@ -827,6 +863,10 @@ export type Database = {
     Functions: {
       set_connection_credentials: { Args: { p_org: string; p_connection: string; p_ciphertext: string }; Returns: undefined };
       get_connection_credentials: { Args: { p_connection: string }; Returns: string | null };
+      set_calendar_credentials: { Args: { p_org: string; p_account: string; p_ciphertext: string }; Returns: undefined };
+      get_calendar_credentials: { Args: { p_account: string }; Returns: string | null };
+      create_oauth_state: { Args: { p_org: string; p_user: string; p_state: string; p_provider: string; p_redirect_url?: string | null }; Returns: undefined };
+      verify_and_consume_oauth_state: { Args: { p_state: string }; Returns: { organization_id: string; user_id: string; provider: string; redirect_url: string | null }[] };
       create_organization: { Args: { org_name: string }; Returns: string };
       publish_flow: { Args: { p_org: string; p_flow: string; p_actor: string; p_graph: Json }; Returns: Database['public']['Tables']['flow_versions']['Row'] };
       create_invitation: { Args: { p_org: string; p_email: string; p_role: Database['public']['Enums']['member_role']; p_token: string }; Returns: Database['public']['Tables']['invitations']['Row'] };
