@@ -1,6 +1,7 @@
 export * from './turns/redis-buffer.js';
 export * from './turns/turn-producer.js';
 export * from './turns/turn-processor.js';
+export * from './turns/group-subject-resolver.js';
 export * from './turns/outbox-dispatcher.js';
 export * from './events/event-publisher.js';
 export * from './events/realtime-events.js';

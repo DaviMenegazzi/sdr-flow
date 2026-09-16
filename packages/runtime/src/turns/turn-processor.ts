@@ -4,6 +4,7 @@ import type { FlowContext, FlowExecutionEvent } from '@sdr/shared';
 import { executeFlow, HandoffService, type FlowServices } from '@sdr/flow';
 import { createRuntimeProviders, type RuntimeConfig } from '@sdr/flow/server';
 import { fetchInboundEventsByIds, markInboundEventStatus, type ServiceDb } from '../inbound/inbound-event-repository.js';
+import { resolveGroupSubject } from './group-subject-resolver.js';
 import type { ExecutionEventPublisher } from '../events/event-publisher.js';
 import { publishRealtimeEvent } from '../events/realtime-events.js';
 import type { DebugRegistry, DebugFlowSnapshot } from '../debug/debug-registry.js';
@@ -79,7 +80,23 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
     // from pushName, which belongs to the latest participant who happened to send a message.
     const leadName = lastEvent.isGroup ? (lastEvent.groupName || null) : lastEvent.senderName;
     const lead = await convRepo.findOrCreateLead(input.organizationId, input.connectionId, lastEvent.phone, leadName);
-    if (lastEvent.isGroup) await convRepo.syncGroupIdentity(input.organizationId, lead.id, lastEvent.groupName);
+    if (lastEvent.isGroup) {
+      // Prefer whatever this delivery's own payload carried (cheapest, and self-heals a WhatsApp
+      // rename the moment Evolution starts including it), then the name already persisted from a
+      // prior turn (the cache: once resolved, later messages for the same group never hit
+      // Evolution again), and only fall back to a live Evolution lookup — never the participant's
+      // pushName — when neither is available yet.
+      const payloadName = lastEvent.groupName?.trim() || null;
+      const persistedName = lead.group_subject?.trim() || null;
+      let resolvedName = payloadName || persistedName;
+      let isRealName = Boolean(resolvedName);
+      if (!resolvedName) {
+        resolvedName = await resolveGroupSubject(db, input.organizationId, input.connectionId, lastEvent.remoteJid);
+        isRealName = Boolean(resolvedName);
+        if (!resolvedName) resolvedName = `Grupo • ${lastEvent.phone}`;
+      }
+      await convRepo.syncGroupIdentity(input.organizationId, lead.id, resolvedName, { synced: isRealName });
+    }
     const sessionTimeoutMinutes = Number(process.env.SESSION_TIMEOUT_MINUTES) || 15;
     const conversation = await convRepo.findOrCreateConversation(input.organizationId, input.connectionId, lead.id, null, {
       sessionTimeoutMinutes,
@@ -133,6 +150,7 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
             created_at: savedInbound.created_at,
             sender_name: incoming.senderName ?? null,
             sender_jid: incoming.senderJid ?? null,
+            message_type: incoming.messageType ?? null,
           },
         });
       }
@@ -322,6 +340,7 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
                 direction: msg.direction,
                 content: msg.content,
                 created_at: res.created_at,
+                message_type: msg.messageType ?? null,
               },
             });
           }

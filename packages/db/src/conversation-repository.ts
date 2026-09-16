@@ -49,13 +49,17 @@ export class ConversationRepository {
     return updated;
   }
 
-  /** Marks a lead as a group and refreshes its title without ever using a participant name. */
-  async syncGroupIdentity(organizationId: string, leadId: string, groupName?: string | null) {
+  /** Marks a lead as a group and refreshes its title without ever using a participant name.
+   * `options.synced` marks the name as confirmed against Evolution's own group catalog (as
+   * opposed to the "Grupo • <id>" placeholder used while Evolution is unreachable), recorded in
+   * group_subject_synced_at for the manual resync script to report staleness after a rename. */
+  async syncGroupIdentity(organizationId: string, leadId: string, groupName?: string | null, options?: { synced?: boolean }) {
     const patch: Database['public']['Tables']['leads']['Update'] = { is_group: true, updated_at: new Date().toISOString() };
     if (groupName?.trim()) {
       patch.group_subject = groupName.trim();
       patch.name = groupName.trim();
     }
+    if (options?.synced) patch.group_subject_synced_at = new Date().toISOString();
     const { error } = await this.db.from('leads').update(patch).eq('organization_id', organizationId).eq('id', leadId);
     if (error) throw error;
   }

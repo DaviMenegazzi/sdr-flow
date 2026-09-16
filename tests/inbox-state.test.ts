@@ -120,6 +120,15 @@ describe('inbox-state', () => {
       expect(deltaAgain.messages).toHaveLength(2);
     });
 
+    it('inbox:message.created carries message_type through to both the card preview and the appended message', () => {
+      const state = { conversations: [conv({ id: 'a' })], messages: [], selectedId: 'a' };
+      const payload = { id: 'm1', conversationId: 'a', sender: 'lead' as const, direction: 'INBOUND' as const, content: '', created_at: '2026-01-02T00:00:00.000Z', message_type: 'audio' };
+      const delta = applyRealtimeEvent(state, { type: 'inbox:message.created', conversationId: 'a', payload }, filters);
+
+      expect(delta.conversations[0]!.last_message?.message_type).toBe('audio');
+      expect(delta.messages[0]!.message_type).toBe('audio');
+    });
+
     it('inbox:message.created for a conversation not currently selected does not touch messages', () => {
       const state = { conversations: [conv({ id: 'a' })], messages: [], selectedId: 'other' };
       const payload = { id: 'm1', conversationId: 'a', sender: 'lead' as const, direction: 'INBOUND' as const, content: 'oi', created_at: '2026-01-02T00:00:00.000Z' };

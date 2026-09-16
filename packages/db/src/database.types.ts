@@ -613,6 +613,7 @@ export type Database = {
         connection_id: string | null;
         is_group: boolean;
         group_subject: string | null;
+        group_subject_synced_at: string | null;
       };
       Insert: {
         id?: string;
@@ -629,6 +630,7 @@ export type Database = {
         connection_id?: string | null;
         is_group?: boolean;
         group_subject?: string | null;
+        group_subject_synced_at?: string | null;
       };
       Update: {
         id?: string;
@@ -645,6 +647,7 @@ export type Database = {
         connection_id?: string | null;
         is_group?: boolean;
         group_subject?: string | null;
+        group_subject_synced_at?: string | null;
       };
       Relationships: [];
     };
@@ -835,6 +838,9 @@ export type Database = {
       save_inbound_message: { Args: { p_organization_id: string; p_connection_id: string; p_conversation_id: string; p_direction: string; p_sender: string; p_content: string; p_message_type: string; p_provider_message_id: string | null }; Returns: { id: string; created_at: string; is_new: boolean }[] };
       find_or_create_lead: { Args: { p_organization_id: string; p_connection_id: string; p_phone: string; p_name: string | null }; Returns: Database['public']['Tables']['leads']['Row'] };
       get_dashboard_metrics: { Args: { p_organization_id: string; p_start_date: string; p_end_date: string }; Returns: Json };
+      list_inbox_threads: { Args: { p_organization_id: string; p_connection_id?: string | null; p_stage?: string | null; p_handled_by?: string | null; p_assigned_user_id?: string | null; p_unassigned?: boolean; p_search?: string | null; p_limit?: number; p_offset?: number }; Returns: { id: string; total_count: number }[] };
+      get_thread_messages: { Args: { p_organization_id: string; p_conversation_id: string; p_limit?: number }; Returns: Database['public']['Tables']['messages']['Row'][] };
+      backfill_group_inbox: { Args: { p_organization_id?: string | null }; Returns: { leads_marked_group: number; messages_sender_backfilled: number }[] };
     };
     Enums: {
       account_status: "invited" | "active" | "suspended" | "disabled";
