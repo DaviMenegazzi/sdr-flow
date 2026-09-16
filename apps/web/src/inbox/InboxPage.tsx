@@ -808,7 +808,9 @@ export function InboxPage() {
             conversations.map(c => {
               const isSelected = c.id === selectedId;
               const stageConf = STAGE_CONFIG[c.stage] || { label: c.stage, variant: 'default' as const };
-              const displayName = c.lead.name || c.lead.phone;
+              const displayName = c.lead.is_group
+                ? (c.lead.group_subject || c.lead.name || 'Grupo sem nome')
+                : (c.lead.name || c.lead.phone);
               const timeStr = c.last_message_at
                 ? new Date(c.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                 : '';
@@ -862,10 +864,12 @@ export function InboxPage() {
             <div className="inbox-conversation-header h-14 px-6 border-b border-border flex items-center justify-between gap-4 bg-surface flex-shrink-0">
               <div className="min-w-0">
                 <h2 className="text-sm font-semibold text-content m-0 flex items-center gap-2 truncate">
-                  {selectedConv.lead.name || 'Lead sem nome'}
-                  <span className="text-xs font-normal text-content-muted">
+                  {selectedConv.lead.is_group
+                    ? (selectedConv.lead.group_subject || selectedConv.lead.name || 'Grupo sem nome')
+                    : (selectedConv.lead.name || 'Lead sem nome')}
+                  {!selectedConv.lead.is_group && <span className="text-xs font-normal text-content-muted">
                     {selectedConv.lead.phone}
-                  </span>
+                  </span>}
                 </h2>
                 <div className="flex items-center gap-2 mt-0.5 text-[11px] text-content-muted">
                   {selectedConv.connection && <span>Conexão: {selectedConv.connection.name}</span>}
@@ -995,7 +999,7 @@ export function InboxPage() {
                       {/* Sender Label */}
                       <div className="text-[10px] text-content-muted mb-1 flex items-center gap-1">
                         {isLead ? (
-                          <span>{selectedConv.lead.name || 'Lead'}</span>
+                          <span>{m.sender_name || (selectedConv.lead.is_group ? 'Participante' : selectedConv.lead.name || 'Lead')}</span>
                         ) : isAi ? (
                           <>
                             <Sparkles className="w-2.5 h-2.5 text-brand" />

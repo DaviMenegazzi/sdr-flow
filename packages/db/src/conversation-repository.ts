@@ -49,6 +49,17 @@ export class ConversationRepository {
     return updated;
   }
 
+  /** Marks a lead as a group and refreshes its title without ever using a participant name. */
+  async syncGroupIdentity(organizationId: string, leadId: string, groupName?: string | null) {
+    const patch: Database['public']['Tables']['leads']['Update'] = { is_group: true, updated_at: new Date().toISOString() };
+    if (groupName?.trim()) {
+      patch.group_subject = groupName.trim();
+      patch.name = groupName.trim();
+    }
+    const { error } = await this.db.from('leads').update(patch).eq('organization_id', organizationId).eq('id', leadId);
+    if (error) throw error;
+  }
+
   async resetVolatileLeadTurnState(
     organizationId: string,
     leadId: string,
@@ -277,6 +288,8 @@ export class ConversationRepository {
     content: string;
     messageType?: string;
     providerMessageId?: string | null;
+    senderName?: string | null;
+    senderJid?: string | null;
   }): Promise<{ id: string; created_at: string; created: boolean }> {
     const { data, error } = await this.db.rpc('save_inbound_message', {
       p_organization_id: input.organizationId,
@@ -287,6 +300,8 @@ export class ConversationRepository {
       p_content: input.content,
       p_message_type: input.messageType || 'text',
       p_provider_message_id: input.providerMessageId || null,
+      p_sender_name: input.senderName || null,
+      p_sender_jid: input.senderJid || null,
     });
     if (error) throw error;
     const row = Array.isArray(data) ? data[0] : data;

@@ -15,6 +15,9 @@ export interface NormalizedInboundPayload {
   mediaUrl?: string | null;
   fromMe: boolean;
   senderName?: string | null;
+  senderJid?: string | null;
+  isGroup?: boolean;
+  groupName?: string | null;
 }
 
 export interface AcceptedInboundEvent {

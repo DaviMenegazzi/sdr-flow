@@ -75,7 +75,11 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
     const convRepo = new ConversationRepository(db);
     const execRepo = new ExecutionRepository(db);
 
-    const lead = await convRepo.findOrCreateLead(input.organizationId, input.connectionId, lastEvent.phone, lastEvent.senderName);
+    // A group is one inbox conversation keyed by its JID. Its title must never be populated
+    // from pushName, which belongs to the latest participant who happened to send a message.
+    const leadName = lastEvent.isGroup ? (lastEvent.groupName || null) : lastEvent.senderName;
+    const lead = await convRepo.findOrCreateLead(input.organizationId, input.connectionId, lastEvent.phone, leadName);
+    if (lastEvent.isGroup) await convRepo.syncGroupIdentity(input.organizationId, lead.id, lastEvent.groupName);
     const sessionTimeoutMinutes = Number(process.env.SESSION_TIMEOUT_MINUTES) || 15;
     const conversation = await convRepo.findOrCreateConversation(input.organizationId, input.connectionId, lead.id, null, {
       sessionTimeoutMinutes,
@@ -106,6 +110,8 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
         sender: 'lead',
         content: incoming.textContent,
         messageType: incoming.messageType,
+        senderName: incoming.senderName,
+        senderJid: incoming.senderJid,
         // Dedup happened at accept time (inbound_events); this insert is itself idempotent by
         // provider_message_id (save_inbound_message), so a retry of this turn is still safe.
         providerMessageId: incoming.providerMessageId,
@@ -125,6 +131,8 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
             direction: 'INBOUND',
             content: incoming.textContent,
             created_at: savedInbound.created_at,
+            sender_name: incoming.senderName ?? null,
+            sender_jid: incoming.senderJid ?? null,
           },
         });
       }
