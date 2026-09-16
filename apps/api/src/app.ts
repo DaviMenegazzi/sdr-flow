@@ -40,6 +40,7 @@ import {
   type ExecutionEventPublisher,
   type DebugFlowSnapshot,
   resolveTurnFlow,
+  resolveFlowForConnection,
 } from '@sdr/runtime';
 import { authMiddleware, requireRole, uuidParam } from './auth.js';
 
@@ -808,9 +809,20 @@ export function createApp(config: ApiConfig = {}): Express {
     res.json(connection);
   });
 
+  // Cache para contatos e grupos da conexão (TTL: 30s)
+  const targetsCache = new Map<string, { timestamp: number; data: unknown }>();
+
   orgRoutes.get('/connections/:connectionId/targets', checkScope('connections:read'), async (req, res) => {
     const connectionId = z.uuid().parse(req.params.connectionId);
     const organizationId = res.locals.organizationId as string;
+
+    const forceRefresh = req.query.refresh === 'true' || req.query.refresh === '1';
+    const cached = targetsCache.get(connectionId);
+    if (!forceRefresh && cached && Date.now() - cached.timestamp < 30_000) {
+      res.json(cached.data);
+      return;
+    }
+
     const serviceDb = getServiceDb() || res.locals.db;
     const connRepo = new ConnectionRepository(serviceDb);
     const connection = await connRepo.getConnection(organizationId, connectionId);
@@ -865,7 +877,7 @@ export function createApp(config: ApiConfig = {}): Express {
       }
     }
 
-    res.json({
+    const result = {
       connectionId,
       groups: Array.from(groupMap.values()),
       contacts: chats
@@ -875,7 +887,9 @@ export function createApp(config: ApiConfig = {}): Express {
           return { id, jid: chat.id, name: chat.name || chat.pushName || id, type: 'contact' as const };
         }),
       timestamp: new Date().toISOString(),
-    });
+    };
+    targetsCache.set(connectionId, { timestamp: Date.now(), data: result });
+    res.json(result);
   });
 
   orgRoutes.get('/connections/:connectionId/qr', checkScope('connections:read'), async (req, res) => {
@@ -992,13 +1006,13 @@ export function createApp(config: ApiConfig = {}): Express {
     const db = res.locals.db;
     const { data: connections, error } = await db
       .from('connections')
-      .select('id,name,provider_instance_id')
+      .select('id,name,provider_instance_id,owner_user_id,agent_id')
       .eq('organization_id', organizationId)
       .order('created_at', { ascending: true });
     if (error) throw error;
 
     const bindings = await Promise.all((connections || []).map(async (connection: any) => {
-      const resolution = await resolveTurnFlow(db, connection.id);
+      const resolution = await resolveFlowForConnection(db, { organization_id: organizationId, owner_user_id: connection.owner_user_id, agent_id: connection.agent_id });
       if (resolution.status !== 'resolved') return null;
 
       return {

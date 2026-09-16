@@ -30,6 +30,17 @@ export type ResolveTurnFlowResult =
 export async function resolveTurnFlow(db: ServiceDb, connectionId: string): Promise<ResolveTurnFlowResult> {
   const { data: connection, error: connErr } = await db.from('connections').select('*').eq('id', connectionId).single();
   if (connErr || !connection) return { status: 'connection_not_found' };
+  return resolveFlowForConnection(db, connection);
+}
+
+/**
+ * Same resolution as resolveTurnFlow, minus the connection lookup, for callers that already
+ * hold the connection row (e.g. a bulk listing) and would otherwise re-fetch it per connection.
+ */
+export async function resolveFlowForConnection(
+  db: ServiceDb,
+  connection: { organization_id: string; owner_user_id: string; agent_id: string },
+): Promise<ResolveTurnFlowResult> {
   const organizationId = connection.organization_id;
 
   const { data: assignedAgent } = await db
