@@ -56,7 +56,7 @@ export class OpenAIProvider implements LLMProvider {
   private async generate<T>(req: LLMRequest, name: string, schema: z.ZodType<T>): Promise<LLMResponse<T>> {
     if (!this.config.apiKey?.trim()) throw new Error('Configure OPENAI_API_KEY no servidor para usar a OpenAI.');
     if (req.provider && req.provider !== 'openai') throw new Error('Provedor Gemini ainda não configurado. Selecione OpenAI.');
-    const model = req.model && !['default', 'configure-model'].includes(req.model) ? req.model : this.config.model || 'gpt-4.1-mini';
+    const model = this.config.model || 'gpt-4.1-mini';
     let response: Response;
     try {
       response = await (this.config.fetch ?? fetch)('https://api.openai.com/v1/responses', {

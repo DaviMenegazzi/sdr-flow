@@ -72,6 +72,9 @@ function buildMockDb(opts: { organizationId: string; connectionId: string; flowV
       if (table === 'calendar_accounts') {
         return { select: () => chain({ data: null, error: null }) };
       }
+      if (table === 'ai_agents') {
+        return { select: () => chain({ data: { model: 'gpt-4.1-mini' }, error: null }) };
+      }
       throw new Error(`Unexpected table in mock: ${table}`);
     },
     rpc: (name: string, args: any) => {

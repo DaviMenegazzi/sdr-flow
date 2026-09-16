@@ -18,7 +18,6 @@ export interface AgentDecision {
 
 export interface LLMRequest {
   provider?: 'openai' | 'gemini';
-  model?: string;
   prompt: string;
   system?: string;
   commercialMemory?: Record<string, unknown>;

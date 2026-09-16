@@ -226,7 +226,7 @@ export function PromptsView({ onSelectNodeInCanvas }: PromptsViewProps) {
                     {!isKnowledge && !isOutputText && (
                       <span style={{ fontSize: '11px', padding: '4px 10px', borderRadius: '6px', background: '#3b82f615', color: '#2563eb', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px' }}>
                         <Cpu size={12} />
-                        {String(node.config.provider || 'openai').toUpperCase()} · {String(node.config.model || 'default')}
+                        {String(node.config.provider || 'openai').toUpperCase()} · modelo do agente da instância
                       </span>
                     )}
 

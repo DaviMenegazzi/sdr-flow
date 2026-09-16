@@ -754,6 +754,16 @@ function Editor() {
 
       <div className="editor-body">
         <aside className="node-library w-[260px] bg-surface border-r border-border flex-shrink-0 flex flex-col p-4 select-none" aria-label="Biblioteca de nós">
+          <Link
+            to="/agents"
+            className="flex items-start gap-2 mb-3 px-2.5 py-2 rounded-lg bg-surface-elevated/60 border border-border/40 text-content-muted hover:border-brand/40 hover:text-content-secondary transition-colors"
+            title="Configurar o agente e o modelo desta instância"
+          >
+            <Bot size={14} className="text-[#2ee86b] flex-shrink-0 mt-0.5" />
+            <span className="text-[10.5px] leading-snug">
+              Os nós de <strong className="font-semibold text-content-secondary">Inteligência</strong> usam sempre o modelo e a chave do agente vinculado a esta instância — configure na aba <strong className="font-semibold text-content-secondary">Agentes</strong>.
+            </span>
+          </Link>
           <div className="flex items-center justify-between mb-2">
             <div className="library-heading-copy">
               <span className="library-kicker">BLOCOS</span>

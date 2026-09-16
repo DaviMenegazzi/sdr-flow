@@ -462,7 +462,6 @@ export const executors: Record<NodeType, NodeExecutor> = {
 
     const res = await services.llm.decide({
       provider: config.provider,
-      model: config.model,
       prompt: interpolatedPrompt,
       system: interpolate(config.system || '', ctx) || undefined,
       commercialMemory: ctx.variables.commercialMemory as Record<string, unknown>,
@@ -500,7 +499,6 @@ export const executors: Record<NodeType, NodeExecutor> = {
     const interpolatedPrompt = interpolate(config.prompt, ctx);
     const res = await services.llm.classify({
       provider: config.provider,
-      model: config.model,
       prompt: interpolatedPrompt,
       latestUserMessage: latestMsg,
     });
@@ -521,7 +519,6 @@ export const executors: Record<NodeType, NodeExecutor> = {
     const interpolatedPrompt = interpolate(config.prompt, ctx);
     const res = await services.llm.extract({
       provider: config.provider,
-      model: config.model,
       prompt: interpolatedPrompt,
       system: interpolate(config.system || '', ctx) || undefined,
       commercialMemory: ctx.variables.commercialMemory as Record<string, unknown>,
@@ -547,7 +544,6 @@ export const executors: Record<NodeType, NodeExecutor> = {
     const interpolatedPrompt = interpolate(config.prompt, ctx);
     const res = await services.llm.score({
       provider: config.provider,
-      model: config.model,
       prompt: interpolatedPrompt,
       latestUserMessage: latestMsg,
     });
@@ -578,7 +574,6 @@ export const executors: Record<NodeType, NodeExecutor> = {
 
     const res = await services.llm.structured({
       provider: config.provider,
-      model: config.model,
       prompt: enrichedPrompt,
       commercialMemory: ctx.variables.commercialMemory as Record<string, unknown>,
       recentMessages: ctx.variables.recentMessages as string,
@@ -624,7 +619,6 @@ export const executors: Record<NodeType, NodeExecutor> = {
       + (flowInstructions ? `\n\nRegras adicionais obrigatórias deste fluxo: ${flowInstructions}` : '');
     const res = await services.llm.structured({
       provider: config.provider,
-      model: config.model,
       prompt: actionPrompt,
       system: flowInstructions || undefined,
       commercialMemory: ctx.variables.commercialMemory as Record<string, unknown>,

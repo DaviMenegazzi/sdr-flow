@@ -12,7 +12,6 @@ const count = (value: number, max: number, description: string) => z.number().in
 const empty = z.object({}).passthrough();
 const prompt = z.object({
   provider: z.enum(['openai', 'gemini']).default('openai').describe('Provedor'),
-  model: text('default', 'Modelo (default usa OPENAI_MODEL do servidor)'),
   prompt: text('Conduza a conversa a partir do contexto disponível. Não invente informações.', 'Instruções do agente'),
   system: z.string().optional().describe('Instrução de sistema opcional'),
 }).passthrough();
@@ -22,13 +21,12 @@ const extractField = z.strictObject({
   description: z.string().max(300).optional().describe('Quando e como extrair este campo'),
   values: z.array(z.string().min(1).max(100)).max(30).optional().describe('Valores permitidos para campos de texto'),
 });
-const extractPrompt = z.strictObject({
+const extractPrompt = z.object({
   provider: z.enum(['openai', 'gemini']).default('openai').describe('Provedor'),
-  model: text('default', 'Modelo (default usa OPENAI_MODEL do servidor)'),
   prompt: text('Extraia apenas informações declaradas no contexto. Não invente informações.', 'Instruções do agente'),
   system: z.string().optional().describe('Instrução de sistema opcional'),
   fields: z.array(extractField).max(30).default([]).describe('Campos personalizados persistidos em custom_fields (JSON)'),
-});
+}).passthrough();
 const schemas = {
   'trigger.message_received': empty,
   'trigger.schedule': z.strictObject({ cron: text('0 9 * * 1-5', 'Expressão cron'), timezone: text('America/Sao_Paulo', 'Fuso horário') }),
@@ -75,20 +73,18 @@ const schemas = {
     nextExpectedInput: z.string().max(120).default('').describe('Próxima informação esperada do lead'),
   }),
   'agent.decide': prompt, 'agent.classify': prompt, 'agent.extract': extractPrompt, 'agent.score': prompt,
-  'agent.structured': z.strictObject({
+  'agent.structured': z.object({
     provider: z.enum(['openai', 'gemini']).default('openai').describe('Provedor'),
-    model: text('default', 'Modelo'),
     prompt: text('Analise o contexto e retorne os dados solicitados em formato estruturado.', 'Instruções'),
     outputKeys: z.array(z.string().min(1).max(40)).min(1).max(10).default(['message', 'done']).describe('Chaves do JSON de saída'),
-  }),
-  'agent.next_action': z.strictObject({
+  }).passthrough(),
+  'agent.next_action': z.object({
     provider: z.enum(['openai', 'gemini']).default('openai').describe('Provedor'),
-    model: text('default', 'Modelo'),
     prompt: text('Escolha a próxima ação comercial que mais aproxima a conversa da conversão. Não invente dados ausentes.', 'Instruções para decidir a próxima ação'),
     system: z.string().optional().describe('Instrução de sistema opcional'),
     allowedActions: z.array(z.enum(nextActionTypes)).min(1).default([...nextActionTypes]).describe('Ações permitidas (JSON)'),
     currentMessagePriority: z.boolean().default(true).describe('Responder à intenção atual antes de solicitar campos ausentes'),
-  }),
+  }).passthrough(),
   'flow.condition': z.strictObject({ variable: text('decision.handoff', 'Variável'), operator: z.enum(['equals', 'not_equals', 'contains', 'greater_than']).default('equals').describe('Operador'), value: z.string().default('true').describe('Valor de comparação') }),
   'flow.switch': z.strictObject({ variable: text('decision.intent', 'Variável'), cases: z.array(z.string().min(1).max(40).regex(/^[\w-]+$/)).min(1).max(10).default(['interesse', 'suporte']).describe('Saídas (JSON)') }),
   'flow.delay': z.strictObject({ seconds: count(2, 86400, 'Atraso em segundos') }),

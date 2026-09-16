@@ -180,8 +180,14 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
 
     // Every agent authenticates to OpenAI with its own key — never a platform-wide shared
     // one (packages/db/src/agent-credentials.ts). No fallback here on purpose: silently
-    // reusing another key would defeat the whole point of per-agent isolation.
-    const openaiApiKey = await getAgentOpenAIKey(db, input.agentId);
+    // reusing another key would defeat the whole point of per-agent isolation. The model is
+    // likewise the one configured for this agent (aba Agentes) — flow nodes no longer choose
+    // a model themselves, so every intelligence node in this turn shares the agent's model,
+    // which keeps cost accounting tied to the agent's own key.
+    const [openaiApiKey, agentRow] = await Promise.all([
+      getAgentOpenAIKey(db, input.agentId),
+      db.from('ai_agents').select('model').eq('organization_id', input.organizationId).eq('id', input.agentId).maybeSingle(),
+    ]);
     if (!openaiApiKey) {
       await debugRegistry.failArmed(input.organizationId, conversation.id, {
         severity: 'error',
@@ -191,6 +197,7 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
       await markAll(db, input.organizationId, input.inboundEventIds, 'failed', 'missing_openai_key');
       return { status: 'error', reason: 'missing_openai_key', conversationId: conversation.id };
     }
+    const openaiModel = agentRow.data?.model || deps.runtimeConfig.openaiModel;
 
     const { data: flowVersion } = await db
       .from('flow_versions')
@@ -274,7 +281,7 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
     };
 
     const runtimeProviders = createRuntimeProviders(
-      { ...deps.runtimeConfig, openaiApiKey },
+      { ...deps.runtimeConfig, openaiApiKey, openaiModel },
       id => new ConnectionRepository(db).resolveMessagingConnection(input.organizationId, id)
     );
 
