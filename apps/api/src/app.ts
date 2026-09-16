@@ -114,7 +114,7 @@ export function createApp(config: ApiConfig = {}): Express {
   });
   const messageCreatedEvent = (
     organizationId: string,
-    message: { id: string; conversation_id: string; connection_id: string; sender: string; direction: string; content: string; created_at: string }
+    message: { id: string; conversation_id: string; connection_id: string; sender: string; direction: string; content: string; created_at: string; sender_name?: string | null; sender_jid?: string | null }
   ): Parameters<typeof publishRealtimeEvent>[1] => ({
     type: 'inbox:message.created',
     organizationId,
@@ -127,6 +127,8 @@ export function createApp(config: ApiConfig = {}): Express {
       direction: message.direction,
       content: message.content,
       created_at: message.created_at,
+      sender_name: message.sender_name ?? null,
+      sender_jid: message.sender_jid ?? null,
     },
   });
   let closeEventSubscriber: (() => Promise<void>) | undefined;

@@ -3,9 +3,34 @@ import { createHmac } from 'node:crypto';
 import * as database from '../packages/db/src/index.js';
 import request from 'supertest';
 import { createApp } from '../apps/api/src/app.js';
+import { parseEvolutionWebhook } from '../apps/api/src/webhook.js';
 
 describe('API Webhook & Inbound Gateway', () => {
   afterEach(() => vi.restoreAllMocks());
+  it('keeps group identity separate from the participant who sent the message', () => {
+    const event = parseEvolutionWebhook({
+      data: {
+        key: {
+          id: 'group-message-1',
+          remoteJid: '120363000000000000@g.us',
+          participant: '5511999999999@s.whatsapp.net',
+          fromMe: false,
+        },
+        // Evolution's pushName belongs to the participant, never the group itself.
+        pushName: 'Mariana Souza',
+        chat: { subject: 'Clientes Vida Card' },
+        message: { conversation: 'Bom dia, pessoal!' },
+      },
+    });
+
+    expect(event).toMatchObject({
+      phone: '120363000000000000',
+      isGroup: true,
+      groupName: 'Clientes Vida Card',
+      senderName: 'Mariana Souza',
+      senderJid: '5511999999999@s.whatsapp.net',
+    });
+  });
   it('authenticates Meta challenge and signed status events before processing', async () => {
     const query: any = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: { id: 'connection' } }) };
     vi.spyOn(database, 'serviceDatabase').mockReturnValue({ from: () => query } as any);

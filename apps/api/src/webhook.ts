@@ -41,6 +41,10 @@ export interface InboundMessageEvent {
   mediaUrl?: string;
   fromMe: boolean;
   senderName?: string;
+  senderJid?: string;
+  isGroup: boolean;
+  /** Group subject, deliberately distinct from pushName (the message author). */
+  groupName?: string;
 }
 
 export function parseEvolutionWebhook(payload: any): InboundMessageEvent | null {
@@ -55,6 +59,13 @@ export function parseEvolutionWebhook(payload: any): InboundMessageEvent | null 
   const remoteJidAlt = key.remoteJidAlt || '';
   const fromMe = Boolean(key.fromMe);
   const senderName = data.pushName || '';
+  const isGroup = remoteJid.endsWith('@g.us');
+  // Evolution's message payload uses pushName for the participant, not the group. Depending
+  // on its version the group subject is nested in one of the metadata/chat shapes below.
+  const groupName = isGroup
+    ? data.groupMetadata?.subject || data.group?.subject || data.chat?.subject || data.chat?.name || ''
+    : '';
+  const senderJid = isGroup ? key.participant || key.participantPn || data.participant || '' : remoteJid;
 
   // No usable sender/thread identifier at all (protocol messages, malformed payloads):
   // nothing downstream can attribute this to a lead or conversation, so don't create one.
@@ -91,7 +102,7 @@ export function parseEvolutionWebhook(payload: any): InboundMessageEvent | null 
   // digit blob that also happens to collide across groups. Keep the JID's local part as-is
   // instead — it's already a stable, unique identifier and was never a phone number.
   const phoneSource = remoteJid.endsWith('@lid') && remoteJidAlt ? remoteJidAlt : remoteJid;
-  const cleanPhone = remoteJid.endsWith('@g.us')
+  const cleanPhone = isGroup
     ? remoteJid.replace(/@g\.us$/, '')
     : normalizePhoneDigits(phoneSource);
 
@@ -104,6 +115,9 @@ export function parseEvolutionWebhook(payload: any): InboundMessageEvent | null 
     mediaUrl,
     fromMe,
     senderName,
+    senderJid,
+    isGroup,
+    groupName,
   };
 }
 
@@ -132,6 +146,8 @@ export function parseMetaWebhook(payload: any): InboundMessageEvent | null {
     messageType,
     fromMe: false,
     senderName,
+    senderJid: remoteJid,
+    isGroup: false,
   };
 }
 
@@ -158,6 +174,9 @@ export async function processInboundWebhook(
       mediaUrl: event.mediaUrl ?? null,
       fromMe: event.fromMe,
       senderName: event.senderName ?? null,
+      senderJid: event.senderJid ?? null,
+      isGroup: event.isGroup,
+      groupName: event.groupName ?? null,
     });
   } catch (err: any) {
     return { status: 'error', reason: 'event_not_persisted', error: err?.message || String(err) };

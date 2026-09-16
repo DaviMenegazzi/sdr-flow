@@ -19,6 +19,8 @@ export interface ConversationItem {
     interest: string | null;
     urgency: string | null;
     memory: Record<string, unknown>;
+    is_group?: boolean;
+    group_subject?: string | null;
   };
   connection?: {
     id: string;
@@ -47,6 +49,8 @@ export interface MessageItem {
   direction: 'INBOUND' | 'OUTBOUND';
   content: string;
   created_at: string;
+  sender_name?: string | null;
+  sender_jid?: string | null;
 }
 
 export interface InboxFilters {
@@ -146,7 +150,7 @@ export function applyRealtimeEvent(state: InboxState, event: InboxRealtimeEvent,
     }
   } else if (event.type === 'inbox:message.created') {
     const payload = event.payload as
-      | { id: string; conversationId: string; sender: MessageItem['sender']; direction: MessageItem['direction']; content: string; created_at: string }
+      | { id: string; conversationId: string; sender: MessageItem['sender']; direction: MessageItem['direction']; content: string; created_at: string; sender_name?: string | null; sender_jid?: string | null }
       | undefined;
     if (payload?.conversationId) {
       if (conversations.some(c => c.id === payload.conversationId)) {
@@ -163,6 +167,8 @@ export function applyRealtimeEvent(state: InboxState, event: InboxRealtimeEvent,
           direction: payload.direction,
           content: payload.content,
           created_at: payload.created_at,
+          sender_name: payload.sender_name ?? null,
+          sender_jid: payload.sender_jid ?? null,
         });
       }
     }
