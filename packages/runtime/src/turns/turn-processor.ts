@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { ConnectionRepository, ConversationRepository, ExecutionRepository, getAgentOpenAIKey, CalendarRepository } from '@sdr/db';
+import { ConnectionRepository, ConversationRepository, ExecutionRepository, getAgentOpenAIKey, CalendarRepository, KnowledgeRepository } from '@sdr/db';
 import type { FlowContext, FlowExecutionEvent } from '@sdr/shared';
 import { executeFlow, HandoffService, type FlowServices, GoogleCalendarClient, type GoogleCalendarCredentials } from '@sdr/flow';
 import { createRuntimeProviders, type RuntimeConfig } from '@sdr/flow/server';
@@ -75,6 +75,7 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
 
     const convRepo = new ConversationRepository(db);
     const execRepo = new ExecutionRepository(db);
+    const knowledgeRepo = new KnowledgeRepository(db);
 
     // A group is one inbox conversation keyed by its JID. Its title must never be populated
     // from pushName, which belongs to the latest participant who happened to send a message.
@@ -385,6 +386,20 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
         },
         getMessages: async (_org, convId, limit) => convRepo.getMessages(_org, convId, limit),
         getLeadRecentMessages: async (_org, leadId, limit) => convRepo.getLeadRecentMessages(_org, leadId, limit),
+        searchKnowledge: async (_org, collection, query, limit, threshold) => {
+          const queryEmb = KnowledgeRepository.generateFallbackEmbedding(query);
+          const hits = await knowledgeRepo.search(_org, queryEmb, {
+            collection: collection === 'default' ? undefined : collection,
+            limit,
+            threshold,
+          });
+          return hits.map(h => ({
+            text: `[${h.collection.toUpperCase()}] ${h.title}: ${h.content}`,
+            collection: h.collection,
+            title: h.title,
+            similarity: h.similarity,
+          }));
+        },
       },
       now: () => new Date(),
     };
