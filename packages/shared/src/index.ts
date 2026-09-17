@@ -13,7 +13,7 @@ export const nodeTypes = [
   'flow.condition', 'flow.switch', 'flow.delay', 'flow.wait_reply', 'flow.loop', 'flow.do_while', 'flow.required_fields',
   'action.update_stage', 'action.update_lead', 'action.crm_sync', 'action.handoff', 'action.webhook',
   'integration.google_calendar',
-  'calendar.availability', 'calendar.create_event', 'calendar.reschedule_event', 'calendar.cancel_event',
+  'calendar.list_events', 'calendar.availability', 'calendar.create_event', 'calendar.reschedule_event', 'calendar.cancel_event',
   'output.send_text', 'output.send_media', 'output.send_template', 'output.smart_message', 'output.end',
 ] as const;
 export const nodeTypeSchema = z.enum(nodeTypes);

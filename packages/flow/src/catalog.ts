@@ -116,6 +116,13 @@ const schemas = {
     eventEnd: z.string().default('').describe('Fim do evento ISO 8601 (para criar)'),
     eventDescription: z.string().default('').describe('Descrição do evento (para criar)'),
   }),
+  'calendar.list_events': z.strictObject({
+    calendarId: text('primary', 'ID do Google Calendar'),
+    date: text('hoje', 'Data ISO, hoje, amanhã ou dia da semana'),
+    period: z.string().max(40).default('dia').describe('Período: manhã, tarde, noite ou dia inteiro'),
+    timezone: text('America/Sao_Paulo', 'Fuso horário'),
+    daysAhead: count(14, 90, 'Limite de dias para resolver datas relativas'),
+  }),
   'calendar.availability': z.strictObject({
     calendarId: text('primary', 'ID do Google Calendar'),
     date: text('{{scheduling.desired_day}}', 'Data ISO, hoje, amanhã ou dia da semana'),
@@ -172,7 +179,7 @@ const labels: Record<NodeType, string> = {
   'flow.condition': 'Condição', 'flow.switch': 'Múltiplos caminhos', 'flow.delay': 'Aguardar', 'flow.wait_reply': 'Esperar resposta', 'flow.loop': 'Repetir X vezes', 'flow.do_while': 'Repetir até condição', 'flow.required_fields': 'Campos obrigatórios',
   'action.update_stage': 'Atualizar estágio', 'action.update_lead': 'Atualizar lead', 'action.crm_sync': 'Sincronizar CRM', 'action.handoff': 'Encaminhar para humano', 'action.webhook': 'Chamar webhook',
   'integration.google_calendar': 'Google Calendar',
-  'calendar.availability': 'Consultar disponibilidade', 'calendar.create_event': 'Criar agendamento', 'calendar.reschedule_event': 'Reagendar', 'calendar.cancel_event': 'Cancelar agendamento',
+  'calendar.list_events': 'Listar agendamentos', 'calendar.availability': 'Consultar disponibilidade', 'calendar.create_event': 'Criar agendamento', 'calendar.reschedule_event': 'Reagendar', 'calendar.cancel_event': 'Cancelar agendamento',
   'output.send_text': 'Enviar mensagem', 'output.send_media': 'Enviar mídia', 'output.send_template': 'Enviar template', 'output.smart_message': 'Mensagem inteligente', 'output.end': 'Encerrar fluxo',
 };
 export const categories = { trigger: 'Gatilhos', guard: 'Guardas', input: 'Entrada', context: 'Contexto', agent: 'Inteligência', flow: 'Controle', action: 'Ações', integration: 'Integrações', calendar: 'Agenda', output: 'Saída' };
@@ -191,6 +198,7 @@ export function portsFor(type: NodeType, config: Record<string, unknown>): strin
   if (type === 'flow.do_while') return ['body', 'done'];
   if (type === 'context.storage') return Array.isArray(config.outputPorts) ? config.outputPorts.filter((x): x is string => typeof x === 'string') : ['next'];
   if (type === 'integration.google_calendar') return ['success', 'error'];
+  if (type === 'calendar.list_events') return ['success', 'error'];
   if (type === 'calendar.availability') return ['available', 'unavailable', 'error'];
   if (type === 'calendar.create_event') return ['created', 'error'];
   if (type === 'calendar.reschedule_event') return ['rescheduled', 'error'];

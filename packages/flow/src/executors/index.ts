@@ -1315,6 +1315,36 @@ export const executors: Record<NodeType, NodeExecutor> = {
   },
 
   // --- CALENDAR: SALES ACTIONS ---
+  'calendar.list_events': async (ctx, config, services) => {
+    try {
+      const client = calendarClient(services);
+      const calendarId = interpolate(config.calendarId || 'primary', ctx);
+      const timezone = interpolate(config.timezone || 'America/Sao_Paulo', ctx);
+      const dateInput = interpolate(config.date || '', ctx);
+      const period = interpolate(config.period || '', ctx);
+      const now = services.now ? services.now() : new Date();
+      const date = resolveCalendarDate(dateInput, now, timezone, Number(config.daysAhead) || 14);
+      const window = calendarWindow(date, period, timezone);
+      const rawEvents = await client.listEvents(calendarId, window.start.toISOString(), window.end.toISOString());
+      const events = rawEvents.map(e => ({
+        id: e.id || '',
+        title: e.summary || '(sem título)',
+        start: e.start?.dateTime || e.start?.date || '',
+        end: e.end?.dateTime || e.end?.date || '',
+        description: e.description || '',
+        link: e.htmlLink || '',
+      }));
+      const calendar = mergeCalendarVariables(ctx, { events, eventCount: events.length, date, timezone });
+      return {
+        port: 'success',
+        output: { eventCount: events.length, events, date },
+        variables: { calendar },
+      };
+    } catch (error: any) {
+      return { port: 'error', output: { error: error?.message || String(error) } };
+    }
+  },
+
   'calendar.availability': async (ctx, config, services) => {
     try {
       const client = calendarClient(services);

@@ -466,6 +466,7 @@ Cada nó possui saídas específicas que o validador exige que existam e estejam
 | `agent.structured` | Cada chave definida em `outputKeys` + `"default"` |
 | `context.storage` | Cada valor definido em `outputPorts` |
 | `integration.google_calendar` | `["success", "error"]` |
+| `calendar.list_events` | `["success", "error"]` |
 | `calendar.availability` | `["available", "unavailable", "error"]` |
 | `calendar.create_event` | `["created", "error"]` |
 | `calendar.reschedule_event` | `["rescheduled", "error"]` |

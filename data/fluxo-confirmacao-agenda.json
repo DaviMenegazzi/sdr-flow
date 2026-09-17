@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "loopLimit": 15,
+  "nodes": [
+    {
+      "id": "start",
+      "type": "trigger.schedule",
+      "label": "Agendamento diário 07:00",
+      "position": { "x": 0, "y": 300 },
+      "config": { "cron": "0 7 * * *", "timezone": "America/Sao_Paulo" }
+    },
+    {
+      "id": "list_events",
+      "type": "calendar.list_events",
+      "label": "Consultar agenda do dia",
+      "position": { "x": 320, "y": 300 },
+      "config": {
+        "calendarId": "760c767fc57e83a77d9a31d417143b6c2324480ce92c606632d09438f8d99053@group.calendar.google.com",
+        "date": "hoje",
+        "period": "dia",
+        "timezone": "America/Sao_Paulo",
+        "daysAhead": 14
+      }
+    },
+    {
+      "id": "end_error",
+      "type": "output.end",
+      "label": "Encerrar (erro na agenda)",
+      "position": { "x": 640, "y": 60 },
+      "config": {}
+    },
+    {
+      "id": "count_events",
+      "type": "agent.structured",
+      "label": "Contar agendamentos válidos",
+      "position": { "x": 640, "y": 300 },
+      "config": {
+        "provider": "openai",
+        "prompt": "Você recebeu a lista de eventos de hoje no Google Calendar: {{calendar.events}}\n\nConsidere somente agendamentos de pacientes/leads (possuem nome do paciente e um contato identificável, geralmente na descrição). Ignore reuniões internas, bloqueios de agenda, horário de almoço e qualquer evento administrativo.\n\nConte quantos agendamentos válidos existem e retorne esse número em valid_count. Se não houver nenhum, retorne 0.",
+        "outputKeys": ["valid_count"]
+      }
+    },
+    {
+      "id": "loop",
+      "type": "flow.loop",
+      "label": "Repetir por agendamento válido",
+      "position": { "x": 960, "y": 300 },
+      "config": {
+        "times": "{{structured.valid_count}}",
+        "counterVar": "confirm_index"
+      }
+    },
+    {
+      "id": "end_ok",
+      "type": "output.end",
+      "label": "Encerrar (confirmações enviadas)",
+      "position": { "x": 960, "y": 60 },
+      "config": {}
+    },
+    {
+      "id": "extract_event",
+      "type": "agent.structured",
+      "label": "Extrair dados do agendamento",
+      "position": { "x": 1280, "y": 500 },
+      "config": {
+        "provider": "openai",
+        "prompt": "A lista completa de eventos de hoje é: {{calendar.events}}\n\nConsiderando apenas os agendamentos válidos de pacientes/leads (ignore reuniões internas, bloqueios de agenda e eventos administrativos), selecione o agendamento de índice {{confirm_index}} contando a partir de 1 somente entre os agendamentos válidos.\n\nExtraia:\n- patient_name: nome do paciente/lead\n- patient_phone: telefone no formato internacional com DDI e DDD (ex: 5555999999999), geralmente presente na descrição do evento\n- service: serviço ou especialidade do agendamento\n- start_time: horário do agendamento, como está no evento\n\nNunca invente telefone. Se o evento não tiver um telefone identificável na descrição, defina phone_valid como \"false\" e deixe patient_phone vazio. Caso contrário, defina phone_valid como \"true\".",
+        "outputKeys": ["patient_name", "patient_phone", "service", "start_time", "phone_valid"]
+      }
+    },
+    {
+      "id": "check_phone",
+      "type": "flow.condition",
+      "label": "Telefone válido?",
+      "position": { "x": 1600, "y": 500 },
+      "config": {
+        "variable": "structured.phone_valid",
+        "operator": "equals",
+        "value": "true"
+      }
+    },
+    {
+      "id": "build_confirmation",
+      "type": "agent.decide",
+      "label": "Redigir confirmação",
+      "position": { "x": 1920, "y": 420 },
+      "config": {
+        "provider": "openai",
+        "prompt": "Redija uma mensagem curta e cordial em português confirmando o agendamento de {{structured.patient_name}} para {{structured.service}} às {{structured.start_time}}. Peça para o paciente responder confirmando presença ou avisando caso precise remarcar. Não invente informações além das fornecidas.",
+        "system": ""
+      }
+    },
+    {
+      "id": "send_confirmation",
+      "type": "output.send_text",
+      "label": "Enviar confirmação ao paciente",
+      "position": { "x": 2240, "y": 420 },
+      "config": {
+        "text": "{{decision.reply}}",
+        "typing": true,
+        "targetMode": "specific_targets",
+        "targets": ["{{structured.patient_phone}}"]
+      }
+    }
+  ],
+  "edges": [
+    { "id": "start-list_events", "source": "start", "sourcePort": "next", "target": "list_events" },
+    { "id": "list_events-count_events", "source": "list_events", "sourcePort": "success", "target": "count_events" },
+    { "id": "list_events-end_error", "source": "list_events", "sourcePort": "error", "target": "end_error" },
+    { "id": "count_events-loop", "source": "count_events", "sourcePort": "valid_count", "target": "loop" },
+    { "id": "count_events-default-loop", "source": "count_events", "sourcePort": "default", "target": "loop" },
+    { "id": "loop-extract_event", "source": "loop", "sourcePort": "body", "target": "extract_event" },
+    { "id": "loop-end_ok", "source": "loop", "sourcePort": "done", "target": "end_ok" },
+    { "id": "extract_event-check_phone-name", "source": "extract_event", "sourcePort": "patient_name", "target": "check_phone" },
+    { "id": "extract_event-check_phone-phone", "source": "extract_event", "sourcePort": "patient_phone", "target": "check_phone" },
+    { "id": "extract_event-check_phone-service", "source": "extract_event", "sourcePort": "service", "target": "check_phone" },
+    { "id": "extract_event-check_phone-start_time", "source": "extract_event", "sourcePort": "start_time", "target": "check_phone" },
+    { "id": "extract_event-check_phone-valid", "source": "extract_event", "sourcePort": "phone_valid", "target": "check_phone" },
+    { "id": "extract_event-check_phone-default", "source": "extract_event", "sourcePort": "default", "target": "check_phone" },
+    { "id": "check_phone-build_confirmation", "source": "check_phone", "sourcePort": "true", "target": "build_confirmation" },
+    { "id": "check_phone-loop", "source": "check_phone", "sourcePort": "false", "target": "loop" },
+    { "id": "build_confirmation-send_confirmation", "source": "build_confirmation", "sourcePort": "next", "target": "send_confirmation" },
+    { "id": "send_confirmation-loop", "source": "send_confirmation", "sourcePort": "next", "target": "loop" }
+  ]
+}

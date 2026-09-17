@@ -377,6 +377,25 @@ O catálogo atual possui **44 tipos de nó**, divididos em **10 categorias funda
 *Executa operações reais no Google Calendar. Ausência de credenciais ou falha HTTP sempre segue
 pela porta `error`; não existe sucesso simulado.*
 
+#### Listar Agendamentos (`calendar.list_events`)
+- **O que faz:** Lista os eventos já existentes na agenda para uma data/período, com título e
+  descrição — útil para ler compromissos marcados (ex: confirmação de agenda), diferente de
+  `calendar.availability`, que só calcula horários livres e não expõe os eventos em si.
+- **Lógica por trás:** Aceita a mesma resolução de data (`AAAA-MM-DD`, `hoje`, `amanhã`, dia da
+  semana) e janelas de período (`manhã`, `tarde`, `noite`, `dia`) de `calendar.availability`, mas
+  devolve os eventos brutos do intervalo em vez de calcular vagas.
+- **Portas de saída:**
+  - `success`: consulta concluída (mesmo que a lista venha vazia);
+  - `error`: configuração, credencial ou chamada Google inválida.
+- **Variáveis geradas:** `{{calendar.events}}` (lista de `{ id, title, start, end, description,
+  link }`), `{{calendar.eventCount}}`, `{{calendar.date}}` e `{{calendar.timezone}}` — mesma forma
+  usada por `integration.google_calendar` com `action: "list_events"`, então fluxos já escritos
+  para ler `{{calendar.events}}` funcionam com qualquer um dos dois.
+- **Diferença para `integration.google_calendar`:** este nó usa as credenciais Google já
+  configuradas para a organização (a mesma fonte de `calendar.availability`/`calendar.create_event`
+  — veja a nota abaixo); `integration.google_calendar` exige um JSON de credenciais OAuth2 colado
+  no próprio nó.
+
 #### Consultar Disponibilidade (`calendar.availability`)
 - **O que faz:** Lista compromissos e calcula horários livres para uma data, período, duração e fuso
   horário.
