@@ -22,8 +22,8 @@ export class HandoffService {
     content: string,
     messageId?: string | null
   ): HandoffResult {
-    // Look at the latest message sent in the conversation
-    const lastMsg = recentMessages[recentMessages.length - 1];
+    // recentMessages is ordered newest-first (see webhook.ts query)
+    const lastMsg = recentMessages[0];
 
     if (lastMsg && lastMsg.fromMe) {
       const matchId = Boolean(messageId && lastMsg.id === messageId);
