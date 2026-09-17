@@ -190,7 +190,7 @@ export function resolveCalendarDate(value: string, now: Date, timezone: string, 
   const today = dateInTimezone(now, timezone);
   if (!normalized || normalized === 'hoje' || normalized === 'today') return today;
   if (normalized === 'amanha' || normalized === 'tomorrow') return addDays(today, 1);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized < today ? today : normalized;
 
   const weekdayNames: Record<string, number> = {
     domingo: 0, sunday: 0,
@@ -211,7 +211,10 @@ export function resolveCalendarDate(value: string, now: Date, timezone: string, 
   }
 
   const parsed = new Date(value);
-  if (!Number.isNaN(parsed.getTime())) return dateInTimezone(parsed, timezone);
+  if (!Number.isNaN(parsed.getTime())) {
+    const resolved = dateInTimezone(parsed, timezone);
+    return resolved < today ? today : resolved;
+  }
   throw new Error(`Não foi possível resolver a data “${value}”. Use AAAA-MM-DD, hoje, amanhã ou um dia da semana.`);
 }
 

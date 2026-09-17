@@ -289,6 +289,8 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
         senderPhone: lastEvent.phone,
         resumedAfterGapMinutes,
         resumedAfterLongGap,
+        currentDate: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }),
+        currentDateTime: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
       },
       tokens: { input: 0, output: 0 },
     };
