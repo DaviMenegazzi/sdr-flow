@@ -44,6 +44,40 @@ describe('Flow publication boundary',() => {
     const graph = createSdrTemplate(); graph.edges.find(edge => edge.id === 'branch-reply')!.target='memory';
     expect(codes(graph)).toEqual(expect.arrayContaining(['cycle','no_termination']));
   });
+  it.each(['flow.loop','flow.do_while'] as const)('accepts a cycle bounded by a %s node whose body returns to it',type => {
+    const graph: FlowGraph = {
+      schemaVersion: 1,
+      nodes: [
+        makeNode('trigger.message_received','start',0,0),
+        makeNode(type,'loop',300,0),
+        makeNode('action.crm_sync','body',600,0),
+        makeNode('output.end','end',900,0),
+      ],
+      edges: [
+        { id:'start-loop',source:'start',sourcePort:'next',target:'loop' },
+        { id:'loop-body',source:'loop',sourcePort:'body',target:'body' },
+        { id:'body-loop',source:'body',sourcePort:'next',target:'loop' },
+        { id:'loop-done',source:'loop',sourcePort:'done',target:'end' },
+      ],
+    };
+    expect(validateGraph(graph)).toMatchObject({ valid:true, issues:[] });
+  });
+  it('still rejects a cycle that has no loop-control node bounding it',() => {
+    const graph: FlowGraph = {
+      schemaVersion: 1,
+      nodes: [
+        makeNode('trigger.message_received','start',0,0),
+        makeNode('action.crm_sync','a',300,0),
+        makeNode('action.crm_sync','b',600,0),
+      ],
+      edges: [
+        { id:'start-a',source:'start',sourcePort:'next',target:'a' },
+        { id:'a-b',source:'a',sourcePort:'next',target:'b' },
+        { id:'b-a',source:'b',sourcePort:'next',target:'a' },
+      ],
+    };
+    expect(codes(graph)).toEqual(expect.arrayContaining(['cycle','no_termination']));
+  });
   it('validates config and does not mutate the caller graph when applying defaults',() => {
     const graph = createSdrTemplate(); graph.nodes.find(node => node.id === 'buffer')!.config={ windowSeconds:-1 };
     expect(codes(graph)).toContain('config');

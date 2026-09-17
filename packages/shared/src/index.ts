@@ -10,7 +10,7 @@ export const nodeTypes = [
   'input.buffer', 'input.media', 'input.normalize',
   'context.memory', 'context.knowledge', 'context.crm', 'context.summarize', 'context.storage', 'context.conversation_state',
   'agent.decide', 'agent.classify', 'agent.extract', 'agent.score', 'agent.structured', 'agent.next_action',
-  'flow.condition', 'flow.switch', 'flow.delay', 'flow.wait_reply', 'flow.loop', 'flow.required_fields',
+  'flow.condition', 'flow.switch', 'flow.delay', 'flow.wait_reply', 'flow.loop', 'flow.do_while', 'flow.required_fields',
   'action.update_stage', 'action.update_lead', 'action.crm_sync', 'action.handoff', 'action.webhook',
   'integration.google_calendar',
   'calendar.availability', 'calendar.create_event', 'calendar.reschedule_event', 'calendar.cancel_event',

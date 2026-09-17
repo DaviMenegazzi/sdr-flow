@@ -56,6 +56,11 @@ export function VariablesView({ onSelectNodeInCanvas }: VariablesViewProps) {
     } else if (node.type === 'flow.loop') {
       const counterVar = String(node.config.counterVar || 'loop_count');
       producers[counterVar] = { nodeId: node.id, nodeLabel: node.label, nodeType: node.type };
+    } else if (node.type === 'flow.do_while') {
+      const counterVar = String(node.config.counterVar || 'do_while_count');
+      producers[counterVar] = { nodeId: node.id, nodeLabel: node.label, nodeType: node.type };
+      producers['do_while.condition_result'] = { nodeId: node.id, nodeLabel: node.label, nodeType: node.type };
+      producers['do_while.exit_reason'] = { nodeId: node.id, nodeLabel: node.label, nodeType: node.type };
     }
   }
 

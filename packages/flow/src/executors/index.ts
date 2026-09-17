@@ -726,6 +726,61 @@ export const executors: Record<NodeType, NodeExecutor> = {
     };
   },
 
+  'flow.do_while': async (ctx, config, _services) => {
+    const counterVar = config.counterVar || 'do_while_count';
+    const maxIterations = Math.max(1, Math.floor(Number(config.maxIterations) || 5));
+    const count = Number(ctx.variables[counterVar] || 0);
+
+    if (count === 0) {
+      return {
+        port: 'body',
+        output: { iteration: 1, maxIterations },
+        variables: { [counterVar]: 1 },
+      };
+    }
+
+    const resolved = interpolate(`{{${config.variable}}}`, ctx);
+    const target = String(config.value);
+    let conditionMet = false;
+    switch (config.operator) {
+      case 'equals':
+        conditionMet = resolved === target;
+        break;
+      case 'not_equals':
+        conditionMet = resolved !== target;
+        break;
+      case 'contains':
+        conditionMet = resolved.toLowerCase().includes(target.toLowerCase());
+        break;
+      case 'greater_than':
+        conditionMet = Number(resolved) > Number(target);
+        break;
+      default:
+        conditionMet = resolved === target;
+    }
+
+    if (conditionMet && count < maxIterations) {
+      const next = count + 1;
+      return {
+        port: 'body',
+        output: { iteration: next, maxIterations, conditionMet },
+        variables: { [counterVar]: next },
+      };
+    }
+
+    return {
+      port: 'done',
+      output: { iterations: count, maxIterations, conditionMet },
+      variables: {
+        [counterVar]: 0,
+        do_while: {
+          condition_result: conditionMet,
+          exit_reason: conditionMet ? 'max_iterations' : 'condition_false',
+        },
+      },
+    };
+  },
+
   'flow.required_fields': async (ctx, config, _services) => {
     const required: string[] = Array.isArray(config.required) ? config.required : [];
     const optional: string[] = Array.isArray(config.optional) ? config.optional : [];
