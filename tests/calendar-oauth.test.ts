@@ -207,6 +207,60 @@ describe('Google Calendar OAuth & Multi-Tenant Supabase Integration', () => {
 
       expect(client).toBeInstanceOf(GoogleCalendarClient);
     });
+
+    it('refreshes a stale stored access_token on 401 and retries once instead of failing', async () => {
+      const mockFetch = vi.fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: 'Request had invalid authentication credentials.' } }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'refreshed_token' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ summary: 'Agenda Principal' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }));
+
+      // Simulates a stored credential where the ~1h access_token has expired
+      // between OAuth connect time and this turn, but the refresh_token is still valid.
+      const client = new GoogleCalendarClient(mockFetch as any, {
+        client_id: 'cid',
+        client_secret: 'csec',
+        refresh_token: 'refresh_org_specific',
+        access_token: 'stale_expired_access_token',
+      });
+
+      const name = await client.getCalendarName('primary');
+
+      expect(name).toBe('Agenda Principal');
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+      // First call must use the stale token directly (no refresh yet)
+      expect((mockFetch.mock.calls[0]![1] as RequestInit).headers).toMatchObject({
+        Authorization: 'Bearer stale_expired_access_token',
+      });
+      // Second call is the token refresh against Google's OAuth endpoint
+      expect(mockFetch.mock.calls[1]![0]).toBe('https://oauth2.googleapis.com/token');
+      // Third call is the retried request with the freshly refreshed token
+      expect((mockFetch.mock.calls[2]![1] as RequestInit).headers).toMatchObject({
+        Authorization: 'Bearer refreshed_token',
+      });
+    });
+
+    it('throws the original 401 error when there is no refresh_token to recover with', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: { message: 'Request had invalid authentication credentials.' } }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+
+      const client = new GoogleCalendarClient(mockFetch as any, { access_token: 'stale_expired_access_token' });
+
+      await expect(client.getCalendarName('primary')).rejects.toThrow('invalid authentication credentials');
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('API OAuth Configuration & Endpoints', () => {

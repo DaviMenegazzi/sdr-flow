@@ -37,11 +37,13 @@ export class GoogleCalendarClient {
     private readonly credentials: GoogleCalendarCredentials,
   ) {}
 
-  private async resolveAccessToken(): Promise<string> {
-    if (this.accessToken) return this.accessToken;
-    if (this.credentials.access_token?.trim()) {
-      this.accessToken = this.credentials.access_token.trim();
-      return this.accessToken;
+  private async resolveAccessToken(forceRefresh = false): Promise<string> {
+    if (!forceRefresh) {
+      if (this.accessToken) return this.accessToken;
+      if (this.credentials.access_token?.trim()) {
+        this.accessToken = this.credentials.access_token.trim();
+        return this.accessToken;
+      }
     }
     if (!this.credentials.refresh_token?.trim() || !this.credentials.client_id?.trim() || !this.credentials.client_secret?.trim()) {
       throw new Error('Credenciais Google não configuradas. Informe access_token ou client_id, client_secret e refresh_token.');
@@ -65,8 +67,8 @@ export class GoogleCalendarClient {
     return this.accessToken;
   }
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T | null> {
-    const token = await this.resolveAccessToken();
+  private async request<T>(path: string, init: RequestInit = {}, isRetry = false): Promise<T | null> {
+    const token = await this.resolveAccessToken(isRetry);
     const response = await this.fetchFn(`https://www.googleapis.com/calendar/v3${path}`, {
       ...init,
       headers: {
@@ -75,6 +77,11 @@ export class GoogleCalendarClient {
         ...init.headers,
       },
     });
+    // A cached or persisted access_token can outlive its ~1h expiry between turns;
+    // force one refresh via refresh_token before giving up on a 401.
+    if (response.status === 401 && !isRetry && this.credentials.refresh_token?.trim()) {
+      return this.request<T>(path, init, true);
+    }
     if (response.status === 204) return null;
     const payload = await readJson<T & GoogleErrorPayload>(response);
     if (!response.ok) throw new Error(errorMessage(payload, response.status));
