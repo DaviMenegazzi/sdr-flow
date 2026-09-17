@@ -1784,6 +1784,43 @@ export function createApp(config: ApiConfig = {}): Express {
     res.json(updated);
   });
 
+  orgRoutes.patch('/inbox/conversations/:id/lead-memory', async (req, res) => {
+    const orgId = res.locals.organizationId as string;
+    const inboxRepo = res.locals.inbox as InboxRepository;
+    const convId = z.string().uuid().parse(req.params.id);
+    const body = z.object({
+      path: z.string().min(1).max(200),
+      value: z.unknown().optional(),
+      delete: z.boolean().optional(),
+    }).parse(req.body);
+
+    const conv = await inboxRepo.getConversation(orgId, convId);
+    if (!conv) {
+      res.status(404).json({ error: 'Conversa não encontrada.' });
+      return;
+    }
+
+    const memory: Record<string, unknown> = { ...(conv.lead.memory as Record<string, unknown> || {}) };
+    const parts = body.path.split('.');
+    if (parts.length === 2 && parts[0] === 'custom_fields' && parts[1]) {
+      const subKey = parts[1];
+      const custom: Record<string, unknown> = {
+        ...(memory.custom_fields && typeof memory.custom_fields === 'object' ? memory.custom_fields as Record<string, unknown> : {}),
+      };
+      if (body.delete) delete custom[subKey];
+      else custom[subKey] = body.value;
+      memory.custom_fields = custom;
+    } else {
+      if (body.delete) delete memory[body.path];
+      else memory[body.path] = body.value;
+    }
+
+    const convRepo = new ConversationRepository(res.locals.db);
+    await convRepo.updateLead(orgId, conv.lead_id, { memory });
+    const refreshed = await inboxRepo.getConversation(orgId, convId);
+    res.json(refreshed);
+  });
+
   orgRoutes.post('/inbox/conversations/:id/messages', async (req, res) => {
     const orgId = res.locals.organizationId as string;
     const inboxRepo = res.locals.inbox as InboxRepository;

@@ -23,6 +23,10 @@ import {
   RotateCcw,
   Square,
   Download,
+  Pencil,
+  Trash2,
+  Plus,
+  Check,
 } from 'lucide-react';
 import { messagePreview } from '@sdr/shared';
 import { useSession } from '../session';
@@ -119,6 +123,12 @@ export function InboxPage() {
   const [debugLoading, setDebugLoading] = useState(false);
   const [debugError, setDebugError] = useState<string | null>(null);
   const [expandedDebugStep, setExpandedDebugStep] = useState<string | null>(null);
+  const [editingMemoryPath, setEditingMemoryPath] = useState<string | null>(null);
+  const [memoryDraft, setMemoryDraft] = useState<string>('');
+  const [memoryActionLoading, setMemoryActionLoading] = useState<boolean>(false);
+  const [showAddMemoryField, setShowAddMemoryField] = useState<boolean>(false);
+  const [newMemoryPath, setNewMemoryPath] = useState<string>('');
+  const [newMemoryValue, setNewMemoryValue] = useState<string>('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const listFailureStreak = useRef(0);
@@ -696,6 +706,31 @@ export function InboxPage() {
     }
   }
 
+  async function handleMemoryChange(path: string, options: { value?: string; delete?: boolean }) {
+    if (!selectedConv || !inboxBaseUrl || !accessToken) return;
+    setMemoryActionLoading(true);
+    try {
+      const res = await fetch(`${inboxBaseUrl}/conversations/${selectedConv.id}/lead-memory`, {
+        method: 'PATCH',
+        headers: getHeaders(true),
+        body: JSON.stringify(
+          options.delete ? { path, delete: true } : { path, value: options.value }
+        ),
+      });
+      if (!res.ok) throw new Error('Falha ao atualizar memória do lead.');
+      const updated = await res.json();
+      setSelectedConv(updated);
+      setEditingMemoryPath(null);
+      setShowAddMemoryField(false);
+      setNewMemoryPath('');
+      setNewMemoryValue('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao atualizar memória do lead.');
+    } finally {
+      setMemoryActionLoading(false);
+    }
+  }
+
   async function handleSendMessage(e: React.FormEvent) {
     e.preventDefault();
     if (!replyText.trim() || !selectedConv || !inboxBaseUrl || !accessToken) return;
@@ -722,6 +757,22 @@ export function InboxPage() {
   }
 
   const memoryEntries = selectedConv?.lead.memory ? Object.entries(selectedConv.lead.memory) : [];
+  type MemoryRow = { path: string; label: string; value: unknown; editable: boolean };
+  const memoryRows: MemoryRow[] = [];
+  for (const [key, value] of memoryEntries) {
+    if (key === 'custom_fields' && value && typeof value === 'object' && !Array.isArray(value)) {
+      for (const [subKey, subValue] of Object.entries(value as Record<string, unknown>)) {
+        memoryRows.push({
+          path: `custom_fields.${subKey}`,
+          label: `custom_fields.${subKey}`,
+          value: subValue,
+          editable: typeof subValue !== 'object',
+        });
+      }
+    } else {
+      memoryRows.push({ path: key, label: key, value, editable: typeof value !== 'object' });
+    }
+  }
 
   return (
     <div className="inbox-page flex h-full w-full overflow-hidden bg-canvas">
@@ -1243,27 +1294,125 @@ export function InboxPage() {
           )}
 
           {/* Commercial Memory */}
-          <span className="text-[10px] font-bold uppercase tracking-wider text-content-muted">
-            MEMÓRIA COMERCIAL
-          </span>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-content-muted">
+              MEMÓRIA COMERCIAL
+            </span>
+            <button
+              type="button"
+              className="text-content-muted hover:text-content"
+              title="Adicionar campo"
+              onClick={() => setShowAddMemoryField(v => !v)}
+              disabled={memoryActionLoading}
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          </div>
 
-          {memoryEntries.length === 0 ? (
+          {showAddMemoryField && (
+            <div className="p-2.5 rounded-lg bg-surface-muted/40 border border-border text-xs flex flex-col gap-1.5">
+              <input
+                className="w-full bg-transparent border border-border rounded px-2 py-1 text-xs text-content"
+                placeholder="Chave (ex: notes ou custom_fields.minha_chave)"
+                value={newMemoryPath}
+                onChange={e => setNewMemoryPath(e.target.value)}
+              />
+              <input
+                className="w-full bg-transparent border border-border rounded px-2 py-1 text-xs text-content"
+                placeholder="Valor"
+                value={newMemoryValue}
+                onChange={e => setNewMemoryValue(e.target.value)}
+              />
+              <div className="flex gap-1.5 justify-end">
+                <button
+                  type="button"
+                  className="text-content-muted hover:text-content px-2 py-1"
+                  onClick={() => { setShowAddMemoryField(false); setNewMemoryPath(''); setNewMemoryValue(''); }}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  className="text-brand disabled:opacity-50 px-2 py-1"
+                  disabled={!newMemoryPath.trim() || memoryActionLoading}
+                  onClick={() => handleMemoryChange(newMemoryPath.trim(), { value: newMemoryValue })}
+                >
+                  <Check className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {memoryRows.length === 0 ? (
             <p className="text-xs text-content-muted italic m-0">
               Nenhum dado comercial extraído ainda.
             </p>
           ) : (
             <div className="flex flex-col gap-2">
-              {memoryEntries.map(([key, value]) => (
+              {memoryRows.map(row => (
                 <div
-                  key={key}
+                  key={row.path}
                   className="p-2.5 rounded-lg bg-surface-muted/40 border border-border text-xs"
                 >
                   <span className="text-content-muted block text-[9px] uppercase tracking-wide mb-0.5">
-                    {key}
+                    {row.label}
                   </span>
-                  <span className="text-content break-words font-medium">
-                    {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                  </span>
+                  {editingMemoryPath === row.path ? (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <input
+                        className="flex-1 min-w-0 bg-transparent border border-border rounded px-2 py-1 text-xs text-content"
+                        value={memoryDraft}
+                        onChange={e => setMemoryDraft(e.target.value)}
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        className="text-content-muted hover:text-content"
+                        onClick={() => setEditingMemoryPath(null)}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        className="text-brand disabled:opacity-50"
+                        disabled={memoryActionLoading}
+                        onClick={() => handleMemoryChange(row.path, { value: memoryDraft })}
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-2 mt-0.5">
+                      <span className="text-content break-words font-medium">
+                        {typeof row.value === 'object' ? JSON.stringify(row.value) : String(row.value)}
+                      </span>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {row.editable && (
+                          <button
+                            type="button"
+                            className="text-content-muted hover:text-content"
+                            title="Editar"
+                            disabled={memoryActionLoading}
+                            onClick={() => {
+                              setEditingMemoryPath(row.path);
+                              setMemoryDraft(String(row.value ?? ''));
+                            }}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="text-content-muted hover:text-danger"
+                          title="Excluir"
+                          disabled={memoryActionLoading}
+                          onClick={() => handleMemoryChange(row.path, { delete: true })}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
