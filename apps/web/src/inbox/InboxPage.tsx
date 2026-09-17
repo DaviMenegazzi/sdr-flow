@@ -129,8 +129,50 @@ export function InboxPage() {
   const [showAddMemoryField, setShowAddMemoryField] = useState<boolean>(false);
   const [newMemoryPath, setNewMemoryPath] = useState<string>('');
   const [newMemoryValue, setNewMemoryValue] = useState<string>('');
+  const [contextPanelWidth, setContextPanelWidth] = useState<number>(256);
+  const [isResizingContextPanel, setIsResizingContextPanel] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const contextPanelResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const CONTEXT_PANEL_MIN_WIDTH = 220;
+  const getContextPanelMaxWidth = () => Math.max(CONTEXT_PANEL_MIN_WIDTH, Math.min(480, window.innerWidth * 0.4));
+
+  const startContextPanelResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    contextPanelResizeRef.current = { startX: e.clientX, startWidth: contextPanelWidth };
+    setIsResizingContextPanel(true);
+  };
+
+  useEffect(() => {
+    if (!isResizingContextPanel) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      const start = contextPanelResizeRef.current;
+      if (!start) return;
+      const delta = start.startX - e.clientX;
+      const maxWidth = getContextPanelMaxWidth();
+      const nextWidth = Math.min(maxWidth, Math.max(CONTEXT_PANEL_MIN_WIDTH, start.startWidth + delta));
+      setContextPanelWidth(nextWidth);
+    };
+    const handleMouseUp = () => {
+      contextPanelResizeRef.current = null;
+      setIsResizingContextPanel(false);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizingContextPanel]);
+
+  useEffect(() => {
+    const handleWindowResize = () => {
+      setContextPanelWidth(w => Math.min(w, getContextPanelMaxWidth()));
+    };
+    window.addEventListener('resize', handleWindowResize);
+    return () => window.removeEventListener('resize', handleWindowResize);
+  }, []);
   const listFailureStreak = useRef(0);
   const detailFailureStreak = useRef(0);
   const debugSocketRef = useRef<WebSocket | null>(null);
@@ -1251,7 +1293,14 @@ export function InboxPage() {
 
       {/* RIGHT COLUMN: Lead & Commercial Context */}
       {selectedConv && !debugOpen && (
-        <div className="inbox-context-panel w-64 border-l border-border p-4 overflow-y-auto flex-shrink-0 bg-surface flex flex-col gap-4">
+        <div
+          className="inbox-context-panel relative border-l border-border p-4 overflow-y-auto flex-shrink-0 bg-surface flex flex-col gap-4"
+          style={{ width: contextPanelWidth }}
+        >
+          <div
+            className={`absolute left-0 top-0 bottom-0 w-1.5 -ml-0.5 cursor-col-resize hover:bg-brand/40 ${isResizingContextPanel ? 'bg-brand/40' : ''}`}
+            onMouseDown={startContextPanelResize}
+          />
           <span className="text-[10px] font-bold uppercase tracking-wider text-content-muted">
             CONTEXTO DO LEAD
           </span>
@@ -1354,38 +1403,11 @@ export function InboxPage() {
                   key={row.path}
                   className="p-2.5 rounded-lg bg-surface-muted/40 border border-border text-xs"
                 >
-                  <span className="text-content-muted block text-[9px] uppercase tracking-wide mb-0.5">
-                    {row.label}
-                  </span>
-                  {editingMemoryPath === row.path ? (
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <input
-                        className="flex-1 min-w-0 bg-transparent border border-border rounded px-2 py-1 text-xs text-content"
-                        value={memoryDraft}
-                        onChange={e => setMemoryDraft(e.target.value)}
-                        autoFocus
-                      />
-                      <button
-                        type="button"
-                        className="text-content-muted hover:text-content"
-                        onClick={() => setEditingMemoryPath(null)}
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        className="text-brand disabled:opacity-50"
-                        disabled={memoryActionLoading}
-                        onClick={() => handleMemoryChange(row.path, { value: memoryDraft })}
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between gap-2 mt-0.5">
-                      <span className="text-content break-words font-medium">
-                        {typeof row.value === 'object' ? JSON.stringify(row.value) : String(row.value)}
-                      </span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-content-muted block text-[9px] uppercase tracking-wide">
+                      {row.label}
+                    </span>
+                    {editingMemoryPath !== row.path && (
                       <div className="flex items-center gap-1.5 flex-shrink-0">
                         {row.editable && (
                           <button
@@ -1411,7 +1433,36 @@ export function InboxPage() {
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
+                    )}
+                  </div>
+                  {editingMemoryPath === row.path ? (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <input
+                        className="flex-1 min-w-0 bg-transparent border border-border rounded px-2 py-1 text-xs text-content"
+                        value={memoryDraft}
+                        onChange={e => setMemoryDraft(e.target.value)}
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        className="text-content-muted hover:text-content"
+                        onClick={() => setEditingMemoryPath(null)}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        className="text-brand disabled:opacity-50"
+                        disabled={memoryActionLoading}
+                        onClick={() => handleMemoryChange(row.path, { value: memoryDraft })}
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
                     </div>
+                  ) : (
+                    <span className="text-content break-all whitespace-pre-wrap font-medium block mt-0.5">
+                      {typeof row.value === 'object' ? JSON.stringify(row.value) : String(row.value)}
+                    </span>
                   )}
                 </div>
               ))}

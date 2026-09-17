@@ -1815,7 +1815,10 @@ export function createApp(config: ApiConfig = {}): Express {
       else memory[body.path] = body.value;
     }
 
-    const convRepo = new ConversationRepository(res.locals.db);
+    // Dashboard sessions run as `authenticated`, which only has SELECT on public.leads
+    // (see supabase/migrations/202609080001_foundation.sql) — writing memory needs the
+    // service role, same as the flow engine's own action.update_lead executor.
+    const convRepo = new ConversationRepository(getServiceDb() || res.locals.db);
     await convRepo.updateLead(orgId, conv.lead_id, { memory });
     const refreshed = await inboxRepo.getConversation(orgId, convId);
     res.json(refreshed);
