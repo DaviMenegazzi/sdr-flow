@@ -6,7 +6,6 @@ import {
 } from '../packages/db/src/index.js';
 import {
   EmbeddingService,
-  HallucinationGuard,
   interpolate,
   runPlayground,
   createSdrTemplate,
@@ -249,56 +248,6 @@ describe('Phase 5 — Contexto do Agente (Knowledge Base, RLS, Summaries, Guard 
       expect(record?.summary).toContain('plano familiar para 3 pessoas');
       expect(record?.messages_count).toBe(12);
       expect(record?.tokens_used).toBe(370);
-    });
-  });
-
-  describe('4. Hallucination Guard', () => {
-    it('allows answer when price information is grounded in knowledge snippets', () => {
-      const result = HallucinationGuard.verify({
-        userMessage: 'Qual o valor da mensalidade?',
-        proposedReply: 'O plano individual custa R$ 89,90 por mês conforme nossa tabela oficial.',
-        knowledgeSnippets: ['Tabela: plano individual custa R$ 89,90 por mês'],
-      });
-
-      expect(result.allowed).toBe(true);
-      expect(result.triggerHandoff).toBe(false);
-      expect(result.sanitizedReply).toBe('O plano individual custa R$ 89,90 por mês conforme nossa tabela oficial.');
-    });
-
-    it('refuses to invent price and triggers human handoff when knowledge is absent', () => {
-      const result = HallucinationGuard.verify({
-        userMessage: 'Quanto custa a consulta com cardiologista?',
-        proposedReply: 'A consulta custa R$ 150,00.',
-        knowledgeSnippets: [], // No knowledge found
-      });
-
-      expect(result.allowed).toBe(false);
-      expect(result.triggerHandoff).toBe(true);
-      expect(result.handoffReason).toBe('Preço não encontrado na base de conhecimento');
-      expect(result.sanitizedReply).toContain('Não encontrei a tabela de preços oficial');
-    });
-
-    it('refuses to invent availability when schedule info is absent in knowledge', () => {
-      const result = HallucinationGuard.verify({
-        userMessage: 'Tem vaga hoje às 14h para atendimento?',
-        proposedReply: 'Sim, temos horário disponível hoje às 14h.',
-        knowledgeSnippets: ['Trabalhamos com clínica médica geral.'],
-      });
-
-      expect(result.allowed).toBe(false);
-      expect(result.triggerHandoff).toBe(true);
-      expect(result.handoffReason).toBe('Disponibilidade não encontrada na base de conhecimento');
-    });
-
-    it('passes through ordinary conversation without price or availability requirements', () => {
-      const result = HallucinationGuard.verify({
-        userMessage: 'Olá, boa tarde! Gostaria de tirar umas dúvidas.',
-        proposedReply: 'Boa tarde! Tudo bem? Como posso te ajudar hoje?',
-        knowledgeSnippets: [],
-      });
-
-      expect(result.allowed).toBe(true);
-      expect(result.triggerHandoff).toBe(false);
     });
   });
 

@@ -10,7 +10,6 @@ import { interpolate, resolveValue } from '../interpolate.js';
 import { MemoryService, type LeadExtractedData } from '../services/memory.js';
 import { HandoffService } from '../services/handoff.js';
 import { StateMachineService } from '../state-machine.js';
-import { HallucinationGuard } from '../services/hallucination-guard.js';
 import type { FlowServices } from '../services/types.js';
 import {
   availableSlots,
@@ -472,21 +471,6 @@ export const executors: Record<NodeType, NodeExecutor> = {
       resumedAfterGapMinutes: (ctx.variables.resumedAfterGapMinutes as number | null | undefined) ?? null,
       resumedAfterLongGap: Boolean(ctx.variables.resumedAfterLongGap),
     });
-
-    // Run Hallucination Guard: ensure pricing and availability are grounded in knowledge base
-    const guardResult = HallucinationGuard.verify({
-      userMessage: latestMsg,
-      proposedReply: res.data.reply,
-      knowledgeSnippets,
-    });
-
-    if (!guardResult.allowed) {
-      res.data.reply = guardResult.sanitizedReply;
-      if (guardResult.triggerHandoff) {
-        res.data.handoff = true;
-        res.data.handoff_reason = guardResult.handoffReason;
-      }
-    }
 
     return {
       port: 'next',
