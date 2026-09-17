@@ -103,6 +103,21 @@ export class MemoryService {
       current.custom_fields = { ...current.custom_fields, ...extraFields };
     }
 
+    const knownKeys = new Set([
+      'name', 'city', 'interest', 'urgency', 'budget', 'timeline', 'decision_maker',
+      'notes', 'stage_intent', 'pain_points', 'objections', 'custom_fields', 'custom_attributes',
+      'phone',
+    ]);
+    const unknownFields = Object.entries(extracted).reduce<Record<string, unknown>>((acc, [key, value]) => {
+      if (!knownKeys.has(key) && value !== undefined && value !== null) {
+        acc[key] = value;
+      }
+      return acc;
+    }, {});
+    if (Object.keys(unknownFields).length > 0) {
+      current.custom_fields = { ...current.custom_fields, ...unknownFields };
+    }
+
     // Preserve compatibility for tests expecting name/phone/attributes in lead.memory
     lead.memory = {
       ...current,

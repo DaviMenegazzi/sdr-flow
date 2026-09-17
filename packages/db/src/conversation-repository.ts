@@ -388,6 +388,7 @@ export class ConversationRepository {
       .eq('organization_id', organizationId)
       .eq('lead_id', leadId)
       .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (existing) {

@@ -23,6 +23,7 @@ import {
   Area,
 } from 'recharts';
 import { useSession } from '../session';
+import { useInstance } from '../context/InstanceContext';
 import { Button, Card, Badge } from '../components/ui';
 
 interface FunnelStep {
@@ -70,23 +71,50 @@ interface DashboardData {
 
 export function DashboardPage() {
   const { session, activeOrg } = useSession();
+  const { activeInstance } = useInstance();
 
   const [metrics, setMetrics] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(false);
   const [consolidating, setConsolidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [connectionId, setConnectionId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!session || !activeOrg) return;
-    loadMetrics();
-  }, [session, activeOrg]);
+    setConnectionId(null);
 
-  async function loadMetrics() {
+    async function resolveConnectionId() {
+      if (!activeInstance) return null;
+      try {
+        const res = await fetch(`/api/organizations/${activeOrg}/connections`, {
+          headers: { Authorization: `Bearer ${session?.access_token}` },
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        const list: Array<{ id: string; name: string }> = Array.isArray(data) ? data : [];
+        const matching = list.find(c => c.name === activeInstance || c.id === activeInstance);
+        return matching?.id ?? null;
+      } catch {
+        return null;
+      }
+    }
+
+    resolveConnectionId().then(id => {
+      setConnectionId(id);
+      loadMetrics(id);
+    });
+  }, [session, activeOrg, activeInstance]);
+
+  async function loadMetrics(connId?: string | null) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/organizations/${activeOrg}/metrics/dashboard`, {
+      const params = new URLSearchParams();
+      const effectiveConnId = connId !== undefined ? connId : connectionId;
+      if (effectiveConnId) params.set('connectionId', effectiveConnId);
+      const qs = params.toString();
+      const res = await fetch(`/api/organizations/${activeOrg}/metrics/dashboard${qs ? `?${qs}` : ''}`, {
         headers: { Authorization: `Bearer ${session?.access_token}` },
       });
       if (!res.ok) throw new Error('Falha ao carregar indicadores.');

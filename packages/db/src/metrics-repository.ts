@@ -109,12 +109,12 @@ export class MetricsRepository {
    */
   async getDashboardMetrics(
     organizationId: string,
-    options: { startDate: string; endDate: string }
+    options: { startDate: string; endDate: string; connectionId?: string | null }
   ): Promise<DashboardMetrics> {
     if (isRawSqlClient(this.db)) {
       const res = await this.db.query(
-        `select public.get_dashboard_metrics($1, $2::date, $3::date) as metrics`,
-        [organizationId, options.startDate, options.endDate]
+        `select public.get_dashboard_metrics($1, $2::date, $3::date, $4::uuid) as metrics`,
+        [organizationId, options.startDate, options.endDate, options.connectionId ?? null]
       );
       return enrichFunnelLabels(res.rows[0].metrics);
     }
@@ -123,6 +123,7 @@ export class MetricsRepository {
       p_organization_id: organizationId,
       p_start_date: options.startDate,
       p_end_date: options.endDate,
+      p_connection_id: options.connectionId ?? null,
     });
     if (error) throw error;
     return enrichFunnelLabels(data as Omit<DashboardMetrics, 'funnel'> & { funnel: Array<{ stage: string; count: number; percentage: number }> });
