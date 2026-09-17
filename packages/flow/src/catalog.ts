@@ -90,6 +90,13 @@ const schemas = {
   'flow.delay': z.strictObject({ seconds: count(2, 86400, 'Atraso em segundos') }),
   'flow.wait_reply': z.strictObject({ timeoutMinutes: count(1440, 43200, 'Tempo limite em minutos') }),
   'flow.loop': z.strictObject({ times: text('3', 'Repetições (aceita variáveis, ex: {{structured.repeat_count}})'), counterVar: text('loop_count', 'Nome da variável do contador') }),
+  'flow.do_while': z.strictObject({
+    variable: text('validation.needs_rewrite', 'Variável'),
+    operator: z.enum(['equals', 'not_equals', 'contains', 'greater_than']).default('equals').describe('Operador'),
+    value: z.string().default('true').describe('Valor de comparação'),
+    counterVar: text('do_while_count', 'Nome da variável do contador'),
+    maxIterations: count(5, 20, 'Máximo de repetições'),
+  }),
   'flow.required_fields': z.strictObject({
     required: z.array(z.string().min(1).max(100)).min(1).max(30).default(['city', 'specialty']).describe('Campos obrigatórios (JSON; aceita caminhos como qualification.city)'),
     optional: z.array(z.string().min(1).max(100)).max(30).default(['desired_day', 'desired_period']).describe('Campos opcionais (JSON)'),
@@ -162,7 +169,7 @@ const labels: Record<NodeType, string> = {
   'input.buffer': 'Agrupar mensagens', 'input.media': 'Processar mídia', 'input.normalize': 'Normalizar telefone',
   'context.memory': 'Memória comercial', 'context.knowledge': 'Base de conhecimento', 'context.crm': 'Consultar CRM', 'context.summarize': 'Resumir conversa', 'context.storage': 'Armazenamento interno', 'context.conversation_state': 'Estado da conversa',
   'agent.decide': 'Decisão do agente', 'agent.classify': 'Classificar intenção', 'agent.extract': 'Extrair informações', 'agent.score': 'Pontuar lead', 'agent.structured': 'Resposta estruturada', 'agent.next_action': 'Próxima ação',
-  'flow.condition': 'Condição', 'flow.switch': 'Múltiplos caminhos', 'flow.delay': 'Aguardar', 'flow.wait_reply': 'Esperar resposta', 'flow.loop': 'Repetir X vezes', 'flow.required_fields': 'Campos obrigatórios',
+  'flow.condition': 'Condição', 'flow.switch': 'Múltiplos caminhos', 'flow.delay': 'Aguardar', 'flow.wait_reply': 'Esperar resposta', 'flow.loop': 'Repetir X vezes', 'flow.do_while': 'Repetir até condição', 'flow.required_fields': 'Campos obrigatórios',
   'action.update_stage': 'Atualizar estágio', 'action.update_lead': 'Atualizar lead', 'action.crm_sync': 'Sincronizar CRM', 'action.handoff': 'Encaminhar para humano', 'action.webhook': 'Chamar webhook',
   'integration.google_calendar': 'Google Calendar',
   'calendar.availability': 'Consultar disponibilidade', 'calendar.create_event': 'Criar agendamento', 'calendar.reschedule_event': 'Reagendar', 'calendar.cancel_event': 'Cancelar agendamento',
@@ -181,6 +188,7 @@ export function portsFor(type: NodeType, config: Record<string, unknown>): strin
   if (type === 'flow.switch') return [...(Array.isArray(config.cases) ? config.cases.filter((x): x is string => typeof x === 'string') : []), 'default'];
   if (type === 'agent.structured') return [...(Array.isArray(config.outputKeys) ? config.outputKeys.filter((x): x is string => typeof x === 'string') : []), 'default'];
   if (type === 'flow.loop') return ['body', 'done'];
+  if (type === 'flow.do_while') return ['body', 'done'];
   if (type === 'context.storage') return Array.isArray(config.outputPorts) ? config.outputPorts.filter((x): x is string => typeof x === 'string') : ['next'];
   if (type === 'integration.google_calendar') return ['success', 'error'];
   if (type === 'calendar.availability') return ['available', 'unavailable', 'error'];

@@ -32,19 +32,41 @@ export function validateGraph(input: unknown): ValidationResult {
     if (target.type.startsWith('trigger.')) add('trigger_incoming', 'Gatilhos não aceitam conexões de entrada.', target.id, edge.id);
   }
   const adjacent = (id: string) => graph.edges.filter(edge => edge.source === id).map(edge => edge.target).filter(id => byId.has(id));
+  const reverseAdjacent = (id: string) => graph.edges.filter(edge => edge.target === id).map(edge => edge.source).filter(id => byId.has(id));
   const reached = new Set<string>();
   const visit = (id: string) => { if (reached.has(id)) return; reached.add(id); adjacent(id).forEach(visit); };
   if (triggers[0]) visit(triggers[0].id);
   graph.nodes.filter(node => !reached.has(node.id)).forEach(node => add('unreachable', `${node.label} não está conectado ao gatilho.`, node.id));
   // Published flows must terminate. Runtime limits remain a last-resort guard,
-  // not a way to make cyclic definitions valid.
+  // not a way to make cyclic definitions valid — except for cycles bounded by a
+  // loop-control node (flow.loop / flow.do_while), whose config caps iterations
+  // and whose "done" port is the one path required to actually terminate.
+  const isLoopControl = (type: string) => type === 'flow.loop' || type === 'flow.do_while';
+  const reachableFrom = (startIds: string[], adjFn: (id: string) => string[]) => {
+    const seen = new Set<string>();
+    const stack = [...startIds];
+    while (stack.length) {
+      const id = stack.pop();
+      if (id === undefined || seen.has(id)) continue;
+      seen.add(id);
+      adjFn(id).forEach(next => stack.push(next));
+    }
+    return seen;
+  };
   const nodesInCycles = new Set<string>();
   for (const node of graph.nodes) {
     const reachable = new Set<string>();
     const explore = (id: string) => { if (reachable.has(id)) return; reachable.add(id); adjacent(id).forEach(explore); };
     adjacent(node.id).forEach(explore);
-    if (reachable.has(node.id)) { nodesInCycles.add(node.id); add('cycle', `${node.label} participa de um ciclo.`, node.id); }
+    if (reachable.has(node.id)) {
+      nodesInCycles.add(node.id);
+      const forwardScc = reachableFrom([node.id], adjacent);
+      const backwardScc = reachableFrom([node.id], reverseAdjacent);
+      const controlled = [...forwardScc].some(id => backwardScc.has(id) && isLoopControl(byId.get(id)!.type));
+      if (!controlled) add('cycle', `${node.label} participa de um ciclo.`, node.id);
+    }
   }
+  const outgoingByPort = (id: string, port: string) => graph.edges.filter(edge => edge.source === id && edge.sourcePort === port).map(edge => edge.target).filter(id => byId.has(id));
   const terminating = new Set([
     ...graph.nodes.filter(node => node.type === 'output.end').map(node => node.id),
   ]);
@@ -52,8 +74,9 @@ export function validateGraph(input: unknown): ValidationResult {
   while (changed) {
     changed = false;
     for (const node of graph.nodes) {
-      const next = adjacent(node.id);
-      if (!terminating.has(node.id) && next.length > 0 && next.every(id => terminating.has(id))) { terminating.add(node.id); changed = true; }
+      if (terminating.has(node.id)) continue;
+      const next = isLoopControl(node.type) ? outgoingByPort(node.id, 'done') : adjacent(node.id);
+      if (next.length > 0 && next.every(id => terminating.has(id))) { terminating.add(node.id); changed = true; }
     }
   }
   graph.nodes.filter(node => !terminating.has(node.id)).forEach(node => add('no_termination', `${node.label} tem um caminho sem término garantido.`, node.id));
