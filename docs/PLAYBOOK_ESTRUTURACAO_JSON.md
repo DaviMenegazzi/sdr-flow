@@ -267,6 +267,17 @@ Abaixo estão todos os nós aceitos e como deve ser preenchido o seu respectivo 
     "counterVar": "loop_count"
   }
   ```
+- `flow.do_while`:
+  ```json
+  "config": {
+    "variable": "validation.needs_rewrite",
+    "operator": "equals",
+    "value": "true",
+    "counterVar": "do_while_count",
+    "maxIterations": 5
+  }
+  ```
+  *(`operator` aceita os mesmos valores de `flow.condition`. O corpo (`body`) sempre roda pelo menos uma vez antes de a condição ser testada; a aresta de `body` precisa voltar até este mesmo nó.)*
 - `flow.required_fields`:
   ```json
   "config": {
@@ -450,6 +461,7 @@ Cada nó possui saídas específicas que o validador exige que existam e estejam
 | `flow.required_fields` | `["complete", "missing"]` |
 | `flow.wait_reply` | `["reply", "timeout"]` (ambas devem ser conectadas) |
 | `flow.loop` | `["body", "done"]` (ambas devem ser conectadas) |
+| `flow.do_while` | `["body", "done"]` (ambas devem ser conectadas) |
 | `flow.switch` | Cada valor definido em `cases` + `"default"` |
 | `agent.structured` | Cada chave definida em `outputKeys` + `"default"` |
 | `context.storage` | Cada valor definido em `outputPorts` |
@@ -496,9 +508,13 @@ Antes de salvar ou publicar um fluxo, execute mentalmente este checklist. Se vio
 - Nós como `output.send_text`, `action.update_lead`, etc., possuem saída `next`.
 - **Eles nunca podem ficar soltos no vácuo**.
 - A saída `next` do último nó precisa alcançar um `output.end` ou entrar em um ciclo controlado.
-- Ciclos são aceitos pelo validador, mas o runtime encerra com erro após `loopLimit` visitas ao mesmo
-  nó (default `5`) ou após `50` passos totais. As duas portas de `flow.wait_reply` também precisam
-  continuar para um término ou ciclo válido.
+- Um ciclo só é aceito pelo validador se ele contiver um nó `flow.loop` ou `flow.do_while` — é a porta
+  `body` desse nó que pode voltar para trás; a porta `done` continua exigida chegar a um `output.end`.
+  Ciclos que não passam por um desses nós continuam sendo rejeitados (`cycle`).
+- Mesmo em um ciclo controlado, o runtime encerra com erro após `loopLimit` visitas ao mesmo nó
+  (default `5`) ou após `50` passos totais — `maxIterations`/`times` do próprio nó é o limite normal,
+  esses são a rede de segurança. As duas portas de `flow.wait_reply` também precisam continuar para um
+  término ou ciclo válido.
 
 ### ✅ Regra 5: Nenhum Nó Órfão (`unreachable`)
 - Todos os nós no array `nodes` devem ser alcançáveis a partir do nó gatilho inicial. Se houver um nó flutuando sem conexão, a validação falhará.

@@ -297,6 +297,20 @@ O catálogo atual possui **44 tipos de nó**, divididos em **10 categorias funda
   - `body`: Executado a cada repetição.
   - `done`: Executado quando o loop finaliza.
 
+#### 22.1. Repetir Até Condição / Do-While (`flow.do_while`)
+- **O que faz:** Executa um loop `do...while`: o corpo (`body`) roda obrigatoriamente pelo menos uma vez, e só então a condição é testada para decidir se repete.
+- **Lógica por trás:**
+  - Na primeira visita ao nó (contador em `counterVar` ainda zerado), ele sempre segue por `body` — a condição não é avaliada nessa entrada.
+  - Quando o fluxo do corpo retorna ao nó (após passar por `body` e voltar por uma aresta até ele), a condição é avaliada comparando `variable` com `value` usando `operator` (`equals`, `not_equals`, `contains`, `greater_than` — os mesmos de `flow.condition`).
+  - Se a condição for satisfeita e o número de repetições ainda não atingiu `maxIterations`, o fluxo volta para `body` e incrementa `counterVar`.
+  - Se a condição falhar, ou se `maxIterations` for atingido mesmo com a condição ainda satisfeita, o fluxo segue por `done`. O contador é zerado ao sair.
+  - Ao sair pela porta `done`, o nó expõe `{{do_while.condition_result}}` (booleano da última avaliação) e `{{do_while.exit_reason}}` (`"condition_false"` ou `"max_iterations"`), úteis para diagnosticar por que o loop parou.
+- **Diferença para `flow.loop`:** o `flow.loop` decide repetir por contagem fixa de vezes (`times`); o `flow.do_while` decide repetir por uma condição de variável, sempre executando o corpo ao menos uma vez antes de testar essa condição.
+- **Portas de saída:**
+  - `body`: caminho executado a cada repetição (incluindo a primeira, obrigatória).
+  - `done`: executado quando a condição falha ou o limite de repetições é atingido.
+- **Requisito estrutural:** assim como em `flow.loop`, o caminho `body` deve eventualmente retornar ao próprio nó `flow.do_while` por uma aresta (formando um ciclo). O validador permite esse ciclo especificamente porque `maxIterations` (e o `loopLimit` global do fluxo) garantem que ele termina; ciclos que não passam por um nó `flow.loop`/`flow.do_while` continuam sendo rejeitados.
+
 #### 23. Esperar Resposta (`flow.wait_reply`)
 - **O que faz:** Pausa a execução do fluxo e aguarda a próxima resposta do cliente no WhatsApp.
 - **Lógica por trás:** Salva o estado da sessão. Se o cliente responder dentro do tempo limite (`timeoutMinutes`), o fluxo acorda na porta `reply`. Se o tempo expirar sem resposta, acorda na porta `timeout` (ideal para disparar uma mensagem de reengajamento).
