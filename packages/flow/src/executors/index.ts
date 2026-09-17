@@ -469,6 +469,8 @@ export const executors: Record<NodeType, NodeExecutor> = {
       latestUserMessage: latestMsg,
       knowledgeSnippets,
       summary: (ctx.variables.summary as string) || undefined,
+      resumedAfterGapMinutes: (ctx.variables.resumedAfterGapMinutes as number | null | undefined) ?? null,
+      resumedAfterLongGap: Boolean(ctx.variables.resumedAfterLongGap),
     });
 
     // Run Hallucination Guard: ensure pricing and availability are grounded in knowledge base
@@ -526,6 +528,8 @@ export const executors: Record<NodeType, NodeExecutor> = {
       latestUserMessage: latestMsg,
       knowledgeSnippets: (ctx.variables.knowledgeSnippets as string[]) || [],
       summary: (ctx.variables.summary as string) || undefined,
+      resumedAfterGapMinutes: (ctx.variables.resumedAfterGapMinutes as number | null | undefined) ?? null,
+      resumedAfterLongGap: Boolean(ctx.variables.resumedAfterLongGap),
     }, Array.isArray(config.fields) ? config.fields : []);
 
     const currentDecision = (ctx.variables.decision as Record<string, unknown>) || {};
@@ -580,6 +584,8 @@ export const executors: Record<NodeType, NodeExecutor> = {
       latestUserMessage: latestMsg,
       knowledgeSnippets,
       summary: (ctx.variables.summary as string) || undefined,
+      resumedAfterGapMinutes: (ctx.variables.resumedAfterGapMinutes as number | null | undefined) ?? null,
+      resumedAfterLongGap: Boolean(ctx.variables.resumedAfterLongGap),
     }, llmKeys);
 
     const variables: Record<string, unknown> = { structured: res.data };
@@ -601,20 +607,32 @@ export const executors: Record<NodeType, NodeExecutor> = {
 
     const allowedActions: string[] = Array.isArray(config.allowedActions) ? config.allowedActions : [];
     const latestMsg = String(ctx.variables.latestLeadMessage || '') || ctx.messages[ctx.messages.length - 1]?.text || '';
+    const resumedAfterGapMinutes = (ctx.variables.resumedAfterGapMinutes as number | null | undefined) ?? null;
+    const resumedAfterLongGap = Boolean(ctx.variables.resumedAfterLongGap);
     const state = {
       lead: ctx.lead,
       commercialMemory: ctx.variables.commercialMemory,
       conversationState: resolveSalesField(ctx, 'conversation_state'),
       requiredFields: resolveSalesField(ctx, 'required_fields'),
+      resumedAfterGapMinutes,
+      resumedAfterLongGap,
     };
     const priorityInstruction = config.currentMessagePriority === false ? ''
       : '\nPrioridade obrigatória: resolva primeiro a intenção explícita da mensagem atual (pergunta, pedido de detalhes, objeção, correção ou pedido de atendimento). Só escolha uma ação de coleta de campo ausente quando a mensagem atual não exigir uma resposta direta.';
+    // resolveSalesField never expires lead.memory, so a lead who went quiet for days still shows
+    // up with interest/city already "known". Left unchecked, that reads as license to jump
+    // straight to ASK_MISSING_FIELD off a bare "boa noite" — resumedAfterLongGap tells the model
+    // this thread is stale and needs re-confirming, not blind resumption.
+    const gapInstruction = resumedAfterLongGap
+      ? '\nRetomada após lacuna longa: esta sessão reabriu depois de um período extenso sem contato com o lead. Prefira reconectar — cumprimentar e confirmar brevemente o interesse já registrado — em vez de executar direto uma ação de coleta de campo ausente ou de funil, a menos que a mensagem atual do lead já confirme que quer continuar de onde parou.'
+      : '';
     const flowInstructions = interpolate(config.system || '', ctx);
     const actionPrompt = `${interpolate(config.prompt, ctx)}\n\nAções permitidas: ${allowedActions.join(', ')}. `
       + 'Retorne action, field, reason, intent e evidence. field deve ser vazio quando não houver campo a perguntar. '
       + 'intent resume a intenção da mensagem atual. evidence deve copiar um trecho curto da mensagem atual que sustenta a decisão, ou ficar vazio se não houver evidência textual. '
       + `Campos obrigatórios ausentes são contexto, não uma ordem automática: ${JSON.stringify(missingFields)}.`
       + priorityInstruction
+      + gapInstruction
       + `Estado estruturado: ${JSON.stringify(state)}`
       + (flowInstructions ? `\n\nRegras adicionais obrigatórias deste fluxo: ${flowInstructions}` : '');
     const res = await services.llm.structured({
@@ -626,6 +644,8 @@ export const executors: Record<NodeType, NodeExecutor> = {
       latestUserMessage: latestMsg,
       knowledgeSnippets: (ctx.variables.knowledgeSnippets as string[]) || [],
       summary: (ctx.variables.summary as string) || undefined,
+      resumedAfterGapMinutes,
+      resumedAfterLongGap,
     }, ['action', 'field', 'reason', 'intent', 'evidence']);
     const parsedAction = nextActionSchema.safeParse(String(res.data.action || '').trim().toUpperCase());
     if (!parsedAction.success || !allowedActions.includes(parsedAction.data)) {

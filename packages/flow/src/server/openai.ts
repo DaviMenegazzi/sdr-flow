@@ -63,9 +63,13 @@ export class OpenAIProvider implements LLMProvider {
         method: 'POST', redirect: 'error', signal: AbortSignal.timeout(this.config.timeoutMs ?? 60000),
         headers: { Authorization: `Bearer ${this.config.apiKey.trim()}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, store: false,
-          instructions: [req.system, req.prompt, 'Use somente o contexto fornecido. Campos desconhecidos devem ser null. Não invente dados.'].filter(Boolean).join('\n\n'),
+          instructions: [req.system, req.prompt, 'Use somente o contexto fornecido. Campos desconhecidos devem ser null. Não invente dados.',
+            req.resumedAfterLongGap
+              ? 'Esta conversa reabriu depois de um longo período sem contato com o lead. Não trate commercialMemory como algo reconfirmado agora: cumprimente o lead e confirme brevemente o interesse ou pedido já registrado antes de avançar para uma nova etapa (pedir um dado pendente, agendar, etc.), a menos que a mensagem atual do lead já retome o assunto explicitamente.'
+              : null].filter(Boolean).join('\n\n'),
           input: JSON.stringify({ commercialMemory: req.commercialMemory, recentMessages: req.recentMessages,
-            latestUserMessage: req.latestUserMessage, knowledgeSnippets: req.knowledgeSnippets, summary: req.summary }),
+            latestUserMessage: req.latestUserMessage, knowledgeSnippets: req.knowledgeSnippets, summary: req.summary,
+            resumedAfterGapMinutes: req.resumedAfterGapMinutes ?? null }),
           text: { format: { type: 'json_schema', name, strict: true, schema: z.toJSONSchema(schema) } },
         }),
       });

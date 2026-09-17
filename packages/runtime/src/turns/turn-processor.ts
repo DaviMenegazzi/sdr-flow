@@ -102,6 +102,13 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
       sessionTimeoutMinutes,
       lead,
     });
+    // A closed-and-reopened session only means the 15-minute message window reset — it says
+    // nothing about how stale lead.memory (interest, city, ...) is. Past a much longer gap,
+    // intelligence nodes get told to re-confirm that memory instead of silently acting on it
+    // (e.g. jumping straight to "which city?" off a lead's days-old exam-scheduling interest).
+    const reengagementGapMinutes = Number(process.env.SESSION_REENGAGEMENT_MINUTES) || 240;
+    const resumedAfterGapMinutes = conversation.resumedAfterGapMinutes ?? null;
+    const resumedAfterLongGap = resumedAfterGapMinutes !== null && resumedAfterGapMinutes >= reengagementGapMinutes;
     if (conversation.created) {
       await emitRealtime({
         type: 'inbox:conversation.created',
@@ -280,6 +287,8 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
         isGroup: Boolean(lastEvent.remoteJid?.endsWith('@g.us')),
         groupId: lastEvent.remoteJid?.endsWith('@g.us') ? lastEvent.remoteJid : undefined,
         senderPhone: lastEvent.phone,
+        resumedAfterGapMinutes,
+        resumedAfterLongGap,
       },
       tokens: { input: 0, output: 0 },
     };

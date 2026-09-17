@@ -182,6 +182,11 @@ export class ConversationRepository {
       .order('created_at', { ascending: false })
       .maybeSingle();
 
+    // Set only when a prior, now-expired conversation is being superseded — how long the lead
+    // went quiet before this message. Callers use it to keep the AI from silently resuming an
+    // old thread (e.g. re-asking about a days-old interest) off the back of a bare "boa noite".
+    let resumedAfterGapMinutes: number | null = null;
+
     if (existing) {
       const lastActivityStr = existing.last_message_at || existing.updated_at || existing.created_at;
       const lastActivityTime = lastActivityStr ? new Date(lastActivityStr).getTime() : 0;
@@ -189,6 +194,7 @@ export class ConversationRepository {
 
       if (isExpired) {
         const nowDateStr = new Date(now).toISOString();
+        resumedAfterGapMinutes = Math.round((now - lastActivityTime) / 60000);
         await this.db
           .from('conversations')
           .update({
@@ -201,7 +207,7 @@ export class ConversationRepository {
 
         await this.resetVolatileLeadTurnState(organizationId, leadId, nowDateStr, options?.lead);
       } else {
-        return { ...existing, created: false };
+        return { ...existing, created: false, resumedAfterGapMinutes: null };
       }
     }
 
@@ -238,14 +244,14 @@ export class ConversationRepository {
           .limit(1)
           .single();
         if (winnerError || !winner) throw winnerError || error;
-        return { ...winner, created: false };
+        return { ...winner, created: false, resumedAfterGapMinutes: null };
       }
       throw error;
     }
     // `created` lets callers (turn-processor) emit inbox:conversation.created only once, instead
     // of guessing from timestamps — the prior CLOSED-and-superseded branch above also inserts a
     // fresh row, so this is a genuinely new conversation either way.
-    return { ...created, created: true };
+    return { ...created, created: true, resumedAfterGapMinutes };
   }
 
 

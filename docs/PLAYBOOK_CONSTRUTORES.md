@@ -47,6 +47,12 @@ O motor do SDR Flow gerencia automaticamente o **ciclo de vida e a janela de con
 5. **Ação "Devolver para IA" no Inbox:**
    - Quando um operador humano clica em "Devolver para IA" no painel do Inbox, o motor reseta a conversa para `stage = 'NEW_CONVERSATION'` e limpa os estados voláteis do lead, garantindo que o bot recomece o atendimento de forma receptiva e natural, sem ecoar o transbordo anterior.
 
+6. **Sinal de Retomada Após Lacuna Longa (`resumedAfterGapMinutes` / `resumedAfterLongGap`):**
+   - `name`, `city`, `interest`, `notes` e demais campos de `commercialMemory` nunca expiram (item 2) — o motor lembra deles mesmo dias depois. Isso é intencional, mas sozinho tem um efeito colateral: como `flow.required_fields` e `agent.next_action` leem esses campos sem noção de tempo, um lead que sumiu por dias e manda apenas "boa noite" pode ser recebido com a IA cobrando direto o próximo campo pendente (ex.: "qual cidade você é?"), como se a conversa nunca tivesse parado.
+   - Para evitar isso, toda vez que uma conversa é reaberta após uma sessão expirada, o motor calcula `resumedAfterGapMinutes` (minutos desde a última atividade do lead) e o expõe em `{{resumedAfterGapMinutes}}`. Quando esse valor ultrapassa `SESSION_REENGAGEMENT_MINUTES` (variável de ambiente, padrão **240 minutos**), `resumedAfterLongGap` fica `true` e é injetado automaticamente no prompt de `agent.decide`, `agent.extract`, `agent.structured` e `agent.next_action`.
+   - **Efeito prático:** com `resumedAfterLongGap = true`, a IA é instruída a tratar `commercialMemory` como histórico — cumprimentar o lead e confirmar brevemente o interesse já registrado — em vez de emendar direto na próxima etapa do funil, a menos que a própria mensagem do lead já retome o assunto.
+   - Isso não apaga nem reseta nenhum dado: é só um sinal de contexto adicional, assim como `{{lastAssistantQuestion}}` no item 3. Fluxos podem inclusive usar `{{resumedAfterLongGap}}` diretamente em um `flow.condition` para ramificar um reengajamento customizado.
+
 ---
 
 ## 🧩 2. Catálogo Completo dos Construtores (Nós)

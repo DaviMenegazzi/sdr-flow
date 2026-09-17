@@ -24,6 +24,20 @@ describe('OpenAI structured runtime', () => {
     expect(result).toMatchObject({ data: { reply: decision.reply, lead_data: { name: 'Ana', interest: 'consulta' } }, inputTokens: 234, outputTokens: 56 });
     expect(result.data.lead_data).not.toHaveProperty('city');
   });
+  it('warns the model to re-confirm stale memory instead of resuming when a session reopened after a long gap', async () => {
+    const http = vi.fn<typeof fetch>().mockResolvedValue(output(decision));
+    await new OpenAIProvider({ apiKey: 'test-key', fetch: http }).decide({ ...req, resumedAfterGapMinutes: 4320, resumedAfterLongGap: true });
+    const body = JSON.parse(http.mock.calls[0]![1]!.body as string);
+    expect(body.instructions).toContain('reabriu depois de um longo período sem contato');
+    expect(JSON.parse(body.input)).toMatchObject({ resumedAfterGapMinutes: 4320 });
+  });
+  it('leaves out the gap warning for a normal, still-fresh session', async () => {
+    const http = vi.fn<typeof fetch>().mockResolvedValue(output(decision));
+    await new OpenAIProvider({ apiKey: 'test-key', fetch: http }).decide(req);
+    const body = JSON.parse(http.mock.calls[0]![1]!.body as string);
+    expect(body.instructions).not.toContain('reabriu depois de um longo período sem contato');
+    expect(JSON.parse(body.input)).toMatchObject({ resumedAfterGapMinutes: null });
+  });
   it('supports classification, extraction and scoring with validated outputs', async () => {
     const http = vi.fn<typeof fetch>().mockResolvedValueOnce(output({ intent: 'consulta' })).mockResolvedValueOnce(output(lead)).mockResolvedValueOnce(output({ score: 80, reason: 'Interesse declarado' }));
     const llm = new OpenAIProvider({ apiKey: 'test', fetch: http });

@@ -134,6 +134,11 @@ describe('Conversation 15-Minute Session Timeout & Context Window', () => {
         })
       );
 
+      // 1b. The gap that closed the session (~20 min) rides along on the new conversation, so
+      // downstream nodes can tell "reopened after a short gap" apart from "reopened after days".
+      expect(result.resumedAfterGapMinutes).toBeGreaterThanOrEqual(19);
+      expect(result.resumedAfterGapMinutes).toBeLessThanOrEqual(21);
+
       // 2. New conversation created with stage NEW_CONVERSATION
       expect(convInsertQuery.insert).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -159,6 +164,45 @@ describe('Conversation 15-Minute Session Timeout & Context Window', () => {
       // In-memory leadRef mutated
       expect(leadRef.memory.conversation_state.stage).toBe('NEW_CONVERSATION');
       expect((leadRef.memory as any).custom_fields.selected_slot_iso).toBeUndefined();
+    });
+
+    it('reports a multi-day gap so a bare greeting is not read as resuming a days-old interest', async () => {
+      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+      const staleConv = {
+        id: 'conv-stale-old', organization_id: 'org-1', connection_id: 'conn-1', lead_id: 'lead-1',
+        stage: 'HANDOFF_PENDING', last_message_at: threeDaysAgo,
+      };
+
+      const convSelectQuery: any = {};
+      convSelectQuery.select = vi.fn(() => convSelectQuery);
+      convSelectQuery.eq = vi.fn(() => convSelectQuery);
+      convSelectQuery.not = vi.fn(() => convSelectQuery);
+      convSelectQuery.order = vi.fn(() => convSelectQuery);
+      convSelectQuery.maybeSingle = vi.fn().mockResolvedValue({ data: staleConv, error: null });
+
+      const convUpdateQuery: any = {};
+      convUpdateQuery.update = vi.fn(() => convUpdateQuery);
+      convUpdateQuery.eq = vi.fn(() => convUpdateQuery);
+
+      const convInsertQuery: any = {};
+      const newConv = { id: 'conv-new-2', organization_id: 'org-1', connection_id: 'conn-1', lead_id: 'lead-1', stage: 'NEW_CONVERSATION', handled_by: 'AI', bot_paused: false };
+      convInsertQuery.insert = vi.fn(() => convInsertQuery);
+      convInsertQuery.select = vi.fn(() => convInsertQuery);
+      convInsertQuery.single = vi.fn().mockResolvedValue({ data: newConv, error: null });
+
+      const db = {
+        from: vi.fn((table: string) => {
+          if (table === 'conversations') return { select: convSelectQuery.select, update: convUpdateQuery.update, insert: convInsertQuery.insert };
+          if (table === 'leads') return { select: vi.fn(() => ({ eq: vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }) })) })) })) };
+          throw new Error(`Unexpected table ${table}`);
+        }),
+      };
+
+      const repo = new ConversationRepository(db as any);
+      const result = await repo.findOrCreateConversation('org-1', 'conn-1', 'lead-1', null, { sessionTimeoutMinutes: 15 });
+
+      expect(result.id).toBe('conv-new-2');
+      expect(result.resumedAfterGapMinutes).toBeGreaterThanOrEqual(3 * 24 * 60 - 1);
     });
   });
 

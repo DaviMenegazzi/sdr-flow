@@ -25,6 +25,10 @@ export interface LLMRequest {
   latestUserMessage?: string;
   knowledgeSnippets?: string[];
   summary?: string;
+  /** Minutes since the lead's last activity, only set when this turn reopened an expired session. */
+  resumedAfterGapMinutes?: number | null;
+  /** True once that gap clears SESSION_REENGAGEMENT_MINUTES — tells the provider not to treat commercialMemory as freshly reconfirmed. */
+  resumedAfterLongGap?: boolean;
 }
 
 export interface LLMResponse<T = unknown> {

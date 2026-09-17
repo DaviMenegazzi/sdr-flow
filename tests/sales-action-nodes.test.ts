@@ -91,6 +91,43 @@ describe('Sales action node contracts', () => {
     expect(result.tokens).toEqual({ input: 150, output: 45 });
   });
 
+  it('agent.next_action stays silent about session gap when the conversation never went stale', async () => {
+    const ctx = context({ variables: { required_fields: { complete: false, missing: ['city'], missing_count: 1 } } });
+    const llm = new MockLLMProvider();
+    const structured = vi.spyOn(llm, 'structured');
+    await executors['agent.next_action'](ctx, {
+      provider: 'openai', model: 'default', prompt: 'Decida', allowedActions: ['ASK_MISSING_FIELD', 'SEND_INFORMATION'],
+    }, services({ llm }));
+    const call = structured.mock.calls[0]?.[0];
+    expect(call?.prompt as string).not.toContain('Retomada após lacuna longa');
+    expect(call?.resumedAfterLongGap).toBe(false);
+    expect(call?.resumedAfterGapMinutes).toBeNull();
+  });
+
+  it('agent.next_action tells the model to re-confirm stale interest instead of resuming after a long gap', async () => {
+    // Reproduces the reported bug: lead's commercialMemory.interest is days old, city was never
+    // given, and the lead just sent a bare "boa noite" — flow.required_fields still flags city as
+    // missing, so without this signal the model jumps straight back into scheduling.
+    const ctx = context({
+      lead: { id: '33333333-3333-3333-3333-333333333333', phone: '5555999998888', name: 'Carlos', interest: 'agendamento de exame', memory: {} },
+      messages: [{ id: 'm1', text: 'boa noite', fromMe: false }],
+      variables: {
+        required_fields: { complete: false, missing: ['city'], missing_count: 1 },
+        resumedAfterGapMinutes: 3 * 24 * 60,
+        resumedAfterLongGap: true,
+      },
+    });
+    const llm = new MockLLMProvider();
+    const structured = vi.spyOn(llm, 'structured');
+    await executors['agent.next_action'](ctx, {
+      provider: 'openai', model: 'default', prompt: 'Decida', allowedActions: ['ASK_MISSING_FIELD', 'SEND_INFORMATION'],
+    }, services({ llm }));
+    const call = structured.mock.calls[0]?.[0];
+    expect(call?.prompt as string).toContain('Retomada após lacuna longa');
+    expect(call?.resumedAfterLongGap).toBe(true);
+    expect(call?.resumedAfterGapMinutes).toBe(3 * 24 * 60);
+  });
+
   it('agent.next_action validates and stores the structured commercial action', async () => {
     const llm = new MockLLMProvider();
     vi.spyOn(llm, 'structured').mockResolvedValue({
