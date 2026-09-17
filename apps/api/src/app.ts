@@ -1815,6 +1815,7 @@ export function createApp(config: ApiConfig = {}): Express {
   const dashboardQuerySchema = z.object({
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'startDate deve estar no formato YYYY-MM-DD.').optional(),
     endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'endDate deve estar no formato YYYY-MM-DD.').optional(),
+    connectionId: z.string().uuid('connectionId deve ser um UUID válido.').optional(),
   });
   orgRoutes.get('/metrics/dashboard', async (req, res) => {
     const orgId = res.locals.organizationId as string;
@@ -1838,12 +1839,13 @@ export function createApp(config: ApiConfig = {}): Express {
       return;
     }
 
+    const connectionId = parsedQuery.data.connectionId ?? null;
     try {
-      const data = await metricsRepo.getDashboardMetrics(orgId, { startDate, endDate });
+      const data = await metricsRepo.getDashboardMetrics(orgId, { startDate, endDate, connectionId });
       res.json(data);
     } catch (err: any) {
       // Never fall back to a fake/empty dashboard on a real query failure (10.4.6).
-      logger.error({ err, orgId, startDate, endDate }, 'Falha ao calcular métricas do dashboard');
+      logger.error({ err, orgId, startDate, endDate, connectionId }, 'Falha ao calcular métricas do dashboard');
       res.status(502).json({ error: 'Não foi possível calcular as métricas no momento.' });
     }
   });

@@ -244,6 +244,13 @@
       }
     },
     {
+      "id": "crm_sync",
+      "type": "action.crm_sync",
+      "label": "Sincronizar CRM",
+      "position": { "x": 3920, "y": 600 },
+      "config": {}
+    },
+    {
       "id": "handoff",
       "type": "action.handoff",
       "label": "Transferir p/ humano",
@@ -288,7 +295,8 @@
     { "id": "e25", "source": "policy", "target": "writer", "sourcePort": "rewrite" },
     { "id": "e26", "source": "policy", "target": "smart_fallback", "sourcePort": "blocked" },
     { "id": "e27", "source": "smart", "target": "end", "sourcePort": "next" },
-    { "id": "e28", "source": "payment_msg", "target": "handoff", "sourcePort": "next" },
+    { "id": "e28", "source": "payment_msg", "target": "crm_sync", "sourcePort": "next" },
+    { "id": "e31", "source": "crm_sync", "target": "handoff", "sourcePort": "next" },
     { "id": "e29", "source": "smart_fallback", "target": "handoff", "sourcePort": "next" },
     { "id": "e30", "source": "handoff", "target": "end", "sourcePort": "next" }
   ],
