@@ -27,7 +27,7 @@ export function AgentsPage() {
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedProvider, setSelectedProvider] = useState<string>('all');
+  const [selectedStatus, setSelectedStatus] = useState<string>('all');
 
   // Drawer & Modal states
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -170,11 +170,19 @@ export function AgentsPage() {
         agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         agent.model.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (agent.system_prompt && agent.system_prompt.toLowerCase().includes(searchQuery.toLowerCase()));
-      const matchesProvider =
-        selectedProvider === 'all' || agent.provider.toLowerCase() === selectedProvider.toLowerCase();
-      return matchesSearch && matchesProvider;
+
+      let matchesStatus = true;
+      if (selectedStatus === 'with-key') {
+        matchesStatus = agent.hasOpenaiKey;
+      } else if (selectedStatus === 'without-key') {
+        matchesStatus = !agent.hasOpenaiKey;
+      } else if (selectedStatus === 'assigned') {
+        matchesStatus = instances.some((i) => i.agent_id === agent.id);
+      }
+
+      return matchesSearch && matchesStatus;
     });
-  }, [agents, searchQuery, selectedProvider]);
+  }, [agents, instances, searchQuery, selectedStatus]);
 
   const quotaUsed = agents.length;
   const quotaMax = limits.max_agents || 2;
@@ -250,14 +258,14 @@ export function AgentsPage() {
             </div>
 
             <select
-              value={selectedProvider}
-              onChange={(e) => setSelectedProvider(e.target.value)}
+              value={selectedStatus}
+              onChange={(e) => setSelectedStatus(e.target.value)}
               className="text-xs bg-surface-elevated text-content border border-border rounded-lg py-1.5 px-2.5 outline-none focus:ring-1 focus:ring-brand"
             >
-              <option value="all">Todos os provedores</option>
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
-              <option value="groq">Groq</option>
+              <option value="all">Todos os status</option>
+              <option value="with-key">Chave OK (Ativos)</option>
+              <option value="without-key">Sem Chave (Pendente)</option>
+              <option value="assigned">Vinculados ao WhatsApp</option>
             </select>
           </div>
 
@@ -328,7 +336,7 @@ export function AgentsPage() {
               Nenhum agente encontrado
             </h3>
             <p className="text-xs text-content-secondary max-w-sm mb-4">
-              {searchQuery || selectedProvider !== 'all'
+              {searchQuery || selectedStatus !== 'all'
                 ? 'Nenhum agente corresponde aos filtros de busca aplicados.'
                 : 'Crie seu primeiro agente de IA para conectar à sua instância de WhatsApp e automatizar o atendimento.'}
             </p>

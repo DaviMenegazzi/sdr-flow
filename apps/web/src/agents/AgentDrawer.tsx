@@ -255,11 +255,16 @@ export function AgentDrawer({
             placeholder="Ex: Responsável por acolhimento e qualificação de novos leads"
           />
 
-          {/* Seletor de Modelos Populares */}
+          {/* Seletor de Modelos OpenAI */}
           <div className="space-y-2">
-            <label className="text-xs font-semibold text-content block">
-              Modelo de Linguagem (LLM)
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-content block">
+                Modelo de Linguagem (OpenAI)
+              </label>
+              <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded bg-brand/10 text-brand border border-brand/20">
+                Motor OpenAI Oficial
+              </span>
+            </div>
             <div className="grid grid-cols-1 gap-2">
               {POPULAR_MODELS.map((item) => {
                 const isSelected = model === item.id;

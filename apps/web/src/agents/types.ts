@@ -43,11 +43,10 @@ export interface AgentFormData {
 }
 
 export const POPULAR_MODELS = [
-  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai', desc: 'Rápido, econômico e excelente para SDRs' },
-  { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', desc: 'Alta inteligência para vendas complexas' },
-  { id: 'claude-3-5-sonnet', name: 'Claude 3.5 Sonnet', provider: 'anthropic', desc: 'Excelente tom humano e interpretação' },
-  { id: 'claude-3-haiku', name: 'Claude 3 Haiku', provider: 'anthropic', desc: 'Ultrarrápido para triagem' },
-  { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B (Groq)', provider: 'groq', desc: 'Latência sub-segundo via Groq' },
+  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai', desc: 'Padrão recomendado: ultra-rápido, econômico e altamente preciso para SDRs' },
+  { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', desc: 'Raciocínio avançado para objeções comerciais e vendas de ticket alto' },
+  { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', provider: 'openai', desc: 'Modelo ágil para fluxos e triagens rápidas' },
+  { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', provider: 'openai', desc: 'Janela de contexto ampla e alta fidelidade a regras' },
 ];
 
 export const PROMPT_VARIABLES = [
