@@ -259,10 +259,10 @@ export function AgentDrawer({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-content block">
-                Modelo de Linguagem (OpenAI)
+                Modelo de Linguagem
               </label>
-              <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded bg-brand/10 text-brand border border-brand/20">
-                Motor OpenAI Oficial
+              <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded bg-surface-elevated text-content-muted border border-border">
+                OpenAI
               </span>
             </div>
             <div className="grid grid-cols-1 gap-2">
