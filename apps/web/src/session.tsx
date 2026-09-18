@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode, type FormEvent } from 'react';
 import { createClient, type Session } from '@supabase/supabase-js';
 import { Sliders } from 'lucide-react';
-import type { MemberRole } from '@sdr/shared';
+import type { MemberRole, OrgTier, Capability } from '@sdr/shared';
 
 const url = import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.SUPABASE_ANON_KEY;
@@ -11,6 +11,7 @@ interface Org {
   id: string;
   name: string;
   role?: MemberRole;
+  tier?: OrgTier;
 }
 
 interface Member {
@@ -45,10 +46,21 @@ interface SessionContextType {
   organizations: Org[];
   activeOrg: string;
   activeRole: MemberRole | null;
+  activeTier: OrgTier | null;
+  capabilities: Capability[];
+  can(capability: Capability): boolean;
   setActiveOrg(id: string): void;
   reload(): Promise<void>;
   loading: boolean;
-  profile: { role: 'admin'|'client'; status: string; organizationId: string } | null;
+  profile: {
+    role: 'admin' | 'client';
+    platformRole?: 'admin' | 'client';
+    status: string;
+    organizationId: string;
+    memberRole?: MemberRole;
+    orgTier?: OrgTier;
+    capabilities?: Capability[];
+  } | null;
   signOut(): Promise<void>;
 }
 
@@ -57,6 +69,9 @@ const Context = createContext<SessionContextType>({
   organizations: [],
   activeOrg: '',
   activeRole: null,
+  activeTier: null,
+  capabilities: [],
+  can: () => false,
   setActiveOrg: () => {},
   reload: async () => {},
   loading: true,
@@ -66,11 +81,26 @@ const Context = createContext<SessionContextType>({
 
 export const useSession = () => useContext(Context);
 
+export function Can({
+  do: capability,
+  children,
+  fallback = null,
+}: {
+  do: Capability;
+  children: ReactNode;
+  fallback?: ReactNode;
+}) {
+  const { can } = useSession();
+  return can(capability) ? <>{children}</> : <>{fallback}</>;
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [organizations, setOrganizations] = useState<Org[]>([]);
   const [activeOrg, setActiveOrg] = useState('');
   const [activeRole, setActiveRole] = useState<MemberRole | null>(null);
+  const [activeTier, setActiveTier] = useState<OrgTier | null>(null);
+  const [capabilities, setCapabilities] = useState<Capability[]>([]);
   const [loading, setLoading] = useState(() => Boolean(supabase));
   const [profile, setProfile] = useState<SessionContextType['profile']>(null);
 
@@ -78,7 +108,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!supabase || !session) return;
     const { data: orgData, error: orgError } = await supabase
       .from('organizations')
-      .select('id, name')
+      .select('id, name, tier')
       .order('name');
     if (orgError) throw orgError;
 
@@ -87,6 +117,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
     const currentOrgId = rows.some((org) => org.id === activeOrg) ? activeOrg : rows[0]?.id ?? '';
     setActiveOrg(currentOrgId);
+
+    const currentOrg = rows.find((org) => org.id === currentOrgId);
+    if (currentOrg?.tier) setActiveTier(currentOrg.tier);
 
     if (currentOrgId && session?.user?.id) {
       const { data: memberData } = await supabase
@@ -114,21 +147,47 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!supabase) return;
-    if (!session) { setProfile(null); return; }
+    if (!session) {
+      setProfile(null);
+      setActiveTier(null);
+      setCapabilities([]);
+      return;
+    }
     setLoading(true);
-    void fetch('/api/me',{headers:{Authorization:`Bearer ${session.access_token}`}}).then(async response => {
-      if (!response.ok) { setProfile(null); return; }
-      const me=await response.json(); setProfile({role:me.role,status:me.status,organizationId:me.organizationId});
-    }).finally(()=>setLoading(false));
-  },[session?.access_token]);
+    const headers: Record<string, string> = { Authorization: `Bearer ${session.access_token}` };
+    if (activeOrg) headers['X-Organization-Id'] = activeOrg;
+    void fetch('/api/me', { headers })
+      .then(async (response) => {
+        if (!response.ok) {
+          setProfile(null);
+          return;
+        }
+        const me = await response.json();
+        setProfile({
+          role: me.role,
+          platformRole: me.platformRole,
+          status: me.status,
+          organizationId: me.organizationId,
+          memberRole: me.memberRole,
+          orgTier: me.orgTier,
+          capabilities: me.capabilities,
+        });
+        if (me.orgTier) setActiveTier(me.orgTier);
+        if (Array.isArray(me.capabilities)) setCapabilities(me.capabilities);
+        if (me.memberRole) setActiveRole(me.memberRole);
+      })
+      .finally(() => setLoading(false));
+  }, [session?.access_token, activeOrg]);
 
-  const signOut=async()=>{
+  const signOut = async () => {
     setOrganizations([]);
     setActiveOrg('');
     setActiveRole(null);
+    setActiveTier(null);
+    setCapabilities([]);
     setProfile(null);
     setSession(null);
-    try{localStorage.removeItem('sdr-flow:active-instance')}catch{}
+    try { localStorage.removeItem('sdr-flow:active-instance'); } catch {}
     await supabase?.auth.signOut();
   };
 
@@ -137,6 +196,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setOrganizations([]);
     setActiveOrg('');
     setActiveRole(null);
+    setActiveTier(null);
+    setCapabilities([]);
     if (session) void reload().catch(() => setOrganizations([]));
   }, [session?.user.id]);
 
@@ -151,11 +212,33 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         .then(({ data }) => {
           setActiveRole((data?.role as MemberRole) ?? null);
         });
+      const currentOrg = organizations.find((o) => o.id === activeOrg);
+      if (currentOrg?.tier) setActiveTier(currentOrg.tier);
     }
   }, [activeOrg]);
 
+  const can = (cap: Capability): boolean => {
+    if (profile?.role === 'admin' || profile?.platformRole === 'admin') return true;
+    return capabilities.includes(cap);
+  };
+
   return (
-    <Context.Provider value={{ session, organizations, activeOrg, activeRole, setActiveOrg, reload, loading, profile, signOut }}>
+    <Context.Provider
+      value={{
+        session,
+        organizations,
+        activeOrg,
+        activeRole,
+        activeTier,
+        capabilities,
+        can,
+        setActiveOrg,
+        reload,
+        loading,
+        profile,
+        signOut,
+      }}
+    >
       {children}
     </Context.Provider>
   );

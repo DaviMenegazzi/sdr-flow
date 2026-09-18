@@ -15,6 +15,7 @@ import {
   LogOut,
   Shield,
   ScrollText,
+  Lock,
 } from 'lucide-react';
 import { useSession } from '../../session';
 
@@ -24,8 +25,15 @@ interface AppSidebarProps {
 }
 
 export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
-  const { session, profile, signOut, activeOrg, organizations } = useSession();
+  const { session, profile, signOut, activeOrg, organizations, activeTier, can } = useSession();
   const currentOrg = organizations.find((o) => o.id === activeOrg);
+
+  const tierLabels: Record<string, string> = {
+    'pre-venda': 'Pré-Venda',
+    'vendedor': 'Vendedor',
+    'vendedor-senior': 'Vendedor Sênior',
+  };
+  const tierName = activeTier ? (tierLabels[activeTier] || activeTier) : null;
 
   const userEmail = session?.user?.email ?? '';
   const displayName =
@@ -50,6 +58,8 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
         : 'text-content-secondary hover:text-content-primary hover:bg-surface-elevated'
     }`;
 
+  const hasIntegrations = can('integrations:manage');
+
   return (
     <aside className="w-56 bg-surface border-r border-border flex flex-col h-full flex-shrink-0 select-none z-20">
       {/* Brand Header */}
@@ -66,9 +76,16 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
               SDR Flow
             </span>
           </div>
-          <span className="text-[10px] text-content-muted truncate max-w-[170px] pl-0.5">
-            {currentOrg?.name || 'Workspace'}
-          </span>
+          <div className="flex items-center justify-between gap-1 pl-0.5 mt-0.5">
+            <span className="text-[10px] text-content-muted truncate max-w-[105px]">
+              {currentOrg?.name || 'Workspace'}
+            </span>
+            {tierName && (
+              <span className="text-[8px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-brand/10 text-brand border border-brand/20">
+                {tierName}
+              </span>
+            )}
+          </div>
         </Link>
       </div>
 
@@ -80,14 +97,18 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
             Operação
           </span>
           <div className="mt-1 space-y-0.5">
-            <NavLink to="/inbox" className={navItemClass}>
-              <MessageSquare size={16} />
-              <span>Atendimento (Inbox)</span>
-            </NavLink>
-            <NavLink to="/connections" className={navItemClass}>
-              <Radio size={16} />
-              <span>WhatsApp Instâncias</span>
-            </NavLink>
+            {can('inbox:read') && (
+              <NavLink to="/inbox" className={navItemClass}>
+                <MessageSquare size={16} />
+                <span>Atendimento (Inbox)</span>
+              </NavLink>
+            )}
+            {can('instances:manage') && (
+              <NavLink to="/connections" className={navItemClass}>
+                <Radio size={16} />
+                <span>WhatsApp Instâncias</span>
+              </NavLink>
+            )}
           </div>
         </div>
 
@@ -97,22 +118,29 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
             Automação & IA
           </span>
           <div className="mt-1 space-y-0.5">
-            <NavLink to="/flows/new" className={navItemClass}>
-              <Workflow size={16} />
-              <span>Construtor de Fluxos</span>
-            </NavLink>
-            <NavLink to="/templates" className={navItemClass}>
-              <Blocks size={16} />
-              <span>Modelos SDR</span>
-            </NavLink>
+            {can('flows:read') && (
+              <>
+                <NavLink to="/flows/new" className={navItemClass}>
+                  <Workflow size={16} />
+                  <span>Construtor de Fluxos</span>
+                </NavLink>
+                <NavLink to="/templates" className={navItemClass}>
+                  <Blocks size={16} />
+                  <span>Modelos SDR</span>
+                </NavLink>
+              </>
+            )}
+            {/* Todos os tiers têm acesso à aba de agentes das instâncias configuradas */}
             <NavLink to="/agents" className={navItemClass}>
               <Users size={16} />
               <span>Agentes de IA</span>
             </NavLink>
-            <NavLink to="/knowledge" className={navItemClass}>
-              <BookOpen size={16} />
-              <span>Base Conhecimento</span>
-            </NavLink>
+            {can('flows:read') && (
+              <NavLink to="/knowledge" className={navItemClass}>
+                <BookOpen size={16} />
+                <span>Base Conhecimento</span>
+              </NavLink>
+            )}
           </div>
         </div>
 
@@ -122,18 +150,37 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
             Inteligência & Dados
           </span>
           <div className="mt-1 space-y-0.5">
-            <NavLink to="/dashboard" className={navItemClass}>
-              <BarChart3 size={16} />
-              <span>Indicadores (KPIs)</span>
-            </NavLink>
-            <NavLink to="/logs" className={navItemClass}>
-              <ScrollText size={16} />
-              <span>Logs de Execução</span>
-            </NavLink>
-            <NavLink to="/integrations" className={navItemClass}>
-              <Plug size={16} />
-              <span>Integrações Externas</span>
-            </NavLink>
+            {can('dashboard:read') && (
+              <NavLink to="/dashboard" className={navItemClass}>
+                <BarChart3 size={16} />
+                <span>Indicadores (KPIs)</span>
+              </NavLink>
+            )}
+            {can('flows:read') && (
+              <NavLink to="/logs" className={navItemClass}>
+                <ScrollText size={16} />
+                <span>Logs de Execução</span>
+              </NavLink>
+            )}
+            {hasIntegrations ? (
+              <NavLink to="/integrations" className={navItemClass}>
+                <Plug size={16} />
+                <span>Integrações Externas</span>
+              </NavLink>
+            ) : (
+              <div
+                className="flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-content-muted/60 cursor-not-allowed"
+                title="Disponível a partir do plano Vendedor"
+              >
+                <span className="flex items-center gap-3">
+                  <Plug size={16} />
+                  <span>Integrações</span>
+                </span>
+                <span className="flex items-center gap-1 text-[9px] uppercase font-bold text-content-muted">
+                  <Lock size={11} /> Vendedor
+                </span>
+              </div>
+            )}
           </div>
         </div>
 

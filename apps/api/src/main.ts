@@ -48,9 +48,16 @@ wsServer.attach(server, {
       return membership ? { organizationId: scope.organizationId } : null;
     }
     if (scope.flowId) {
-      const { data: flow } = await db.from('flows').select('organization_id').eq('id',scope.flowId).maybeSingle();
-      const { data: profile } = flow ? await db.from('profiles').select('user_id').eq('user_id',userId).eq('default_organization_id',flow.organization_id).eq('status','active').maybeSingle() : { data:null };
-      if (flow && profile) return { organizationId: flow.organization_id };
+      const { data: flow } = await db.from('flows').select('organization_id').eq('id', scope.flowId).maybeSingle();
+      if (flow) {
+        const { data: member } = await db
+          .from('organization_members')
+          .select('role')
+          .eq('organization_id', flow.organization_id)
+          .eq('user_id', userId)
+          .maybeSingle();
+        if (member) return { organizationId: flow.organization_id };
+      }
     }
     let connectionId = scope.connectionId;
     if (!connectionId && scope.conversationId) {
@@ -65,8 +72,17 @@ wsServer.attach(server, {
       }
     }
     if (!connectionId) return null;
-    const { data } = await db.from('connections').select('organization_id').eq('id', connectionId).eq('owner_user_id', userId).maybeSingle();
-    return data ? { organizationId: data.organization_id } : null;
+    const { data: conn } = await db.from('connections').select('organization_id').eq('id', connectionId).maybeSingle();
+    if (conn) {
+      const { data: member } = await db
+        .from('organization_members')
+        .select('role')
+        .eq('organization_id', conn.organization_id)
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (member) return { organizationId: conn.organization_id };
+    }
+    return null;
   },
 });
 for (const signal of ['SIGINT','SIGTERM']) process.on(signal,async () => {

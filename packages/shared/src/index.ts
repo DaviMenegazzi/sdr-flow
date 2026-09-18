@@ -3,6 +3,7 @@ export * from './enums.js';
 export * from './phone.js';
 export * from './contracts.js';
 export * from './message-types.js';
+export * from './capabilities.js';
 
 export const nodeTypes = [
   'trigger.message_received', 'trigger.schedule', 'trigger.manual',
@@ -69,8 +70,6 @@ export type FlowNode = z.infer<typeof flowNodeSchema>;
 export type FlowEdge = z.infer<typeof flowEdgeSchema>;
 export type FlowGraph = z.infer<typeof flowGraphSchema>;
 export const saveFlowSchema = z.strictObject({ name: z.string().trim().min(1).max(120), graph: flowGraphSchema });
-export const memberRoleSchema = z.enum(['owner', 'admin', 'agent', 'viewer']);
-export type MemberRole = z.infer<typeof memberRoleSchema>;
 export const queueNames = {
   maintenance: 'sdr-maintenance',
   turns: 'sdr-turns',

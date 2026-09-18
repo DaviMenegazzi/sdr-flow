@@ -827,16 +827,19 @@ export type Database = {
         id: string;
         name: string;
         created_at: string;
+        tier: Database['public']['Enums']['org_tier'];
       };
       Insert: {
         id?: string;
         name: string;
         created_at?: string;
+        tier?: Database['public']['Enums']['org_tier'];
       };
       Update: {
         id?: string;
         name?: string;
         created_at?: string;
+        tier?: Database['public']['Enums']['org_tier'];
       };
       Relationships: [];
     };
@@ -901,6 +904,7 @@ export type Database = {
       connection_provider: "evolution" | "meta";
       conversation_stage: "NEW_CONVERSATION" | "QUALIFYING" | "COLLECTING_INFORMATION" | "PRESENTING_SOLUTION" | "NEGOTIATING" | "CONVERTED" | "HUMAN_HANDOFF" | "CLOSED";
       member_role: "owner" | "admin" | "agent" | "viewer";
+      org_tier: "pre-venda" | "vendedor" | "vendedor-senior";
     };
     CompositeTypes: Record<never, never>;
   };

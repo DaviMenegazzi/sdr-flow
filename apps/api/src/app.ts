@@ -21,7 +21,17 @@ import {
   type ConversationWithLead,
   type CalendarAccountEntity,
 } from '@sdr/db';
-import { saveFlowSchema, memberRoleSchema, type FlowGraph, normalizeConversationStage, queueNames } from '@sdr/shared';
+import {
+  saveFlowSchema,
+  memberRoleSchema,
+  type MemberRole,
+  type FlowGraph,
+  normalizeConversationStage,
+  queueNames,
+  type OrgTier,
+  type Capability,
+  getCapabilities,
+} from '@sdr/shared';
 import { catalog, validateGraph, replayFlow, runPlayground, GoogleCalendarClient, type GoogleCalendarCredentials } from '@sdr/flow';
 import { parseEvolutionWebhook, parseMetaWebhook, processInboundWebhook } from './webhook.js';
 import { ConnectionManager } from './whatsapp/connection-manager.js';
@@ -47,7 +57,7 @@ import {
   resolveTurnFlow,
   resolveFlowForConnection,
 } from '@sdr/runtime';
-import { authMiddleware, requireRole, uuidParam } from './auth.js';
+import { authMiddleware, requireRole, requireCapability, requireOrgRole, uuidParam } from './auth.js';
 
 export interface ApiConfig extends RuntimeConfig {
   supabaseUrl?: string;
@@ -220,19 +230,29 @@ export function createApp(config: ApiConfig = {}): Express {
   app.get('/api/me', (req, res) => {
     const auth = res.locals.auth;
     if (!auth) { res.status(401).json({ error: 'Autenticação obrigatória.' }); return; }
-    res.json({ userId: auth.userId, email: auth.email, role: auth.appRole, status: auth.profileStatus, organizationId: auth.organizationId });
+    res.json({
+      userId: auth.userId,
+      email: auth.email,
+      role: auth.appRole,
+      platformRole: auth.platformRole,
+      status: auth.profileStatus,
+      organizationId: auth.organizationId,
+      memberRole: auth.memberRole,
+      orgTier: auth.orgTier,
+      capabilities: Array.from(auth.capabilities),
+    });
   });
 
   app.get('/api/me/instances', async (_req, res) => {
     const auth = res.locals.auth!;
-    const { data, error } = await auth.db.from('connections').select('id,name,provider,status,phone,agent_id,created_at').eq('organization_id', auth.organizationId).eq('owner_user_id', auth.userId).order('created_at');
+    const { data, error } = await auth.db.from('connections').select('id,name,provider,status,phone,agent_id,created_at').eq('organization_id', auth.organizationId).order('created_at');
     if (error) throw error; res.json(data ?? []);
   });
   app.get('/api/me/agents', async (_req, res) => {
     const auth = res.locals.auth!;
     const [{ data, error }, { data: limits }] = await Promise.all([
-      auth.db.from('ai_agents').select('id,name,description,status,provider,model,system_prompt,tool_policy,model_config,is_default,created_at,updated_at').eq('organization_id', auth.organizationId).eq('owner_user_id', auth.userId).neq('status','archived').order('created_at'),
-      auth.db.from('account_limits').select('max_agents,max_instances').eq('organization_id', auth.organizationId).eq('owner_user_id', auth.userId).maybeSingle(),
+      auth.db.from('ai_agents').select('id,name,description,status,provider,model,system_prompt,tool_policy,model_config,is_default,created_at,updated_at').eq('organization_id', auth.organizationId).neq('status','archived').order('created_at'),
+      auth.db.from('account_limits').select('max_agents,max_instances').eq('organization_id', auth.organizationId).maybeSingle(),
     ]);
     if (error) throw error;
     const serviceDb = getServiceDb();
@@ -252,7 +272,7 @@ export function createApp(config: ApiConfig = {}): Express {
   app.get('/api/me/agents/:agentId', async (req, res) => {
     const auth = res.locals.auth!; const agentId = uuidParam.safeParse(req.params.agentId);
     if (!agentId.success) { res.status(400).json({ error: 'Identificador inválido.' }); return; }
-    const { data, error } = await auth.db.from('ai_agents').select('*').eq('organization_id', auth.organizationId).eq('owner_user_id', auth.userId).eq('id', agentId.data).neq('status', 'archived').maybeSingle();
+    const { data, error } = await auth.db.from('ai_agents').select('*').eq('organization_id', auth.organizationId).eq('id', agentId.data).neq('status', 'archived').maybeSingle();
     if (error || !data) { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
     const serviceDb = getServiceDb();
     const hasOpenaiKey = serviceDb ? await agentHasOpenAIKey(serviceDb, data.id) : false;
@@ -262,15 +282,12 @@ export function createApp(config: ApiConfig = {}): Express {
     const auth = res.locals.auth!; const agentId = uuidParam.safeParse(req.params.agentId);
     const body = z.object({ apiKey: z.string().trim().min(1).max(400) }).strict().safeParse(req.body);
     if (!agentId.success || !body.success) { res.status(400).json({ error: 'Dados inválidos.' }); return; }
-    // Ownership check happens against the user-scoped client (RLS) before touching the
-    // service-role client below — the write RPC itself also re-checks org/owner/agent
-    // match server-side (set_agent_openai_key), but this gives a clean 404 either way.
-    const { data: agent, error: agentError } = await auth.db.from('ai_agents').select('id').eq('organization_id', auth.organizationId).eq('owner_user_id', auth.userId).eq('id', agentId.data).neq('status', 'archived').maybeSingle();
+    const { data: agent, error: agentError } = await auth.db.from('ai_agents').select('id,owner_user_id').eq('organization_id', auth.organizationId).eq('id', agentId.data).neq('status', 'archived').maybeSingle();
     if (agentError || !agent) { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
     const serviceDb = getServiceDb();
     if (!serviceDb) { res.status(503).json({ error: 'Persistência não configurada.' }); return; }
     try {
-      await setAgentOpenAIKey(serviceDb, auth.organizationId, auth.userId, agentId.data, body.data.apiKey);
+      await setAgentOpenAIKey(serviceDb, auth.organizationId, (agent as any).owner_user_id || auth.userId, agentId.data, body.data.apiKey);
     } catch {
       res.status(500).json({ error: 'Não foi possível salvar a chave da OpenAI.' });
       return;
@@ -734,9 +751,17 @@ export function createApp(config: ApiConfig = {}): Express {
         res.status(403).json({ error: 'Sem acesso a esta organização.' });
         return;
       }
+      const { data: orgData } = await adminDb
+        .from('organizations')
+        .select('tier')
+        .eq('id', organizationId.data)
+        .maybeSingle();
+      const orgTier = ((orgData as any)?.tier as OrgTier) || 'pre-venda';
       res.locals.organizationId = organizationId.data;
       res.locals.userId = `api_key:${verification.keyId}`;
       res.locals.role = verification.role;
+      res.locals.orgTier = orgTier;
+      res.locals.capabilities = new Set<Capability>(getCapabilities(orgTier, verification.role as MemberRole));
       res.locals.scopes = verification.scopes || [];
       res.locals.authType = 'api_key';
       res.locals.db = adminDb;
@@ -771,9 +796,24 @@ export function createApp(config: ApiConfig = {}): Express {
       res.status(403).json({ error: 'Sem acesso a esta organização.' });
       return;
     }
+    let orgTier: OrgTier = 'pre-venda';
+    try {
+      const { data: orgData } = await db
+        .from('organizations')
+        .select('tier')
+        .eq('id', organizationId.data)
+        .maybeSingle();
+      if ((orgData as any)?.tier) {
+        orgTier = (orgData as any).tier;
+      }
+    } catch {
+      // fallback to pre-venda
+    }
     res.locals.organizationId = organizationId.data;
     res.locals.userId = user.id;
     res.locals.role = membership.data.role;
+    res.locals.orgTier = orgTier;
+    res.locals.capabilities = new Set<Capability>(getCapabilities(orgTier, membership.data.role as MemberRole));
     res.locals.scopes = ['*'];
     res.locals.authType = 'jwt';
     res.locals.db = db;
@@ -790,6 +830,22 @@ export function createApp(config: ApiConfig = {}): Express {
   });
 
   orgRoutes.use(orgRateLimiter.middleware());
+
+  const requireOrgCapability = (cap: Capability) => (
+    _req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    const caps = res.locals.capabilities as Set<Capability> | undefined;
+    if (caps && !caps.has(cap)) {
+      res.status(403).json({
+        error: `Acesso não permitido pelo seu plano (${res.locals.orgTier}) ou perfil (${res.locals.role}).`,
+        requiredCapability: cap,
+      });
+      return;
+    }
+    next();
+  };
 
   const checkScope = (scope: string) => (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (res.locals.authType === 'api_key') {
@@ -1181,6 +1237,22 @@ export function createApp(config: ApiConfig = {}): Express {
 
     await connRepo.deleteConnection(res.locals.organizationId as string, connectionId, serviceDb);
     res.json({ ok: true });
+  });
+
+  // Integrations routes protection by capability ('vendedor' and 'vendedor-senior')
+  orgRoutes.use('/integrations', requireOrgCapability('integrations:manage'));
+
+  // Payment Gates (exclusive for 'vendedor-senior')
+  orgRoutes.get('/integrations/payment-gates', requireOrgCapability('payment_gates:manage'), async (_req, res) => {
+    res.json({
+      configured: false,
+      gateways: [
+        { id: 'asaas', name: 'Asaas', status: 'available', enabled: false, description: 'PIX e Boleto bancário com conciliação automática' },
+        { id: 'mercado_pago', name: 'Mercado Pago', status: 'available', enabled: false, description: 'Checkout Pro e transparente' },
+        { id: 'stripe', name: 'Stripe', status: 'available', enabled: false, description: 'Cartões nacionais e internacionais e assinaturas' },
+      ],
+      tier: res.locals.orgTier,
+    });
   });
 
   // Google Calendar External Accounts

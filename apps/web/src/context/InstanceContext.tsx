@@ -37,7 +37,7 @@ const InstanceContext = createContext<InstanceContextType>({
 export const useInstance = () => useContext(InstanceContext);
 
 export function InstanceProvider({ children }: { children: ReactNode }) {
-  const { session } = useSession();
+  const { session, activeOrg } = useSession();
   const [activeInstance, setActiveInstanceState] = useState<string>(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) || '';
@@ -67,7 +67,9 @@ export function InstanceProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     try {
       if (!session) { setInstances([]); setActiveInstance(''); return; }
-      const res = await fetch('/api/me/instances',{headers:{Authorization:`Bearer ${session.access_token}`}});
+      const headers: Record<string, string> = { Authorization: `Bearer ${session.access_token}` };
+      if (activeOrg) headers['X-Organization-Id'] = activeOrg;
+      const res = await fetch('/api/me/instances', { headers });
       if (res.ok) {
         const data = await res.json();
         const list: InstanceItem[] = Array.isArray(data) ? data : [];
@@ -87,11 +89,11 @@ export function InstanceProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [activeInstance, setActiveInstance, session?.access_token]);
+  }, [activeInstance, setActiveInstance, session?.access_token, activeOrg]);
 
   useEffect(() => {
     void refreshInstances();
-  }, [session?.user.id]);
+  }, [session?.user.id, activeOrg]);
 
   const currentInstance = instances.find(i => i.id === activeInstance || i.name === activeInstance);
   const activeInstanceName = currentInstance?.name || (activeInstance ? activeInstance : '');

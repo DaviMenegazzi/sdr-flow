@@ -39,6 +39,7 @@ describe('Active flow bindings', () => {
         getUser: vi.fn().mockResolvedValue({ data: { user: { id: userId } }, error: null }),
       },
       from: vi.fn((table: string) => {
+        if (table === 'organizations') return query({ data: { tier: 'pre-venda' }, error: null });
         if (table === 'organization_members') return query({ data: { role: 'admin' }, error: null });
         if (table === 'connections') {
           connectionReads += 1;

@@ -23,7 +23,7 @@ type Instance = {
 };
 
 export function AgentsPage() {
-  const { session } = useSession();
+  const { session, activeOrg } = useSession();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [instances, setInstances] = useState<Instance[]>([]);
   const [max, setMax] = useState(2);
@@ -35,7 +35,12 @@ export function AgentsPage() {
   const [savingKey, setSavingKey] = useState(false);
   const [keySaved, setKeySaved] = useState(false);
 
-  const headers = session ? { Authorization: `Bearer ${session.access_token}` } : undefined;
+  const headers: Record<string, string> | undefined = session
+    ? {
+        Authorization: `Bearer ${session.access_token}`,
+        ...(activeOrg ? { 'X-Organization-Id': activeOrg } : {}),
+      }
+    : undefined;
 
   const load = async () => {
     if (!headers) return;
@@ -53,7 +58,7 @@ export function AgentsPage() {
 
   useEffect(() => {
     void load();
-  }, [session?.access_token]);
+  }, [session?.access_token, activeOrg]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();

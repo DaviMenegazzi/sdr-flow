@@ -12,6 +12,8 @@ import {
   ServerCog,
   Calendar,
   ExternalLink,
+  CreditCard,
+  Lock,
 } from 'lucide-react';
 import { useSession } from '../session';
 import { Button, Badge, Card } from '../components/ui';
@@ -35,7 +37,7 @@ interface CalendarItem {
 }
 
 export function IntegrationsPage() {
-  const { session, activeOrg, activeRole } = useSession();
+  const { session, activeOrg, activeRole, activeTier, can } = useSession();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [accounts, setAccounts] = useState<CalendarAccount[]>([]);
@@ -179,6 +181,49 @@ export function IntegrationsPage() {
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
+
+  if (!can('integrations:manage')) {
+    return (
+      <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-6 sm:p-10">
+        <header>
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-warning/20 bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">
+            <Lock size={15} />
+            Recurso Exclusivo
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-content-primary">Integrações Externas</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-content-secondary">
+            O plano atual ({activeTier || 'Pré-Venda'}) tem acesso focado ao Atendimento (Inbox), Indicadores e Agentes de IA.
+          </p>
+        </header>
+
+        <Card className="p-8 text-center flex flex-col items-center justify-center">
+          <div className="w-14 h-14 rounded-2xl bg-warning/10 border border-warning/20 text-warning flex items-center justify-center mb-4">
+            <Lock size={28} />
+          </div>
+          <h2 className="text-lg font-bold text-content-primary">
+            Desbloqueie Integrações Externas e Automações
+          </h2>
+          <p className="text-xs text-content-secondary mt-2 max-w-md leading-relaxed">
+            Faça upgrade para o plano <strong>Vendedor</strong> para conectar o Google Calendar e webhooks, ou para o plano <strong>Vendedor Sênior</strong> para habilitar também Gates de Pagamento (Asaas, Mercado Pago e Stripe).
+          </p>
+          <div className="mt-6 flex items-center gap-3">
+            <Link
+              to="/settings"
+              className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-xs font-bold text-brand-contrast transition-colors hover:bg-brand/90"
+            >
+              Fazer Upgrade da Organização
+            </Link>
+            <Link
+              to="/dashboard"
+              className="inline-flex items-center rounded-lg border border-border px-4 py-2.5 text-xs font-semibold text-content-secondary hover:text-content-primary transition-colors"
+            >
+              Voltar ao Dashboard
+            </Link>
+          </div>
+        </Card>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-6 sm:p-10">
@@ -358,6 +403,95 @@ export function IntegrationsPage() {
             Quando você conecta uma conta Google nesta tela, ela se torna exclusiva para a organização ativa. Se nenhuma conta estiver conectada, o motor de execução do servidor recorrerá de forma transparente ao <code className="rounded bg-surface px-1 py-0.5 font-mono text-[11px]">GOOGLE_CALENDAR_CREDENTIALS_JSON</code> configurado no ambiente da VPS.
           </p>
         </div>
+      </Card>
+
+      {/* Card Gates de Pagamento (Asaas, Mercado Pago, Stripe) */}
+      <Card className="p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-border">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 flex items-center justify-center shrink-0">
+              <CreditCard size={20} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-content-primary">Gates de Pagamento</h2>
+                {can('payment_gates:manage') ? (
+                  <Badge variant="success" className="text-[10px]">
+                    Vendedor Sênior Ativo
+                  </Badge>
+                ) : (
+                  <Badge variant="warning" className="text-[10px] flex items-center gap-1">
+                    <Lock size={10} /> Exclusivo Vendedor Sênior
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-content-secondary mt-0.5">
+                Emissão de PIX dinâmico, boletos e checkout direto na conversa do WhatsApp via Asaas, Mercado Pago e Stripe.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {can('payment_gates:manage') ? (
+          <div className="mt-5 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {[
+                { id: 'asaas', name: 'Asaas', desc: 'PIX instantâneo e Boleto bancário com conciliação automática no WhatsApp.', status: 'Pronto para Conectar' },
+                { id: 'mercado_pago', name: 'Mercado Pago', desc: 'Links de pagamento, Checkout Pro e confirmação de pagamento instantânea.', status: 'Pronto para Conectar' },
+                { id: 'stripe', name: 'Stripe', desc: 'Cartões nacionais e internacionais com proteção antifraude e assinaturas.', status: 'Pronto para Conectar' },
+              ].map(gate => (
+                <div key={gate.id} className="rounded-xl border border-border bg-surface-elevated/40 p-4 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-content-primary">{gate.name}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 font-medium border border-emerald-500/20">
+                        {gate.status}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-content-secondary leading-relaxed">
+                      {gate.desc}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => alert(`Configuração do gateway ${gate.name} pronta para ser vinculada ao motor SDR.`)}
+                    className="mt-4 w-full py-1.5 px-2 rounded-lg text-xs font-semibold bg-surface border border-border hover:border-brand text-content-primary hover:text-brand transition-colors cursor-pointer"
+                  >
+                    Configurar Credenciais
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="rounded-xl border border-border bg-surface-elevated/20 p-4 text-xs text-content-secondary flex items-start gap-2.5">
+              <ShieldCheck size={16} className="text-emerald-500 shrink-0 mt-0.5" />
+              <p className="leading-relaxed">
+                No plano <strong>Vendedor Sênior</strong>, os nós de pagamento no construtor de fluxos geram cobranças e registram a confirmação automaticamente no deal do CRM e na memória comercial do lead.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-5 rounded-xl border border-border/70 bg-surface-elevated/20 p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-warning/10 text-warning flex items-center justify-center shrink-0">
+                <Lock size={18} />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-content-primary">
+                  Desbloqueie Gates de Pagamento no Plano Vendedor Sênior
+                </h4>
+                <p className="text-xs text-content-secondary mt-1 max-w-xl leading-relaxed">
+                  Permita que seus agentes IA fechem vendas gerando cobranças PIX copia-e-cola e links do Mercado Pago/Asaas/Stripe diretamente no WhatsApp sem precisar de intervenção humana.
+                </p>
+              </div>
+            </div>
+            <Link
+              to="/settings"
+              className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-brand text-brand-contrast hover:bg-brand/90 transition-colors shadow-xs"
+            >
+              Fazer Upgrade para Vendedor Sênior
+            </Link>
+          </div>
+        )}
       </Card>
 
       <div>
