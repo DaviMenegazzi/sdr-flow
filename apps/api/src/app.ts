@@ -31,6 +31,7 @@ import {
   type OrgTier,
   type Capability,
   getCapabilities,
+  tierHasCapability,
 } from '@sdr/shared';
 import { catalog, validateGraph, replayFlow, runPlayground, GoogleCalendarClient, type GoogleCalendarCredentials } from '@sdr/flow';
 import { parseEvolutionWebhook, parseMetaWebhook, processInboundWebhook } from './webhook.js';
@@ -57,7 +58,7 @@ import {
   resolveTurnFlow,
   resolveFlowForConnection,
 } from '@sdr/runtime';
-import { authMiddleware, requireRole, requireCapability, requireOrgRole, uuidParam } from './auth.js';
+import { authMiddleware, createAuthCache, requireRole, requireCapability, requireOrgRole, uuidParam } from './auth.js';
 
 export interface ApiConfig extends RuntimeConfig {
   supabaseUrl?: string;
@@ -223,7 +224,10 @@ export function createApp(config: ApiConfig = {}): Express {
       },
     });
   });
-  const protectedApi = authMiddleware(config);
+  // Shared with orgRoutes' JWT branch below so a token/org combo resolved for one route is
+  // cached for the other too, instead of each maintaining its own redundant cache.
+  const authCache = createAuthCache();
+  const protectedApi = authMiddleware(config, authCache);
   app.use('/api/me', protectedApi);
   app.use('/api/admin', protectedApi);
 
@@ -780,40 +784,21 @@ export function createApp(config: ApiConfig = {}): Express {
     }
 
     const db = userDatabase(config.supabaseUrl, config.anonKey, token);
-    const { data: { user }, error } = await db.auth.getUser(token);
-    if (error || !user) {
+    const user = await authCache.resolveUser(db, token);
+    if (!user) {
       res.status(401).json({ error: 'Sessão inválida ou expirada.' });
       return;
     }
-    const membership = await db
-      .from('organization_members')
-      .select('role')
-      .eq('organization_id', organizationId.data)
-      .eq('user_id', user.id)
-      .maybeSingle();
-    if (membership.error) throw membership.error;
-    if (!membership.data) {
+    const orgAccess = await authCache.resolveOrgAccess(db, user.userId, organizationId.data);
+    if (!orgAccess) {
       res.status(403).json({ error: 'Sem acesso a esta organização.' });
       return;
     }
-    let orgTier: OrgTier = 'pre-venda';
-    try {
-      const { data: orgData } = await db
-        .from('organizations')
-        .select('tier')
-        .eq('id', organizationId.data)
-        .maybeSingle();
-      if ((orgData as any)?.tier) {
-        orgTier = (orgData as any).tier;
-      }
-    } catch {
-      // fallback to pre-venda
-    }
     res.locals.organizationId = organizationId.data;
-    res.locals.userId = user.id;
-    res.locals.role = membership.data.role;
-    res.locals.orgTier = orgTier;
-    res.locals.capabilities = new Set<Capability>(getCapabilities(orgTier, membership.data.role as MemberRole));
+    res.locals.userId = user.userId;
+    res.locals.role = orgAccess.role;
+    res.locals.orgTier = orgAccess.orgTier;
+    res.locals.capabilities = new Set<Capability>(getCapabilities(orgAccess.orgTier, orgAccess.role));
     res.locals.scopes = ['*'];
     res.locals.authType = 'jwt';
     res.locals.db = db;
@@ -837,14 +822,25 @@ export function createApp(config: ApiConfig = {}): Express {
     next: express.NextFunction
   ) => {
     const caps = res.locals.capabilities as Set<Capability> | undefined;
-    if (caps && !caps.has(cap)) {
-      res.status(403).json({
-        error: `Acesso não permitido pelo seu plano (${res.locals.orgTier}) ou perfil (${res.locals.role}).`,
+    if (!caps || caps.has(cap)) {
+      next();
+      return;
+    }
+    const orgTier = res.locals.orgTier as OrgTier;
+    // No role in this tier has the capability: it's a plan limitation (upgrade fixes it), not a
+    // permission the user's role could ever be granted -- 402 says so instead of a bare 403.
+    if (!tierHasCapability(orgTier, cap)) {
+      res.status(402).json({
+        error: `Recurso não incluído no plano atual (${orgTier}).`,
         requiredCapability: cap,
+        currentTier: orgTier,
       });
       return;
     }
-    next();
+    res.status(403).json({
+      error: `Acesso não permitido pelo seu perfil (${res.locals.role}) na organização.`,
+      requiredCapability: cap,
+    });
   };
 
   const checkScope = (scope: string) => (req: express.Request, res: express.Response, next: express.NextFunction) => {

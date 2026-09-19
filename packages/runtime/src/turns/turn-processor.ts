@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { ConnectionRepository, ConversationRepository, ExecutionRepository, getAgentOpenAIKey, CalendarRepository, KnowledgeRepository } from '@sdr/db';
-import type { FlowContext, FlowExecutionEvent } from '@sdr/shared';
+import { ConnectionRepository, ConversationRepository, ExecutionRepository, getAgentOpenAIKey, CalendarRepository, KnowledgeRepository, OrganizationRepository } from '@sdr/db';
+import { tierHasCapability, type FlowContext, type FlowExecutionEvent } from '@sdr/shared';
 import { executeFlow, HandoffService, type FlowServices, GoogleCalendarClient, type GoogleCalendarCredentials } from '@sdr/flow';
 import { createRuntimeProviders, type RuntimeConfig } from '@sdr/flow/server';
 import { fetchInboundEventsByIds, markInboundEventStatus, type ServiceDb } from '../inbound/inbound-event-repository.js';
@@ -301,16 +301,24 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
       id => new ConnectionRepository(db).resolveMessagingConnection(input.organizationId, id)
     );
 
+    // Webhook-driven execution runs with no acting member/role, only the org's plan — check the
+    // tier directly (HTTP-layer capability checks in apps/api never see this headless path).
+    const orgTier = await new OrganizationRepository(db).getTier(input.organizationId);
+    const calendarAllowed = tierHasCapability(orgTier, 'integrations:manage');
     let orgCalendarCreds: GoogleCalendarCredentials | null = null;
-    try {
-      const calRepo = new CalendarRepository(db);
-      orgCalendarCreds = await calRepo.resolveActiveAccountCredentials<GoogleCalendarCredentials>(input.organizationId, db);
-    } catch {
-      // Gracefully fall back to server environment calendar credentials
+    if (calendarAllowed) {
+      try {
+        const calRepo = new CalendarRepository(db);
+        orgCalendarCreds = await calRepo.resolveActiveAccountCredentials<GoogleCalendarCredentials>(input.organizationId, db);
+      } catch {
+        // Gracefully fall back to server environment calendar credentials
+      }
     }
-    const activeCalendarClient = orgCalendarCreds
-      ? new GoogleCalendarClient(globalThis.fetch, orgCalendarCreds)
-      : runtimeProviders.calendar;
+    const activeCalendarClient = !calendarAllowed
+      ? undefined
+      : orgCalendarCreds
+        ? new GoogleCalendarClient(globalThis.fetch, orgCalendarCreds)
+        : runtimeProviders.calendar;
     const assertCurrent = async () => {
       if (!(await input.isCurrent())) throw new Error(SUPERSEDED_TURN_ERROR);
     };

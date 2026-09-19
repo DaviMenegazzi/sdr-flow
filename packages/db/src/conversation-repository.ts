@@ -13,7 +13,9 @@ export class ConversationRepository {
       p_organization_id: organizationId,
       p_connection_id: connectionId,
       p_phone: phone,
-      p_name: name || null,
+      // find_or_create_lead has no SQL default for p_name, so codegen types it as required
+      // non-null text; the function inserts it straight into the nullable leads.name column.
+      p_name: (name || null) as string,
     });
     if (error) throw error;
     return Array.isArray(data) ? data[0] : data;
@@ -309,7 +311,9 @@ export class ConversationRepository {
       p_sender: input.sender,
       p_content: input.content,
       p_message_type: input.messageType || 'text',
-      p_provider_message_id: input.providerMessageId || null,
+      // Same codegen quirk as p_name above: no SQL default, so it's typed required non-null,
+      // but the function nullifs empty strings and the column/conflict target both allow null.
+      p_provider_message_id: (input.providerMessageId || null) as string,
     });
     if (error) throw error;
     const row = Array.isArray(data) ? data[0] : data;

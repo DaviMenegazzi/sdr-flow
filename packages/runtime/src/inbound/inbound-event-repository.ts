@@ -46,7 +46,10 @@ export async function acceptInboundEvent(
   const { data, error } = await db.rpc('accept_inbound_event', {
     p_connection_id: connectionId,
     p_provider: provider,
-    p_provider_message_id: provider_message_id || null,
+    // accept_inbound_event has no SQL default for p_provider_message_id, so codegen types it
+    // required non-null text; the function nullifs empty strings and the conflict target
+    // already treats null as never-conflicting.
+    p_provider_message_id: (provider_message_id || null) as string,
     p_conversation_key: conversationKey,
     p_normalized_payload: payload as any,
   });
@@ -64,7 +67,7 @@ export async function markInboundEventStatus(
   error?: string,
 ): Promise<void> {
   try {
-    await db.rpc('mark_inbound_event_status', { p_organization_id: organizationId, p_event_id: eventId, p_status: status, p_error: error ?? null });
+    await db.rpc('mark_inbound_event_status', { p_organization_id: organizationId, p_event_id: eventId, p_status: status, ...(error ? { p_error: error } : {}) });
   } catch (err) {
     console.warn('[inbound-event-repository] Falha ao atualizar status do inbound_event:', err);
   }

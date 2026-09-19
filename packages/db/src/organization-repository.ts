@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import type { Database, Json } from './database.types.js';
 import type { AnyDbClient } from './execution-repository.js';
-import type { MemberRole } from '@sdr/shared';
+import type { MemberRole, OrgTier } from '@sdr/shared';
 
 export interface ApiKeyVerification {
   valid: boolean;
@@ -14,6 +14,11 @@ export interface ApiKeyVerification {
 
 export class OrganizationRepository {
   constructor(private readonly db: AnyDbClient) {}
+
+  async getTier(organizationId: string): Promise<OrgTier> {
+    const { data } = await this.db.from('organizations').select('tier').eq('id', organizationId).maybeSingle();
+    return (data?.tier as OrgTier | undefined) ?? 'pre-venda';
+  }
 
   // --- MEMBERS ---
   async listMembers(organizationId: string) {

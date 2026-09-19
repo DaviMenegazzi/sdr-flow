@@ -134,7 +134,7 @@ export class CalendarRepository {
       p_user: userId,
       p_state: state,
       p_provider: provider,
-      p_redirect_url: redirectUrl || null,
+      ...(redirectUrl ? { p_redirect_url: redirectUrl } : {}),
     });
     if (error) throw error;
   }

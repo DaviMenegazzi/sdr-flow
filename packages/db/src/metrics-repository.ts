@@ -92,7 +92,7 @@ export class MetricsRepository {
     const { data, error } = await this.db.rpc('rollup_metrics_daily', {
       p_org: organizationId,
       p_target_date: dateStr,
-      p_flow_version: flowVersionId || null,
+      ...(flowVersionId ? { p_flow_version: flowVersionId } : {}),
     });
 
     if (error) throw error;
@@ -123,7 +123,7 @@ export class MetricsRepository {
       p_organization_id: organizationId,
       p_start_date: options.startDate,
       p_end_date: options.endDate,
-      p_connection_id: options.connectionId ?? null,
+      ...(options.connectionId ? { p_connection_id: options.connectionId } : {}),
     });
     if (error) throw error;
     return enrichFunnelLabels(data as Omit<DashboardMetrics, 'funnel'> & { funnel: Array<{ stage: string; count: number; percentage: number }> });

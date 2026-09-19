@@ -10,6 +10,7 @@ import {
   CAPABILITIES,
   getCapabilities,
   hasCapability,
+  tierHasCapability,
 } from '../packages/shared/src/index.js';
 
 describe('Tiers, RBAC and Multi-User Isolation', () => {
@@ -63,6 +64,15 @@ describe('Tiers, RBAC and Multi-User Isolation', () => {
         expect(hasCapability(tier, 'admin', 'agents:manage')).toBe(true);
         expect(hasCapability(tier, 'agent', 'agents:manage')).toBe(true);
       }
+    });
+
+    it('tierHasCapability gates headless (no-role) execution the same way the tier gates every member', () => {
+      // pre-venda: no role has integrations:manage, so the flow engine must not get a calendar client.
+      expect(tierHasCapability('pre-venda', 'integrations:manage')).toBe(false);
+      // vendedor: owner/admin have it even though agent/viewer don't -- the org's plan includes it.
+      expect(tierHasCapability('vendedor', 'integrations:manage')).toBe(true);
+      expect(tierHasCapability('vendedor', 'payment_gates:manage')).toBe(false);
+      expect(tierHasCapability('vendedor-senior', 'payment_gates:manage')).toBe(true);
     });
   });
 
@@ -302,7 +312,7 @@ describe('Tiers, RBAC and Multi-User Isolation', () => {
       spy.mockRestore();
     });
 
-    it('blocks integrations in pre-venda tier with 403', async () => {
+    it('blocks integrations in pre-venda tier with 402 (plan limitation, not a role problem)', async () => {
       const databaseMod = await import('../packages/db/src/index.js');
       const spy = vi.spyOn(databaseMod, 'userDatabase').mockReturnValue(mockUserDb('pre-venda', 'owner'));
 
@@ -311,13 +321,16 @@ describe('Tiers, RBAC and Multi-User Isolation', () => {
         .get(`/api/organizations/${orgPreVenda}/integrations/calendar/accounts`)
         .set('Authorization', 'Bearer valid-token');
 
-      expect(res.status).toBe(403);
+      // No role in pre-venda has integrations:manage -- even the owner -- so this is the org's
+      // plan, not this user's permission. 402 tells the client to offer an upgrade, not a login switch.
+      expect(res.status).toBe(402);
       expect(res.body.requiredCapability).toBe('integrations:manage');
+      expect(res.body.currentTier).toBe('pre-venda');
 
       spy.mockRestore();
     });
 
-    it('blocks payment gates in vendedor tier with 403', async () => {
+    it('blocks payment gates in vendedor tier with 402 (plan limitation, not a role problem)', async () => {
       const databaseMod = await import('../packages/db/src/index.js');
       const spy = vi.spyOn(databaseMod, 'userDatabase').mockReturnValue(mockUserDb('vendedor', 'owner'));
 
@@ -326,8 +339,9 @@ describe('Tiers, RBAC and Multi-User Isolation', () => {
         .get(`/api/organizations/${orgVendedor}/integrations/payment-gates`)
         .set('Authorization', 'Bearer valid-token');
 
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(402);
       expect(res.body.requiredCapability).toBe('payment_gates:manage');
+      expect(res.body.currentTier).toBe('vendedor');
 
       spy.mockRestore();
     });

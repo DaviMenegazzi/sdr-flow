@@ -138,3 +138,13 @@ export function getCapabilities(tier: OrgTier, role: MemberRole): readonly Capab
 export function hasCapability(tier: OrgTier, role: MemberRole, capability: Capability): boolean {
   return getCapabilities(tier, role).includes(capability);
 }
+
+/**
+ * Whether an org's tier unlocks a capability at all, regardless of member role. For headless
+ * execution (flow engine processing a webhook) there's no acting member/role, only the org's
+ * plan — e.g. pre-venda never grants 'integrations:manage' to any role, so Calendar nodes must
+ * no-op there even though the connection itself has valid Google credentials.
+ */
+export function tierHasCapability(tier: OrgTier, capability: Capability): boolean {
+  return (Object.keys(CAPABILITIES[tier]) as MemberRole[]).some(role => hasCapability(tier, role, capability));
+}

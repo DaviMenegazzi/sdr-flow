@@ -88,7 +88,7 @@ describe('dispatchPendingInboundEvents (outbox recovery)', () => {
 
     expect(result).toMatchObject({ scanned: 1, requeued: 1, gaveUp: 0, resolutionFailed: 0 });
     expect(enqueue).toHaveBeenCalledTimes(1);
-    expect(marks).toEqual([{ eventId: 'event-1', status: 'processing', error: null }]);
+    expect(marks).toEqual([{ eventId: 'event-1', status: 'processing', error: undefined }]);
   });
 
   it('gives up on events that already exhausted their retry budget, without touching them', async () => {
