@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useState, type ReactNode, type FormEvent } from 'react';
 import { createClient, type Session } from '@supabase/supabase-js';
-import { Sliders } from 'lucide-react';
+import { Sliders, UserPlus } from 'lucide-react';
 import type { MemberRole, OrgTier, Capability } from '@sdr/shared';
+import { Button, Input, Modal } from './components/ui';
 
 const url = import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.SUPABASE_ANON_KEY;
@@ -245,7 +246,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 }
 
 export function Settings() {
-  const { session, organizations, activeOrg, activeRole, setActiveOrg, reload } = useSession();
+  const { session, organizations, activeOrg, activeRole, activeTier, profile, setActiveOrg, reload } = useSession();
 
   const [authTab, setAuthTab] = useState<'login' | 'signup' | 'magic' | 'invitation'>('login');
   const [email, setEmail] = useState('');
@@ -268,12 +269,26 @@ export function Settings() {
   const [keyScopes, setKeyScopes] = useState<string[]>(['flows:read']);
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
 
+  const [loginModalOpen, setLoginModalOpen] = useState(false);
+  const [loginDisplayName, setLoginDisplayName] = useState('');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginAccountRole, setLoginAccountRole] = useState<'admin' | 'client'>('client');
+  const [loginMemberRole, setLoginMemberRole] = useState<MemberRole>('agent');
+  const [loginOrgTier, setLoginOrgTier] = useState<OrgTier>('pre-venda');
+
   const isAdminOrOwner = activeRole === 'owner' || activeRole === 'admin';
+  const isPlatformAdmin = profile?.platformRole === 'admin' || profile?.role === 'admin';
+  const activeOrganization = organizations.find((org) => org.id === activeOrg);
 
   useEffect(() => {
     if (!activeOrg || !session?.access_token) return;
     void loadTeamData();
   }, [activeOrg, session?.access_token]);
+
+  useEffect(() => {
+    if (activeTier) setLoginOrgTier(activeTier);
+  }, [activeOrg, activeTier]);
 
   async function loadTeamData() {
     if (!activeOrg || !session?.access_token) return;
@@ -445,6 +460,45 @@ export function Settings() {
       setMessage('Membro removido.');
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Falha ao remover membro.');
+    }
+  }
+
+  async function handleCreateLogin(e: FormEvent) {
+    e.preventDefault();
+    if (!activeOrg || !session?.access_token || !isPlatformAdmin) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      const res = await fetch(`/api/admin/organizations/${activeOrg}/logins`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          displayName: loginDisplayName.trim(),
+          email: loginEmail.trim(),
+          password: loginPassword,
+          accountRole: loginAccountRole,
+          memberRole: loginMemberRole,
+          orgTier: loginOrgTier,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Falha ao criar login.');
+
+      setLoginDisplayName('');
+      setLoginEmail('');
+      setLoginPassword('');
+      setLoginAccountRole('client');
+      setLoginMemberRole('agent');
+      setLoginModalOpen(false);
+      await Promise.all([loadTeamData(), reload()]);
+      setMessage(`Login criado para ${data.email} na organização ${activeOrganization?.name ?? 'selecionada'}.`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Falha ao criar login.');
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -735,8 +789,23 @@ export function Settings() {
 
           {settingsTab === 'team' && (
             <div style={{ marginTop: 20 }}>
-              <h2>Membros da Organização</h2>
-              <p className="muted">Usuários vinculados e seus níveis de permissão (owner, admin, agent, viewer).</p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2>Membros da Organização</h2>
+                  <p className="muted">Usuários vinculados e seus níveis de permissão (owner, admin, agent, viewer).</p>
+                </div>
+                {isPlatformAdmin && (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    onClick={() => setLoginModalOpen(true)}
+                    disabled={!activeOrg}
+                    className="shrink-0"
+                  >
+                    <UserPlus size={14} /> Adicionar login
+                  </Button>
+                )}
+              </div>
 
               {members.length === 0 ? (
                 <p className="muted">Nenhum membro encontrado ou sem permissão de visualização.</p>
@@ -1027,6 +1096,92 @@ export function Settings() {
           {message}
         </p>
       )}
+
+      <Modal
+        isOpen={loginModalOpen}
+        onClose={() => !busy && setLoginModalOpen(false)}
+        title="Adicionar login"
+        description={`O acesso será criado em ${activeOrganization?.name ?? 'a organização selecionada'}.`}
+        maxWidth="lg"
+        footer={(
+          <>
+            <Button type="button" variant="ghost" onClick={() => setLoginModalOpen(false)} disabled={busy}>
+              Cancelar
+            </Button>
+            <Button type="submit" form="create-organization-login" variant="primary" loading={busy}>
+              Criar login
+            </Button>
+          </>
+        )}
+      >
+        <form id="create-organization-login" onSubmit={handleCreateLogin} className="flex flex-col gap-4">
+          <Input
+            label="Nome"
+            required
+            maxLength={120}
+            autoComplete="off"
+            value={loginDisplayName}
+            onChange={(e) => setLoginDisplayName(e.target.value)}
+            placeholder="Nome da pessoa"
+          />
+          <Input
+            label="E-mail de acesso"
+            type="email"
+            required
+            maxLength={320}
+            autoComplete="off"
+            value={loginEmail}
+            onChange={(e) => setLoginEmail(e.target.value)}
+            placeholder="cliente@empresa.com"
+          />
+          <Input
+            label="Senha temporária"
+            type="password"
+            required
+            minLength={8}
+            maxLength={72}
+            autoComplete="new-password"
+            value={loginPassword}
+            onChange={(e) => setLoginPassword(e.target.value)}
+            placeholder="No mínimo 8 caracteres"
+            helperText="O e-mail já será confirmado e a pessoa poderá entrar imediatamente."
+          />
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="flex flex-col gap-1.5 text-xs font-semibold text-content-primary">
+              Tipo da conta
+              <select
+                value={loginAccountRole}
+                onChange={(e) => setLoginAccountRole(e.target.value as 'admin' | 'client')}
+              >
+                <option value="client">Cliente</option>
+                <option value="admin">Administrador da plataforma</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1.5 text-xs font-semibold text-content-primary">
+              Papel na organização
+              <select value={loginMemberRole} onChange={(e) => setLoginMemberRole(e.target.value as MemberRole)}>
+                <option value="viewer">Leitor</option>
+                <option value="agent">Atendente</option>
+                <option value="admin">Administrador</option>
+                <option value="owner">Dono</option>
+              </select>
+            </label>
+          </div>
+
+          <label className="flex flex-col gap-1.5 text-xs font-semibold text-content-primary">
+            Plano contratado
+            <select value={loginOrgTier} onChange={(e) => setLoginOrgTier(e.target.value as OrgTier)}>
+              <option value="pre-venda">Pré-venda</option>
+              <option value="vendedor">Vendedor</option>
+              <option value="vendedor-senior">Vendedor sênior</option>
+            </select>
+            <span className="text-[11px] font-normal text-content-muted">
+              O plano é da organização e será aplicado a todos os logins vinculados a ela.
+            </span>
+          </label>
+        </form>
+      </Modal>
     </div>
   </div>
   );

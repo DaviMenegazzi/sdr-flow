@@ -24,6 +24,7 @@ import {
 import {
   saveFlowSchema,
   memberRoleSchema,
+  orgTierSchema,
   type MemberRole,
   type FlowGraph,
   normalizeConversationStage,
@@ -357,6 +358,60 @@ export function createApp(config: ApiConfig = {}): Express {
     const { data, error } = await (auth.db as any).rpc('admin_update_account_limits', { p_user: userId.data, p_max_agents: body.data.maxAgents, p_max_instances: body.data.maxInstances });
     if (error || !data) { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
     res.json(data);
+  });
+  app.post('/api/admin/organizations/:organizationId/logins', requireRole('admin'), async (req, res) => {
+    const organizationId = uuidParam.safeParse(req.params.organizationId);
+    const body = z.object({
+      displayName: z.string().trim().min(1).max(120),
+      email: z.string().trim().email().max(320),
+      password: z.string().min(8).max(72),
+      accountRole: z.enum(['admin', 'client']).default('client'),
+      memberRole: memberRoleSchema.default('viewer'),
+      orgTier: orgTierSchema,
+    }).strict().safeParse(req.body);
+
+    if (!organizationId.success || !body.success) {
+      res.status(400).json({ error: 'Dados do novo login inválidos.' });
+      return;
+    }
+    if (!config.supabaseUrl || !config.serviceRoleKey) {
+      res.status(503).json({ error: 'Serviço de autenticação não configurado.' });
+      return;
+    }
+
+    const auth = res.locals.auth!;
+    const adminDb = serviceDatabase(config.supabaseUrl, config.serviceRoleKey);
+    const { data, error } = await adminDb.auth.admin.createUser({
+      email: body.data.email.toLowerCase(),
+      password: body.data.password,
+      email_confirm: true,
+      user_metadata: { display_name: body.data.displayName },
+      app_metadata: {
+        sdr_target_organization_id: organizationId.data,
+        sdr_member_role: body.data.memberRole,
+        sdr_app_role: body.data.accountRole,
+        sdr_org_tier: body.data.orgTier,
+        sdr_provisioned_by: auth.userId,
+      },
+    });
+
+    if (error || !data.user) {
+      const duplicate = error?.status === 422 || error?.code === 'email_exists' || error?.code === 'user_already_exists';
+      res.status(duplicate ? 409 : 400).json({
+        error: duplicate ? 'Já existe um login com este e-mail.' : 'Não foi possível criar o login.',
+      });
+      return;
+    }
+
+    res.status(201).json({
+      userId: data.user.id,
+      email: data.user.email,
+      displayName: body.data.displayName,
+      accountRole: body.data.accountRole,
+      memberRole: body.data.memberRole,
+      organizationId: organizationId.data,
+      orgTier: body.data.orgTier,
+    });
   });
   app.get('/api/debug/inbox-test', async (_req, res) => {
     const steps: Array<{ step: string; ok: boolean; detail?: any }> = [];

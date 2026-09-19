@@ -8,7 +8,12 @@ export const bootstrapSql = `
   create role service_role nologin bypassrls;
   alter default privileges in schema public grant all on tables to anon, authenticated;
   create schema auth;
-  create table auth.users (id uuid primary key, email text, raw_user_meta_data jsonb not null default '{}');
+  create table auth.users (
+    id uuid primary key,
+    email text,
+    raw_user_meta_data jsonb not null default '{}',
+    raw_app_meta_data jsonb not null default '{}'
+  );
   create function auth.uid() returns uuid language sql stable as
     $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
   grant usage on schema auth to authenticated, service_role;
