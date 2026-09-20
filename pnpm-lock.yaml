@@ -87,6 +87,9 @@ importers:
       '@dagrejs/dagre':
         specifier: ^1.1.4
         version: 1.1.8
+      '@fontsource/sora':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@sdr/flow':
         specifier: workspace:*
         version: link:../../packages/flow
@@ -628,6 +631,9 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@fontsource/sora@5.3.0':
+    resolution: {integrity: sha512-SqW3OpKxxfKvxDLPlbdrWf2KooPfbd+W3jaYn483o+Y/JrmU87vjFPNptDqwP428c3vY+gnranLhjcbRaXB0Jw==}
 
   '@ioredis/commands@1.10.0':
     resolution: {integrity: sha512-UmeW7z4LfctwoQ5wkhVzgq8tXkreED2xZGpX+Bg+zA+WJFZCT6c062AfCK/Dfk81xZnnwdhJCUMkitihRaoC2Q==}
@@ -2509,6 +2515,8 @@ snapshots:
 
   '@esbuild/win32-x64@0.28.2':
     optional: true
+
+  '@fontsource/sora@5.3.0': {}
 
   '@ioredis/commands@1.10.0': {}
 

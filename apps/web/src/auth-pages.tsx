@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Navigate, Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase, useSession } from './session';
 import { Button, Input, Skeleton } from './components/ui';
+import { ProdigiWordmark } from './components/layout/ProdigiWordmark';
 
 export function AuthGate({ children, admin = false }: { children: ReactNode; admin?: boolean }) {
   const { session, loading, profile } = useSession();
@@ -61,17 +62,7 @@ function AuthCard({ title, children }: { title: string; children: ReactNode }) {
     <main className="min-h-screen w-full flex items-center justify-center bg-canvas p-4">
       <div className="w-full max-w-md bg-surface border border-border rounded-2xl p-8 shadow-xl flex flex-col gap-6">
         <div className="flex flex-col items-center text-center gap-2">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="flex items-baseline font-black text-2xl tracking-tight select-none">
-              <span className="text-content-primary font-black">pro</span>
-              <span className="text-content-muted font-mono font-normal">(</span>
-              <span className="text-[#2ee86b] font-black drop-shadow-[0_0_12px_rgba(46,232,107,0.4)]">digi</span>
-              <span className="text-content-muted font-mono font-normal">)</span>
-            </div>
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#2ee86b]/10 text-[#2ee86b] border border-[#2ee86b]/30">
-              SDR Flow
-            </span>
-          </div>
+          <ProdigiWordmark className="auth-wordmark" />
           <h1 className="text-lg font-semibold text-content-secondary tracking-tight m-0">{title}</h1>
         </div>
         {children}

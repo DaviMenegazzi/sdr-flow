@@ -17,6 +17,7 @@ import {
   ScrollText,
 } from 'lucide-react';
 import { useSession } from '../../session';
+import { ProdigiWordmark } from './ProdigiWordmark';
 
 interface AppSidebarProps {
   dark: boolean;
@@ -62,30 +63,21 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
   return (
     <aside className="w-56 bg-surface border-r border-border flex flex-col h-full flex-shrink-0 select-none z-20">
       {/* Brand Header */}
-      <div className="p-4 pb-3 border-b border-border/60">
-        <Link to="/dashboard" className="flex flex-col gap-1 group">
-          <div className="flex items-center gap-2">
-            <div className="flex items-baseline font-black text-xl tracking-tight select-none">
-              <span className="text-content-primary font-black">pro</span>
-              <span className="text-content-muted font-mono font-normal">(</span>
-              <span className="text-[#2ee86b] font-black drop-shadow-[0_0_12px_rgba(46,232,107,0.4)]">digi</span>
-              <span className="text-content-muted font-mono font-normal">)</span>
-            </div>
-            <span className="text-[9px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#2ee86b]/10 text-[#2ee86b] border border-[#2ee86b]/30 shadow-[0_0_8px_rgba(46,232,107,0.15)]">
-              SDR Flow
-            </span>
-          </div>
-          <div className="flex items-center justify-between gap-1 pl-0.5 mt-0.5">
-            <span className="text-[10px] text-content-muted truncate max-w-[105px]">
-              {currentOrg?.name || 'Workspace'}
-            </span>
-            {tierName && (
-              <span className="text-[8px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-brand/10 text-brand border border-brand/20">
-                {tierName}
-              </span>
-            )}
-          </div>
+      <div className="sidebar-brand-header">
+        <Link to="/dashboard" className="sidebar-brand-link" aria-label="Prodigi — ir para o painel">
+          <ProdigiWordmark />
         </Link>
+        <div className="sidebar-workspace-row">
+          <span className="sidebar-workspace-name" title={currentOrg?.name || 'Workspace'}>
+            <i aria-hidden="true" />
+            {currentOrg?.name || 'Workspace'}
+          </span>
+          {tierName && (
+            <span className="sidebar-tier-badge" title={`Plano ${tierName}`}>
+              {tierName}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Navigation Sections */}
