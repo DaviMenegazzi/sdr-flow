@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Navigate, Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase, useSession } from './session';
-import { Button, Input } from './components/ui';
+import { Button, Input, Skeleton } from './components/ui';
 
 export function AuthGate({ children, admin = false }: { children: ReactNode; admin?: boolean }) {
   const { session, loading, profile } = useSession();
@@ -13,8 +13,30 @@ export function AuthGate({ children, admin = false }: { children: ReactNode; adm
 
   if (loading) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-canvas text-content-muted text-sm">
-        Carregando…
+      <div role="status" aria-live="polite" className="min-h-screen w-full bg-canvas flex">
+        <span className="sr-only">Carregando sua sessão…</span>
+        <aside className="hidden w-[76px] shrink-0 border-r border-border bg-surface p-4 sm:flex sm:flex-col sm:items-center sm:gap-5" aria-hidden="true">
+          <Skeleton className="h-10 w-10" rounded="lg" />
+          {Array.from({ length: 7 }, (_, index) => <Skeleton key={index} className="h-9 w-9" rounded="lg" />)}
+        </aside>
+        <div className="flex min-w-0 flex-1 flex-col" aria-hidden="true">
+          <div className="flex h-14 items-center justify-between border-b border-border bg-surface px-5">
+            <Skeleton className="h-4 w-52" />
+            <Skeleton className="h-8 w-60" rounded="lg" />
+          </div>
+          <div className="mx-auto w-full max-w-6xl flex-1 space-y-6 p-6 md:p-8">
+            <Skeleton className="h-3 w-40" />
+            <Skeleton className="h-8 w-72" />
+            <Skeleton className="h-4 w-full max-w-xl" />
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
+              {Array.from({ length: 6 }, (_, index) => <Skeleton key={index} className="h-28 w-full" rounded="lg" />)}
+            </div>
+            <div className="grid gap-6 lg:grid-cols-2">
+              <Skeleton className="h-72 w-full" rounded="lg" />
+              <Skeleton className="h-72 w-full" rounded="lg" />
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

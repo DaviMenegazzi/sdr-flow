@@ -24,7 +24,7 @@ import {
 } from 'recharts';
 import { useSession } from '../session';
 import { useInstance } from '../context/InstanceContext';
-import { Button, Card, Badge } from '../components/ui';
+import { Button, Card, Badge, CardGridSkeleton, Skeleton, TableSkeleton } from '../components/ui';
 
 interface FunnelStep {
   stage: string;
@@ -74,14 +74,18 @@ export function DashboardPage() {
   const { activeInstance } = useInstance();
 
   const [metrics, setMetrics] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [consolidating, setConsolidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [connectionId, setConnectionId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!session || !activeOrg) return;
+    if (!session || !activeOrg) {
+      setMetrics(null);
+      setLoading(false);
+      return;
+    }
     setConnectionId(null);
 
     async function resolveConnectionId() {
@@ -229,6 +233,12 @@ export function DashboardPage() {
       )}
 
       {/* KPI Cards Grid */}
+      {loading && !metrics ? (
+        <CardGridSkeleton
+          count={6}
+          className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6"
+        />
+      ) : (
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
         {/* Total Conversas */}
         <Card className="p-4 bg-surface border-border flex flex-col justify-between">
@@ -326,8 +336,23 @@ export function DashboardPage() {
           </div>
         </Card>
       </div>
+      )}
 
       {/* Charts Row */}
+      {loading && !metrics ? (
+        <div role="status" aria-live="polite" className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <span className="sr-only">Carregando gráficos…</span>
+          {Array.from({ length: 2 }, (_, index) => (
+            <Card key={index} className="p-6">
+              <div className="mb-5 flex items-center justify-between" aria-hidden="true">
+                <Skeleton className="h-4 w-44" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+              <Skeleton className="h-64 w-full" rounded="lg" />
+            </Card>
+          ))}
+        </div>
+      ) : (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         {/* Funnel Bar Chart */}
         <Card className="p-6 bg-surface border-border">
@@ -407,6 +432,7 @@ export function DashboardPage() {
           </div>
         </Card>
       </div>
+      )}
 
       {/* Flow Comparison Table */}
       <Card className="p-6 bg-surface border-border">
@@ -420,7 +446,9 @@ export function DashboardPage() {
           </span>
         </div>
 
-        {metrics?.flowComparison && metrics.flowComparison.length > 0 ? (
+        {loading && !metrics ? (
+          <TableSkeleton columns={7} rows={4} />
+        ) : metrics?.flowComparison && metrics.flowComparison.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left border-collapse">
               <thead>

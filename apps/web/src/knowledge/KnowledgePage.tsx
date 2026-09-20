@@ -23,7 +23,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useSession } from '../session';
-import { Button, Badge, Card, Input } from '../components/ui';
+import { Button, Badge, Card, Input, CardGridSkeleton, Skeleton, SkeletonText } from '../components/ui';
 
 interface KnowledgeDoc {
   id: string;
@@ -135,7 +135,7 @@ export function KnowledgePage() {
 
   const [documents, setDocuments] = useState<KnowledgeDoc[]>([]);
   const [selectedCollection, setSelectedCollection] = useState<string>('all');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Modal State
@@ -170,6 +170,7 @@ export function KnowledgePage() {
     if (!baseUrl || !session?.access_token) {
       setDocuments([]);
       setError('Selecione uma organização para acessar a base de conhecimento.');
+      setLoading(false);
       return;
     }
     setLoading(true);
@@ -438,7 +439,20 @@ export function KnowledgePage() {
             </Button>
           </form>
 
-          {searchResults && (
+          {searching ? (
+            <div role="status" aria-live="polite" className="mt-4 space-y-2.5 border-t border-border pt-4">
+              <span className="sr-only">Pesquisando na base de conhecimento…</span>
+              {Array.from({ length: 3 }, (_, index) => (
+                <div key={index} className="rounded-lg border border-border/60 bg-surface-elevated p-3.5" aria-hidden="true">
+                  <div className="mb-3 flex items-center justify-between">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-4 w-12" rounded="full" />
+                  </div>
+                  <SkeletonText lines={2} />
+                </div>
+              ))}
+            </div>
+          ) : searchResults && (
             <div className="mt-4 pt-4 border-t border-border">
               <div className="flex justify-between items-center mb-3">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-content-muted">
@@ -547,9 +561,7 @@ export function KnowledgePage() {
         )}
 
         {loading ? (
-          <div className="py-16 text-center text-sm text-content-muted">
-            Carregando base de conhecimento...
-          </div>
+          <CardGridSkeleton />
         ) : documents.length === 0 ? (
           <Card className="py-14 px-6 text-center border-dashed">
             <div className="w-12 h-12 rounded-full bg-brand/10 text-brand flex items-center justify-center mx-auto mb-3">

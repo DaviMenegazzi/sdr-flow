@@ -1,12 +1,13 @@
 import React, { useState, useEffect, Suspense, lazy, type ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom';
-import { Workflow, ArrowUpRight, LoaderCircle, RefreshCw } from 'lucide-react';
+import { Workflow, ArrowUpRight, RefreshCw } from 'lucide-react';
 import { SessionProvider } from './session';
 import { InstanceProvider } from './context/InstanceContext';
 import { AuthCallback, AuthGate, ForgotPasswordPage, LoginPage, NotFoundPage, RegisterPage, ResetPasswordPage } from './auth-pages';
 import { AppSidebar } from './components/layout/AppSidebar';
 import { AppHeader } from './components/layout/AppHeader';
+import { Skeleton } from './components/ui';
 import './styles.css';
 
 // Fase 5 (11.4): every main route below is code-split — shell, auth and navigation (imported
@@ -27,9 +28,19 @@ const Settings = lazy(() => import('./session').then(m => ({ default: m.Settings
 
 function RouteLoadingFallback() {
   return (
-    <div role="status" aria-live="polite" className="flex-1 flex items-center justify-center py-16 text-content-muted">
-      <LoaderCircle className="w-5 h-5 animate-spin" aria-hidden="true" />
+    <div role="status" aria-live="polite" className="flex-1 p-6 md:p-8">
       <span className="sr-only">Carregando…</span>
+      <div className="mx-auto max-w-6xl space-y-6" aria-hidden="true">
+        <div className="space-y-2">
+          <Skeleton className="h-3 w-44" />
+          <Skeleton className="h-7 w-72" />
+          <Skeleton className="h-4 w-full max-w-xl" />
+        </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {Array.from({ length: 3 }, (_, index) => <Skeleton key={index} className="h-40 w-full" rounded="lg" />)}
+        </div>
+        <Skeleton className="h-72 w-full" rounded="lg" />
+      </div>
     </div>
   );
 }

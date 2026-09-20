@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { supabase, useSession } from '../session';
-import { Button, Badge, Card, Input } from '../components/ui';
+import { Button, Badge, Card, Input, TableSkeleton } from '../components/ui';
 import { Users, Mail, UserPlus, AlertCircle, CheckCircle2, Shield, Settings } from 'lucide-react';
 
 type Account = {
@@ -21,13 +21,19 @@ export function AdminPage() {
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
   const [inviting, setInviting] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const headers = session ? { Authorization: `Bearer ${session.access_token}` } : undefined;
 
   const load = async () => {
-    if (!headers) return;
-    const r = await fetch('/api/admin/users', { headers });
-    if (r.ok) setAccounts(await r.json());
+    if (!headers) { setLoading(false); return; }
+    setLoading(true);
+    try {
+      const r = await fetch('/api/admin/users', { headers });
+      if (r.ok) setAccounts(await r.json());
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -108,6 +114,9 @@ export function AdminPage() {
       {/* Accounts Table */}
       <h2 className="text-base font-semibold text-content mb-3">Usuários Registrados ({accounts.length})</h2>
       <Card className="p-0 bg-surface border-border overflow-hidden max-w-4xl">
+        {loading ? (
+          <TableSkeleton columns={5} rows={4} />
+        ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left border-collapse">
             <thead>
@@ -170,6 +179,7 @@ export function AdminPage() {
             </tbody>
           </table>
         </div>
+        )}
       </Card>
     </div>
   </div>

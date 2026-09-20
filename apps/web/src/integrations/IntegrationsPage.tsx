@@ -16,7 +16,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { useSession } from '../session';
-import { Button, Badge, Card } from '../components/ui';
+import { Button, Badge, Card, Skeleton, SkeletonText } from '../components/ui';
 
 interface CalendarAccount {
   id: string;
@@ -262,7 +262,9 @@ export function IntegrationsPage() {
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-bold text-content">Google Calendar</h2>
-                {primaryAccount ? (
+                {loading ? (
+                  <Skeleton className="h-5 w-20" rounded="full" />
+                ) : primaryAccount ? (
                   <Badge variant="accent" size="sm">
                     CONECTADO
                   </Badge>
@@ -280,9 +282,10 @@ export function IntegrationsPage() {
 
           <div className="shrink-0">
             {loading ? (
-              <Button variant="secondary" size="sm" disabled>
-                <RefreshCw size={14} className="animate-spin mr-1.5" /> Carregando...
-              </Button>
+              <div role="status" aria-live="polite" className="flex items-center gap-3">
+                <span className="sr-only">Carregando integração…</span>
+                <Skeleton className="h-8 w-28" rounded="lg" />
+              </div>
             ) : primaryAccount ? (
               <div className="flex items-center gap-2">
                 <Button
@@ -327,7 +330,15 @@ export function IntegrationsPage() {
         </div>
 
         {/* Informações da conta conectada */}
-        {primaryAccount && (
+        {loading ? (
+          <div role="status" aria-live="polite" className="mt-5 border-t border-border pt-4">
+            <span className="sr-only">Carregando conta conectada…</span>
+            <div className="flex items-center justify-between gap-4" aria-hidden="true">
+              <SkeletonText lines={2} className="w-72" />
+              <Skeleton className="h-3 w-24" />
+            </div>
+          </div>
+        ) : primaryAccount && (
           <div className="mt-5 pt-4 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between text-xs text-content-secondary gap-2">
             <div>
               Conta autorizada: <strong className="text-content">{primaryAccount.account_email}</strong>
@@ -342,7 +353,21 @@ export function IntegrationsPage() {
         )}
 
         {/* Lista de Calendários Disponíveis */}
-        {showCalendars && calendars.length > 0 && (
+        {loadingCalendars ? (
+          <div role="status" aria-live="polite" className="mt-6 border-t border-border pt-5">
+            <span className="sr-only">Carregando agendas…</span>
+            <Skeleton className="mb-2 h-4 w-56" />
+            <Skeleton className="mb-4 h-3 w-96 max-w-full" />
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2" aria-hidden="true">
+              {Array.from({ length: 4 }, (_, index) => (
+                <div key={index} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-elevated/60 p-3">
+                  <SkeletonText lines={2} className="flex-1" />
+                  <Skeleton className="h-7 w-20" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : showCalendars && calendars.length > 0 && (
           <div className="mt-6 pt-5 border-t border-border">
             <h3 className="text-sm font-bold text-content mb-1 flex items-center gap-2">
               <Calendar size={16} className="text-brand" /> Agendas Disponíveis nesta Conta

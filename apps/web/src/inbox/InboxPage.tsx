@@ -32,7 +32,7 @@ import { messagePreview } from '@sdr/shared';
 import { useSession } from '../session';
 import { useInstance } from '../context/InstanceContext';
 import { buildAgentDebugExport, createAgentDebugFilename } from './debug-export';
-import { Button, Badge, Input } from '../components/ui';
+import { Button, Badge, Input, Skeleton, SkeletonText } from '../components/ui';
 import {
   applyRealtimeEvent,
   type ConversationItem,
@@ -113,7 +113,7 @@ export function InboxPage() {
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   const [replyText, setReplyText] = useState<string>('');
-  const [loadingList, setLoadingList] = useState<boolean>(false);
+  const [loadingList, setLoadingList] = useState<boolean>(true);
   const [loadingMessages, setLoadingMessages] = useState<boolean>(false);
   const [actionLoading, setActionLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -891,8 +891,21 @@ export function InboxPage() {
         {/* Conversation Cards List */}
         <div className="flex-1 overflow-y-auto divide-y divide-border/40">
           {loadingList ? (
-            <div className="p-6 text-center text-xs text-content-muted">
-              Carregando conversas...
+            <div role="status" aria-live="polite">
+              <span className="sr-only">Carregando conversas…</span>
+              {Array.from({ length: 6 }, (_, index) => (
+                <div key={index} className="border-b border-border/40 p-3.5" aria-hidden="true">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <Skeleton className="h-3.5 w-32" />
+                    <Skeleton className="h-2.5 w-9" />
+                  </div>
+                  <div className="mb-2 flex gap-1.5">
+                    <Skeleton className="h-5 w-20" rounded="full" />
+                    <Skeleton className="h-5 w-14" rounded="full" />
+                  </div>
+                  <Skeleton className="h-3 w-11/12" />
+                </div>
+              ))}
             </div>
           ) : conversations.length === 0 ? (
             <div className="p-8 text-center text-xs text-content-muted">
@@ -952,7 +965,30 @@ export function InboxPage() {
 
       {/* CENTER COLUMN: Chat Thread */}
       <div className="flex-1 flex flex-col min-w-0 bg-canvas">
-        {selectedConv ? (
+        {!selectedConv && loadingList ? (
+          <div role="status" aria-live="polite" className="flex h-full flex-col">
+            <span className="sr-only">Carregando conversa…</span>
+            <div className="flex h-14 items-center justify-between border-b border-border bg-surface px-6" aria-hidden="true">
+              <SkeletonText lines={2} className="w-56" />
+              <div className="flex gap-2">
+                <Skeleton className="h-8 w-28" />
+                <Skeleton className="h-8 w-32" />
+              </div>
+            </div>
+            <div className="flex flex-1 flex-col gap-5 p-6" aria-hidden="true">
+              {Array.from({ length: 5 }, (_, index) => (
+                <div key={index} className={`w-2/3 ${index % 2 ? 'self-end' : 'self-start'}`}>
+                  <Skeleton className={`h-3 w-24 ${index % 2 ? 'ml-auto' : ''}`} />
+                  <Skeleton className={`mt-1.5 h-14 w-full ${index % 2 ? 'rounded-tr-sm' : 'rounded-tl-sm'}`} rounded="lg" />
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-3 border-t border-border bg-surface p-3.5" aria-hidden="true">
+              <Skeleton className="h-9 flex-1" rounded="lg" />
+              <Skeleton className="h-9 w-24" rounded="lg" />
+            </div>
+          </div>
+        ) : selectedConv ? (
           <>
             {/* Active Conversation Top Bar */}
             <div className="inbox-conversation-header h-14 px-6 border-b border-border flex items-center justify-between gap-4 bg-surface flex-shrink-0">
@@ -1055,8 +1091,14 @@ export function InboxPage() {
             {/* Messages Thread */}
             <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-3.5 bg-canvas">
               {loadingMessages ? (
-                <div className="text-center text-xs text-content-muted py-10">
-                  Carregando mensagens...
+                <div role="status" aria-live="polite" className="flex flex-col gap-5 py-2">
+                  <span className="sr-only">Carregando mensagens…</span>
+                  {Array.from({ length: 5 }, (_, index) => (
+                    <div key={index} className={`w-2/3 ${index % 2 ? 'self-end' : 'self-start'}`} aria-hidden="true">
+                      <Skeleton className={`h-2.5 w-24 ${index % 2 ? 'ml-auto' : ''}`} />
+                      <Skeleton className="mt-1.5 h-14 w-full" rounded="lg" />
+                    </div>
+                  ))}
                 </div>
               ) : messages.length === 0 ? (
                 <div className="text-center text-xs text-content-muted py-10">
@@ -1182,7 +1224,16 @@ export function InboxPage() {
           )}
 
           {debugLoading && !debugSession ? (
-            <div className="debug-empty"><LoaderCircle className="debug-spin" size={24} /><span>Preparando a escuta…</span></div>
+            <div role="status" aria-live="polite" className="space-y-3 p-4">
+              <span className="sr-only">Preparando a escuta…</span>
+              <Skeleton className="h-16 w-full" rounded="lg" />
+              <Skeleton className="h-24 w-full" rounded="lg" />
+              {Array.from({ length: 3 }, (_, index) => (
+                <div key={index} className="rounded-lg border border-border p-3" aria-hidden="true">
+                  <SkeletonText lines={2} />
+                </div>
+              ))}
+            </div>
           ) : !debugSession ? (
             <div className="debug-empty">
               <Bug size={30} />

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { AlertCircle, ChevronLeft, ChevronRight, Download, LoaderCircle, RefreshCw, ScrollText } from 'lucide-react';
 import { useSession } from '../session';
 import { useInstance } from '../context/InstanceContext';
-import { Badge, Button, Card, type BadgeProps } from '../components/ui';
+import { Badge, Button, Card, TableSkeleton, type BadgeProps } from '../components/ui';
 import { ExecutionDetailModal } from './ExecutionDetailModal';
 import type { ExecutionDetail, ExecutionListItem, ExecutionStatus, ExecutionStep } from './types';
 import {
@@ -46,7 +46,7 @@ export function ExecutionLogPage() {
   const [executions, setExecutions] = useState<ExecutionListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [status, setStatus] = useState<ExecutionStatus | ''>('');
   const [startDate, setStartDate] = useState('');
@@ -133,6 +133,7 @@ export function ExecutionLogPage() {
     if (!activeOrg || !session?.access_token || !connectionId) {
       setExecutions([]);
       setTotal(0);
+      setLoading(false);
       return;
     }
     setLoading(true);
@@ -258,6 +259,9 @@ export function ExecutionLogPage() {
             )}
 
             <Card className="p-0 bg-surface border-border overflow-hidden">
+              {loading && executions.length === 0 ? (
+                <TableSkeleton columns={9} rows={6} />
+              ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs text-left border-collapse">
                   <thead>
@@ -282,13 +286,7 @@ export function ExecutionLogPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
-                    {loading && executions.length === 0 ? (
-                      <tr>
-                        <td colSpan={9} className="py-6 px-4 text-center text-content-muted">
-                          Carregando execuções...
-                        </td>
-                      </tr>
-                    ) : executions.length === 0 ? (
+                    {executions.length === 0 ? (
                       <tr>
                         <td colSpan={9} className="py-6 px-4 text-center text-content-muted">
                           Nenhuma execução registrada para esta instância com os filtros atuais.
@@ -354,6 +352,7 @@ export function ExecutionLogPage() {
                   </tbody>
                 </table>
               </div>
+              )}
             </Card>
 
             {total > 0 && (

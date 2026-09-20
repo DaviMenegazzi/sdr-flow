@@ -14,7 +14,7 @@ import { useBuilder } from './store';
 import { useSession } from '../session';
 import { useInstance } from '../context/InstanceContext';
 import { PlaygroundModal } from './PlaygroundModal';
-import { Button, Badge } from '../components/ui';
+import { Button, Badge, Skeleton, SkeletonText } from '../components/ui';
 
 const nodeTypes = { flowNode: FlowNode };
 const DRAFT_KEY = 'sdr-flow:editor-draft:v1';
@@ -54,6 +54,7 @@ function Editor() {
   const [busy, setBusy] = useState(false);
   const [flowId, setFlowId] = useState<string | null>(null);
   const [savedFlows, setSavedFlows] = useState<SavedFlow[]>([]);
+  const [loadingFlows, setLoadingFlows] = useState(true);
   const [selectedEdges, setSelectedEdges] = useState<string[]>([]);
   const { activeInstance, activeInstanceName, currentInstance, setActiveInstance } = useInstance();
   const targetInstance = activeInstanceName || currentInstance?.name || '';
@@ -119,9 +120,11 @@ function Editor() {
     if (!managedFlowApi || !flowApiBase) {
       setSavedFlows([]);
       setActiveBindings({});
+      setLoadingFlows(false);
       return;
     }
 
+    setLoadingFlows(true);
     try {
       const flowsRes = await fetch(flowApiBase, { headers: flowApiHeaders });
       if (!flowsRes.ok) return;
@@ -169,6 +172,8 @@ function Editor() {
       }
     } catch {
       // Ignora erro no carregamento inicial silencioso
+    } finally {
+      setLoadingFlows(false);
     }
   };
 
@@ -414,6 +419,49 @@ function Editor() {
 
   const isInstanceActiveWithThisFlow = targetInstance && activeBindings[targetInstance]?.flowId === flowId;
 
+  if (loadingFlows && savedFlows.length === 0) {
+    return (
+      <div role="status" aria-live="polite" className="flex h-full flex-col bg-canvas">
+        <span className="sr-only">Carregando construtor de fluxos…</span>
+        <div className="flex items-center justify-between border-b border-border bg-surface px-6 py-3" aria-hidden="true">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-8 w-8" rounded="lg" />
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-36" />
+              <Skeleton className="h-5 w-64" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            {Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-8 w-24" rounded="lg" />)}
+          </div>
+        </div>
+        <div className="flex items-center gap-3 border-b border-border bg-surface px-6 py-2.5" aria-hidden="true">
+          <Skeleton className="h-4 w-36" />
+          <Skeleton className="h-4 w-44" />
+          <Skeleton className="h-4 w-32" />
+        </div>
+        <div className="flex min-h-0 flex-1" aria-hidden="true">
+          <aside className="w-[260px] shrink-0 space-y-4 border-r border-border bg-surface p-4">
+            <SkeletonText lines={2} />
+            <Skeleton className="h-9 w-full" rounded="lg" />
+            {Array.from({ length: 7 }, (_, index) => <Skeleton key={index} className="h-10 w-full" rounded="lg" />)}
+          </aside>
+          <div className="relative flex-1 overflow-hidden p-10">
+            <Skeleton className="absolute left-[12%] top-[18%] h-28 w-52" rounded="lg" />
+            <Skeleton className="absolute left-[43%] top-[38%] h-32 w-56" rounded="lg" />
+            <Skeleton className="absolute right-[10%] top-[20%] h-28 w-52" rounded="lg" />
+            <Skeleton className="absolute bottom-[12%] left-[30%] h-28 w-52" rounded="lg" />
+          </div>
+          <aside className="w-72 shrink-0 space-y-4 border-l border-border bg-surface p-4">
+            <Skeleton className="h-5 w-36" />
+            <SkeletonText lines={3} />
+            {Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-10 w-full" rounded="lg" />)}
+          </aside>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="builder-page flex flex-col h-full bg-canvas text-content-primary">
       <header className="builder-workspace-header bg-surface border-b border-border px-6 py-3 flex-shrink-0">
@@ -657,7 +705,9 @@ function Editor() {
 
           <div className="builder-toolbar bg-surface border-b border-border px-6 py-2 flex items-center justify-between gap-2 text-xs flex-shrink-0">
             <div className="builder-toolbar-start">
-              {savedFlows.length > 0 && (
+              {loadingFlows ? (
+                <Skeleton className="h-8 w-56" rounded="lg" />
+              ) : savedFlows.length > 0 && (
                 <div className="builder-flow-picker">
                   <label htmlFor="builder-flow-picker">
                     <span className="builder-flow-picker-dot" />

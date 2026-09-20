@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode, type Fo
 import { createClient, type Session } from '@supabase/supabase-js';
 import { CheckCircle2, Sliders, UserPlus } from 'lucide-react';
 import type { MemberRole, OrgTier, Capability } from '@sdr/shared';
-import { Button, Input, Modal } from './components/ui';
+import { Button, Input, Modal, Card, TableSkeleton } from './components/ui';
 
 const url = import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.SUPABASE_ANON_KEY;
@@ -257,6 +257,7 @@ export function Settings() {
 
   const [settingsTab, setSettingsTab] = useState<'team' | 'invitations' | 'api-keys' | 'new-org'>('team');
   const [newOrgName, setNewOrgName] = useState('');
+  const [loadingTeam, setLoadingTeam] = useState(true);
 
   const [members, setMembers] = useState<Member[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
@@ -283,7 +284,10 @@ export function Settings() {
   const activeOrganization = organizations.find((org) => org.id === activeOrg);
 
   useEffect(() => {
-    if (!activeOrg || !session?.access_token) return;
+    if (!activeOrg || !session?.access_token) {
+      setLoadingTeam(false);
+      return;
+    }
     void loadTeamData();
   }, [activeOrg, session?.access_token]);
 
@@ -292,7 +296,8 @@ export function Settings() {
   }, [activeOrg, activeTier]);
 
   async function loadTeamData(): Promise<boolean> {
-    if (!activeOrg || !session?.access_token) return false;
+    if (!activeOrg || !session?.access_token) { setLoadingTeam(false); return false; }
+    setLoadingTeam(true);
     try {
       const headers = { Authorization: `Bearer ${session.access_token}` };
       const [membersRes, invitesRes, keysRes] = await Promise.all([
@@ -309,6 +314,8 @@ export function Settings() {
     } catch {
       // API may be offline in dev
       return false;
+    } finally {
+      setLoadingTeam(false);
     }
   }
 
@@ -836,7 +843,11 @@ export function Settings() {
                 </div>
               )}
 
-              {members.length === 0 ? (
+              {loadingTeam ? (
+                <Card className="mt-3 p-0">
+                  <TableSkeleton columns={isAdminOrOwner ? 4 : 3} rows={4} />
+                </Card>
+              ) : members.length === 0 ? (
                 <p className="muted">Nenhum membro encontrado ou sem permissão de visualização.</p>
               ) : (
                 <div style={{ border: '1px solid var(--color-border-secondary)', borderRadius: 8, overflow: 'hidden', marginTop: 12 }}>
@@ -923,7 +934,11 @@ export function Settings() {
               )}
 
               <h2>Convites Pendentes</h2>
-              {invitations.length === 0 ? (
+              {loadingTeam ? (
+                <Card className="mt-3 p-0">
+                  <TableSkeleton columns={isAdminOrOwner ? 4 : 3} rows={3} />
+                </Card>
+              ) : invitations.length === 0 ? (
                 <p className="muted">Nenhum convite pendente nesta organização.</p>
               ) : (
                 <div style={{ border: '1px solid var(--color-border-secondary)', borderRadius: 8, overflow: 'hidden', marginTop: 12 }}>
@@ -1048,7 +1063,11 @@ export function Settings() {
               )}
 
               <h2>Chaves Ativas</h2>
-              {apiKeys.length === 0 ? (
+              {loadingTeam ? (
+                <Card className="mt-3 p-0">
+                  <TableSkeleton columns={isAdminOrOwner ? 6 : 5} rows={3} />
+                </Card>
+              ) : apiKeys.length === 0 ? (
                 <p className="muted">Nenhuma chave de API gerada nesta organização.</p>
               ) : (
                 <div style={{ border: '1px solid var(--color-border-secondary)', borderRadius: 8, overflow: 'hidden', marginTop: 12 }}>

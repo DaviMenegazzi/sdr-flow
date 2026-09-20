@@ -47,7 +47,7 @@ export function InstanceProvider({ children }: { children: ReactNode }) {
   });
 
   const [instances, setInstances] = useState<InstanceItem[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
 
   const setActiveInstance = useCallback((name: string) => {
     const trimmed = (name || '').trim();

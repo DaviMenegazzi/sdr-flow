@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useSession } from '../session';
 import type { FlowGraph } from '@sdr/shared';
 import { PlaygroundModal } from '../builder/PlaygroundModal';
-import { Button, Badge, Card, Input } from '../components/ui';
+import { Button, Badge, Card, Input, CardGridSkeleton, Skeleton, TableSkeleton } from '../components/ui';
 import {
   Radio,
   QrCode,
@@ -52,7 +52,7 @@ interface ActiveFlowBinding {
 export function ConnectionsPage() {
   const { session, activeOrg } = useSession();
   const [connections, setConnections] = useState<Connection[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
 
   // Wizard states
@@ -80,7 +80,7 @@ export function ConnectionsPage() {
   const [busy, setBusy] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeFlows, setActiveFlows] = useState<ActiveFlowBinding[]>([]);
-  const [loadingActive, setLoadingActive] = useState(false);
+  const [loadingActive, setLoadingActive] = useState(true);
   const [simulatingFlow, setSimulatingFlow] = useState<{ id: string; name: string; versionId: string; graph: FlowGraph } | null>(null);
   const activeFlowsRequest = useRef(0);
 
@@ -619,9 +619,10 @@ export function ConnectionsPage() {
                   />
                 </div>
               ) : (
-                <div className="p-10 bg-surface-muted rounded-xl flex flex-col items-center gap-3">
-                  <RefreshCw className="w-7 h-7 text-brand animate-spin" />
-                  <p className="text-xs text-content-muted m-0">Aguardando geração do QR Code real na Evolution...</p>
+                <div role="status" aria-live="polite" className="p-4 bg-surface-muted rounded-xl flex flex-col items-center gap-3">
+                  <span className="sr-only">Aguardando geração do QR Code…</span>
+                  <Skeleton className="h-60 w-60" rounded="lg" />
+                  <Skeleton className="h-3 w-52" />
                 </div>
               )}
 
@@ -673,7 +674,9 @@ export function ConnectionsPage() {
       {/* Existing Connections Table */}
       <h2 className="text-base font-semibold text-content mb-3">Canais Ativos na Organização</h2>
       {loading ? (
-        <p className="text-xs text-content-muted">Carregando conexões...</p>
+        <Card className="p-0 bg-surface border-border overflow-hidden">
+          <TableSkeleton columns={6} rows={3} />
+        </Card>
       ) : connections.length === 0 ? (
         <Card className="p-4 bg-surface border-border">
           <p className="text-xs text-content-muted m-0">Nenhuma conexão cadastrada nesta organização. Clique em “Nova Conexão” para integrar seu WhatsApp.</p>
@@ -806,7 +809,9 @@ export function ConnectionsPage() {
           </div>
         </div>
 
-        {activeFlows.length === 0 ? (
+        {loadingActive && activeFlows.length === 0 ? (
+          <CardGridSkeleton />
+        ) : activeFlows.length === 0 ? (
           <Card className="p-4 bg-surface border-border">
             <p className="text-xs text-content-muted m-0">
               Nenhum fluxo publicado e vinculado às instâncias ainda. No <strong>Construtor de Fluxos</strong>, selecione a instância desejada e clique em <strong>Publicar</strong>.
@@ -933,9 +938,10 @@ export function ConnectionsPage() {
                 {qrError}
               </div>
             ) : (
-              <div className="py-8 flex flex-col items-center gap-2">
-                <RefreshCw className="w-6 h-6 text-brand animate-spin" />
-                <p className="text-xs text-content-muted m-0">Aguardando QR Code da Evolution API...</p>
+              <div role="status" aria-live="polite" className="py-3 flex flex-col items-center gap-3">
+                <span className="sr-only">Aguardando QR Code da Evolution API…</span>
+                <Skeleton className="h-52 w-52" rounded="lg" />
+                <Skeleton className="h-3 w-44" />
               </div>
             )}
             <Button variant="primary" size="sm" onClick={() => setActiveQrModal(null)}>

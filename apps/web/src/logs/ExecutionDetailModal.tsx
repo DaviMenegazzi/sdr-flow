@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle2, ChevronDown, Download, LoaderCircle } from 'lucide-react';
-import { Modal, Badge, Button, type BadgeProps } from '../components/ui';
+import { AlertCircle, CheckCircle2, ChevronDown, Download } from 'lucide-react';
+import { Modal, Badge, Button, Skeleton, SkeletonText, type BadgeProps } from '../components/ui';
 import { useSession } from '../session';
 import type { ExecutionDetail, ExecutionStatus, ExecutionStep } from './types';
 import { buildExecutionExport, createExecutionExportFilename, downloadJson } from './export';
@@ -91,8 +91,26 @@ export function ExecutionDetailModal({ executionId, onClose }: ExecutionDetailMo
       }
     >
       {loading && (
-        <div className="flex items-center justify-center gap-2 py-10 text-xs text-content-muted">
-          <LoaderCircle size={18} className="animate-spin" /> Carregando execução...
+        <div role="status" aria-live="polite" className="space-y-4 py-1">
+          <span className="sr-only">Carregando execução…</span>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3" aria-hidden="true">
+            {Array.from({ length: 6 }, (_, index) => (
+              <div key={index} className="rounded-lg border border-border bg-surface-elevated/50 p-3">
+                <Skeleton className="mb-2 h-2.5 w-16" />
+                <Skeleton className="h-4 w-4/5" />
+              </div>
+            ))}
+          </div>
+          <Skeleton className="h-5 w-20" rounded="full" />
+          <div className="space-y-2" aria-hidden="true">
+            {Array.from({ length: 4 }, (_, index) => (
+              <div key={index} className="flex items-center gap-3 rounded-lg border border-border p-3">
+                <Skeleton className="h-4 w-4 shrink-0" rounded="full" />
+                <SkeletonText lines={2} className="flex-1" />
+                <Skeleton className="h-3 w-14" />
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

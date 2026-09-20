@@ -2,9 +2,10 @@ import React from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { ChevronDown, ChevronRight, Radio, Sparkles } from 'lucide-react';
 import { useInstance } from '../../context/InstanceContext';
+import { Skeleton } from '../ui';
 
 export function AppHeader() {
-  const { activeInstance, setActiveInstance, instances } = useInstance();
+  const { activeInstance, setActiveInstance, instances, loading } = useInstance();
   const location = useLocation();
   const current = instances.find((i) => i.name === activeInstance || i.id === activeInstance);
   const [instanceMenuOpen, setInstanceMenuOpen] = React.useState(false);
@@ -57,6 +58,19 @@ export function AppHeader() {
       </div>
 
       <div className="app-header-context flex items-center gap-2">
+        {loading ? (
+          <div role="status" aria-live="polite" className="w-64 rounded-xl border border-border bg-surface-elevated px-3 py-2">
+            <span className="sr-only">Carregando instâncias…</span>
+            <div className="flex items-center gap-2" aria-hidden="true">
+              <Skeleton className="h-2 w-2 shrink-0" rounded="full" />
+              <div className="flex-1 space-y-1.5">
+                <Skeleton className="h-2 w-16" />
+                <Skeleton className="h-3 w-28" />
+              </div>
+              <Skeleton className="h-5 w-20" />
+            </div>
+          </div>
+        ) : (
         <div className="app-header-connection flex items-center gap-2 bg-surface-elevated border border-border px-2.5 py-1 rounded-xl text-xs transition-colors hover:border-border-strong">
           <span
             className={`app-header-status w-2 h-2 rounded-full flex-shrink-0 transition-all ${
@@ -122,6 +136,7 @@ export function AppHeader() {
             <Radio size={12} />
           </Link>
         </div>
+        )}
       </div>
     </header>
   );

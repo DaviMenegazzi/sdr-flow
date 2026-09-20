@@ -4,6 +4,7 @@ import type { FlowNode } from '@sdr/shared';
 import { useBuilder } from './store';
 import { useInstance } from '../context/InstanceContext';
 import { useSession } from '../session';
+import { Skeleton, SkeletonText } from '../components/ui';
 import {
   Users,
   Phone,
@@ -252,8 +253,14 @@ function InstanceTargetPicker({
 
           <div className="overflow-y-auto flex-1 flex flex-col gap-1 pr-1">
             {loading ? (
-              <div className="text-xs text-content-muted p-2.5 text-center">
-                Buscando contatos e grupos...
+              <div role="status" aria-live="polite" className="space-y-1.5 p-1">
+                <span className="sr-only">Buscando contatos e grupos…</span>
+                {Array.from({ length: 5 }, (_, index) => (
+                  <div key={index} className="flex items-center gap-2 rounded-lg p-1.5" aria-hidden="true">
+                    <Skeleton className="h-3 w-3 shrink-0" rounded="full" />
+                    <SkeletonText lines={2} className="flex-1" />
+                  </div>
+                ))}
               </div>
             ) : filteredGroups.length === 0 && filteredContacts.length === 0 ? (
               <div className="text-xs text-content-muted p-2.5 text-center">

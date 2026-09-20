@@ -3,6 +3,7 @@ import { Play, X, Bot, User, CheckCircle2, AlertTriangle, Cpu, Database, BookOpe
 import type { FlowGraph } from '@sdr/shared';
 import { runPlayground, type PlaygroundResult } from '@sdr/flow';
 import { useSession } from '../session';
+import { Skeleton, SkeletonText } from '../components/ui';
 
 interface PlaygroundModalProps {
   isOpen: boolean;
@@ -382,7 +383,21 @@ export function PlaygroundModal({ isOpen, onClose, flowId, flowVersionId, graph 
 
             {/* Tab Contents */}
             <div style={{ flex: 1, minHeight: 0, minWidth: 0, padding: 20, overflowY: 'auto', overflowX: 'hidden' }}>
-              {!result ? (
+              {loading ? (
+                <div role="status" aria-live="polite" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <span className="sr-only">Executando fluxo no playground…</span>
+                  <div className="flex items-center gap-3" aria-hidden="true">
+                    <Skeleton className="h-9 w-9 shrink-0" rounded="full" />
+                    <SkeletonText lines={2} className="flex-1" />
+                  </div>
+                  <Skeleton className="h-24 w-4/5" rounded="lg" />
+                  <Skeleton className="ml-auto h-20 w-3/4" rounded="lg" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <Skeleton className="h-20 w-full" rounded="lg" />
+                    <Skeleton className="h-20 w-full" rounded="lg" />
+                  </div>
+                </div>
+              ) : !result ? (
                 <div style={{ textAlign: 'center', color: 'var(--color-text-secondary)', padding: '40px 0' }}>
                   <Play size={32} style={{ opacity: 0.3, marginBottom: 8 }} />
                   <p>Configure o lead e clique em “Executar no Playground” para ver o comportamento do fluxo.</p>
