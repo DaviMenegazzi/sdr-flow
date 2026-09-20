@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode, type FormEvent } from 'react';
 import { createClient, type Session } from '@supabase/supabase-js';
-import { Sliders, UserPlus } from 'lucide-react';
+import { CheckCircle2, Sliders, UserPlus } from 'lucide-react';
 import type { MemberRole, OrgTier, Capability } from '@sdr/shared';
 import { Button, Input, Modal } from './components/ui';
 
@@ -276,6 +276,7 @@ export function Settings() {
   const [loginAccountRole, setLoginAccountRole] = useState<'admin' | 'client'>('client');
   const [loginMemberRole, setLoginMemberRole] = useState<MemberRole>('agent');
   const [loginOrgTier, setLoginOrgTier] = useState<OrgTier>('pre-venda');
+  const [loginSuccess, setLoginSuccess] = useState('');
 
   const isAdminOrOwner = activeRole === 'owner' || activeRole === 'admin';
   const isPlatformAdmin = profile?.platformRole === 'admin' || profile?.role === 'admin';
@@ -290,8 +291,8 @@ export function Settings() {
     if (activeTier) setLoginOrgTier(activeTier);
   }, [activeOrg, activeTier]);
 
-  async function loadTeamData() {
-    if (!activeOrg || !session?.access_token) return;
+  async function loadTeamData(): Promise<boolean> {
+    if (!activeOrg || !session?.access_token) return false;
     try {
       const headers = { Authorization: `Bearer ${session.access_token}` };
       const [membersRes, invitesRes, keysRes] = await Promise.all([
@@ -300,11 +301,14 @@ export function Settings() {
         fetch(`/api/organizations/${activeOrg}/api-keys`, { headers }),
       ]);
 
-      if (membersRes.ok) setMembers(await membersRes.json());
+      if (!membersRes.ok) return false;
+      setMembers(await membersRes.json());
       if (invitesRes.ok) setInvitations(await invitesRes.json());
       if (keysRes.ok) setApiKeys(await keysRes.json());
+      return true;
     } catch {
       // API may be offline in dev
+      return false;
     }
   }
 
@@ -468,6 +472,7 @@ export function Settings() {
     if (!activeOrg || !session?.access_token || !isPlatformAdmin) return;
     setBusy(true);
     setMessage('');
+    setLoginSuccess('');
     try {
       const res = await fetch(`/api/admin/organizations/${activeOrg}/logins`, {
         method: 'POST',
@@ -487,14 +492,21 @@ export function Settings() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Falha ao criar login.');
 
+      const createdEmail = String(data.email);
+      const organizationName = activeOrganization?.name ?? 'selecionada';
       setLoginDisplayName('');
       setLoginEmail('');
       setLoginPassword('');
       setLoginAccountRole('client');
       setLoginMemberRole('agent');
       setLoginModalOpen(false);
-      await Promise.all([loadTeamData(), reload()]);
-      setMessage(`Login criado para ${data.email} na organização ${activeOrganization?.name ?? 'selecionada'}.`);
+      const [teamRefresh] = await Promise.allSettled([loadTeamData(), reload()]);
+      const listWasRefreshed = teamRefresh.status === 'fulfilled' && teamRefresh.value;
+      setLoginSuccess(
+        listWasRefreshed
+          ? `${createdEmail} agora tem acesso à organização ${organizationName}. A lista de membros foi atualizada.`
+          : `${createdEmail} agora tem acesso à organização ${organizationName}. Recarregue a página para atualizar a lista de membros.`,
+      );
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Falha ao criar login.');
     } finally {
@@ -798,7 +810,10 @@ export function Settings() {
                   <Button
                     type="button"
                     variant="primary"
-                    onClick={() => setLoginModalOpen(true)}
+                    onClick={() => {
+                      setLoginSuccess('');
+                      setLoginModalOpen(true);
+                    }}
                     disabled={!activeOrg}
                     className="shrink-0"
                   >
@@ -806,6 +821,20 @@ export function Settings() {
                   </Button>
                 )}
               </div>
+
+              {loginSuccess && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="mt-4 flex items-start gap-3 rounded-xl border border-success-border bg-success-bg p-3.5 text-success"
+                >
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div className="flex flex-col gap-0.5">
+                    <strong className="text-sm">Login criado com sucesso</strong>
+                    <span className="text-xs">{loginSuccess}</span>
+                  </div>
+                </div>
+              )}
 
               {members.length === 0 ? (
                 <p className="muted">Nenhum membro encontrado ou sem permissão de visualização.</p>
