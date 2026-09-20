@@ -2,7 +2,8 @@ import React, { useState, useEffect, Suspense, lazy, type ReactNode } from 'reac
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom';
 import { Workflow, ArrowUpRight, RefreshCw } from 'lucide-react';
-import { SessionProvider } from './session';
+import { SessionProvider, useSession } from './session';
+import type { Capability } from '@sdr/shared';
 import { InstanceProvider } from './context/InstanceContext';
 import { AuthCallback, AuthGate, ForgotPasswordPage, LoginPage, NotFoundPage, RegisterPage, ResetPasswordPage } from './auth-pages';
 import { AppSidebar } from './components/layout/AppSidebar';
@@ -43,6 +44,12 @@ function RouteLoadingFallback() {
       </div>
     </div>
   );
+}
+
+function RequireCapability({ capability, children }: { capability: Capability; children: ReactNode }) {
+  const { can, loading } = useSession();
+  if (loading) return <RouteLoadingFallback />;
+  return can(capability) ? <>{children}</> : <Navigate to="/dashboard" replace />;
 }
 
 // A lazy route's chunk can fail to load (a new deploy invalidated the old hashed filename while
@@ -108,20 +115,20 @@ function ProtectedApp() {
             <Suspense fallback={<RouteLoadingFallback />}>
             <Routes>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              <Route path="/flows/new" element={<Builder />} />
-              <Route path="/flows" element={<Builder />} />
-              <Route path="/connections" element={<ConnectionsPage />} />
+              <Route path="/flows/new" element={<RequireCapability capability="flows:read"><Builder /></RequireCapability>} />
+              <Route path="/flows" element={<RequireCapability capability="flows:read"><Builder /></RequireCapability>} />
+              <Route path="/connections" element={<RequireCapability capability="instances:manage"><ConnectionsPage /></RequireCapability>} />
               <Route path="/agents" element={<AgentsPage />} />
               <Route path="/admin" element={<AdminPage />} />
-              <Route path="/integrations" element={<IntegrationsPage />} />
+              <Route path="/integrations" element={<RequireCapability capability="integrations:manage"><IntegrationsPage /></RequireCapability>} />
               <Route path="/knowledge" element={<KnowledgePage />} />
               <Route path="/inbox" element={<InboxPage />} />
               <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/logs" element={<ExecutionLogPage />} />
+              <Route path="/logs" element={<RequireCapability capability="flows:read"><ExecutionLogPage /></RequireCapability>} />
               <Route
                 path="/templates"
                 element={
-                  <div className="p-8 max-w-4xl mx-auto w-full">
+                  <RequireCapability capability="flows:read"><div className="p-8 max-w-4xl mx-auto w-full">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-brand">
                       BIBLIOTECA DE MODELOS
                     </span>
@@ -153,7 +160,7 @@ function ProtectedApp() {
                         </div>
                       </Link>
                     </div>
-                  </div>
+                  </div></RequireCapability>
                 }
               />
               <Route path="/settings" element={<Settings />} />

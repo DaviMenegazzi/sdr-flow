@@ -9,6 +9,7 @@ import {
   type MemberRole,
   CAPABILITIES,
   getCapabilities,
+  getAccountCapabilities,
   hasCapability,
 } from '../packages/shared/src/index.js';
 
@@ -63,6 +64,20 @@ describe('Tiers, RBAC and Multi-User Isolation', () => {
         expect(hasCapability(tier, 'admin', 'agents:manage')).toBe(true);
         expect(hasCapability(tier, 'agent', 'agents:manage')).toBe(true);
       }
+    });
+
+    it('keeps client accounts away from instances, flows and team administration even when membership says owner', () => {
+      const clientCaps = getAccountCapabilities('client', 'vendedor-senior', 'owner');
+      expect(clientCaps).toContain('inbox:read');
+      expect(clientCaps).toContain('dashboard:read');
+      expect(clientCaps).toContain('agents:manage');
+      expect(clientCaps).toContain('integrations:manage');
+      expect(clientCaps).not.toContain('instances:manage');
+      expect(clientCaps).not.toContain('flows:read');
+      expect(clientCaps).not.toContain('flows:edit');
+      expect(clientCaps).not.toContain('flows:publish');
+      expect(clientCaps).not.toContain('team:manage');
+      expect(clientCaps).not.toContain('apikeys:manage');
     });
   });
 
@@ -281,6 +296,39 @@ describe('Tiers, RBAC and Multi-User Isolation', () => {
       expect(res.body.capabilities).toContain('dashboard:read');
       expect(res.body.capabilities).toContain('agents:manage');
       expect(res.body.capabilities).not.toContain('integrations:manage');
+
+      spy.mockRestore();
+    });
+
+    it('blocks client owners from instance and flow endpoints', async () => {
+      const databaseMod = await import('../packages/db/src/index.js');
+      const spy = vi.spyOn(databaseMod, 'userDatabase').mockReturnValue(mockUserDb('vendedor-senior', 'owner'));
+
+      const app = createApp(config);
+      const [instances, connections, flows, executions, catalog, validation, memberMutation, invitations, apiKeys] = await Promise.all([
+        request(app).get('/api/me/instances').set('Authorization', 'Bearer valid-token'),
+        request(app).get(`/api/organizations/${orgSenior}/connections`).set('Authorization', 'Bearer valid-token'),
+        request(app).get(`/api/organizations/${orgSenior}/flows`).set('Authorization', 'Bearer valid-token'),
+        request(app).get(`/api/organizations/${orgSenior}/executions`).set('Authorization', 'Bearer valid-token'),
+        request(app).get('/api/catalog').set('Authorization', 'Bearer valid-token'),
+        request(app).post('/api/flows/validate').set('Authorization', 'Bearer valid-token').send({}),
+        request(app).patch(`/api/organizations/${orgSenior}/members/${testUserId}`).set('Authorization', 'Bearer valid-token').send({ role: 'viewer' }),
+        request(app).get(`/api/organizations/${orgSenior}/invitations`).set('Authorization', 'Bearer valid-token'),
+        request(app).get(`/api/organizations/${orgSenior}/api-keys`).set('Authorization', 'Bearer valid-token'),
+      ]);
+
+      for (const response of [instances, connections, flows, executions, catalog, validation, memberMutation, invitations, apiKeys]) {
+        expect(response.status).toBe(403);
+      }
+      expect(instances.body.requiredCapability).toBe('instances:manage');
+      expect(connections.body.requiredCapability).toBe('instances:manage');
+      expect(flows.body.requiredCapability).toBe('flows:read');
+      expect(executions.body.requiredCapability).toBe('flows:read');
+      expect(catalog.body.requiredCapability).toBe('flows:read');
+      expect(validation.body.requiredCapability).toBe('flows:read');
+      expect(memberMutation.body.requiredCapability).toBe('team:manage');
+      expect(invitations.body.requiredCapability).toBe('team:manage');
+      expect(apiKeys.body.requiredCapability).toBe('apikeys:manage');
 
       spy.mockRestore();
     });

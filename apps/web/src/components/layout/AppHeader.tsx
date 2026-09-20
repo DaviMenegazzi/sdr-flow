@@ -2,10 +2,12 @@ import React from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { ChevronDown, ChevronRight, Radio, Sparkles } from 'lucide-react';
 import { useInstance } from '../../context/InstanceContext';
+import { useSession } from '../../session';
 import { Skeleton } from '../ui';
 
 export function AppHeader() {
   const { activeInstance, setActiveInstance, instances, loading } = useInstance();
+  const { can } = useSession();
   const location = useLocation();
   const current = instances.find((i) => i.name === activeInstance || i.id === activeInstance);
   const [instanceMenuOpen, setInstanceMenuOpen] = React.useState(false);
@@ -47,7 +49,7 @@ export function AppHeader() {
   return (
     <header className="app-header h-14 bg-surface border-b border-border flex items-center justify-between px-5 flex-shrink-0 z-10 select-none">
       <div className="app-header-breadcrumb flex items-center gap-2 text-xs min-w-0">
-        <Link to="/flows/new" className="app-header-home flex items-center gap-2 font-semibold text-content-primary tracking-tight">
+        <Link to="/dashboard" className="app-header-home flex items-center gap-2 font-semibold text-content-primary tracking-tight">
           <span className="app-header-mark" aria-hidden="true"><Sparkles size={13} /></span>
           <span>SDR Flow</span>
         </Link>
@@ -57,7 +59,7 @@ export function AppHeader() {
         <span className="app-header-title font-semibold text-content-primary truncate">{pageInfo.title}</span>
       </div>
 
-      <div className="app-header-context flex items-center gap-2">
+      {can('instances:manage') && <div className="app-header-context flex items-center gap-2">
         {loading ? (
           <div role="status" aria-live="polite" className="w-64 rounded-xl border border-border bg-surface-elevated px-3 py-2">
             <span className="sr-only">Carregando instâncias…</span>
@@ -137,7 +139,7 @@ export function AppHeader() {
           </Link>
         </div>
         )}
-      </div>
+      </div>}
     </header>
   );
 }

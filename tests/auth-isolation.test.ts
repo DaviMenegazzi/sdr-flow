@@ -32,7 +32,44 @@ describe('Supabase account and instance isolation',()=>{
     expect((await db.query<{role:string}>('select role from public.organization_members where organization_id=$1 and user_id=$2',[orgA,provisionedClient])).rows[0]?.role).toBe('agent');
     expect((await db.query<{role:string;default_organization_id:string}>('select role,default_organization_id from public.profiles where user_id=$1',[provisionedClient])).rows[0]).toMatchObject({role:'client',default_organization_id:orgA});
     expect((await db.query<{tier:string}>('select tier from public.organizations where id=$1',[orgA])).rows[0]?.tier).toBe('vendedor');
-    expect((await db.query('select id from public.ai_agents where organization_id=$1 and owner_user_id=$2 and is_default',[orgA,provisionedClient])).rows).toHaveLength(1);
+    expect((await db.query('select id from public.ai_agents where organization_id=$1 and owner_user_id=$2',[orgA,provisionedClient])).rows).toHaveLength(0);
+    expect((await db.query("select id from public.ai_agents where organization_id=$1 and status='active'",[orgA])).rows.length).toBeGreaterThanOrEqual(1);
+    expect((await db.query("select id from public.audit_events where organization_id=$1 and action='account.login_created' and entity_id=$2",[orgA,provisionedClient])).rows).toHaveLength(1);
+  });
+
+  it('reconciles delayed app metadata into the selected organization instead of leaving a personal owner organization',async()=>{
+    const delayedClient=randomUUID();
+    const orgA=(await db.query<{default_organization_id:string}>('select default_organization_id from public.profiles where user_id=$1',[clientA])).rows[0]!.default_organization_id;
+
+    await db.query(
+      "insert into auth.users(id,email,raw_user_meta_data) values($1,'delayed-client@example.test',$2)",
+      [delayedClient,JSON.stringify({display_name:'Delayed Client'})],
+    );
+    const fallbackOrg=(await db.query<{default_organization_id:string}>('select default_organization_id from public.profiles where user_id=$1',[delayedClient])).rows[0]!.default_organization_id;
+    expect(fallbackOrg).not.toBe(orgA);
+
+    await db.query(
+      'update auth.users set raw_app_meta_data=$2 where id=$1',
+      [delayedClient,JSON.stringify({
+        sdr_target_organization_id:orgA,
+        sdr_member_role:'agent',
+        sdr_app_role:'client',
+        sdr_org_tier:'pre-venda',
+        sdr_provisioned_by:clientA,
+      })],
+    );
+
+    expect((await db.query<{role:string}>('select role from public.organization_members where organization_id=$1 and user_id=$2',[orgA,delayedClient])).rows[0]?.role).toBe('agent');
+    expect((await db.query('select user_id from public.organization_members where organization_id=$1 and user_id=$2',[fallbackOrg,delayedClient])).rows).toHaveLength(0);
+    expect((await db.query<{role:string;default_organization_id:string}>('select role,default_organization_id from public.profiles where user_id=$1',[delayedClient])).rows[0]).toMatchObject({role:'client',default_organization_id:orgA});
+    expect((await db.query("select id from public.audit_events where organization_id=$1 and action='account.login_created' and entity_id=$2",[orgA,delayedClient])).rows).toHaveLength(1);
+
+    await db.query("update public.organization_members set role='viewer' where organization_id=$1 and user_id=$2",[orgA,delayedClient]);
+    await db.query(
+      "update auth.users set raw_app_meta_data=raw_app_meta_data || '{\"unrelated\":true}'::jsonb where id=$1",
+      [delayedClient],
+    );
+    expect((await db.query<{role:string}>('select role from public.organization_members where organization_id=$1 and user_id=$2',[orgA,delayedClient])).rows[0]?.role).toBe('viewer');
   });
 });
 

@@ -15,7 +15,6 @@ import {
   LogOut,
   Shield,
   ScrollText,
-  Lock,
 } from 'lucide-react';
 import { useSession } from '../../session';
 
@@ -64,7 +63,7 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
     <aside className="w-56 bg-surface border-r border-border flex flex-col h-full flex-shrink-0 select-none z-20">
       {/* Brand Header */}
       <div className="p-4 pb-3 border-b border-border/60">
-        <Link to="/flows/new" className="flex flex-col gap-1 group">
+        <Link to="/dashboard" className="flex flex-col gap-1 group">
           <div className="flex items-center gap-2">
             <div className="flex items-baseline font-black text-xl tracking-tight select-none">
               <span className="text-content-primary font-black">pro</span>
@@ -135,12 +134,10 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
               <Users size={16} />
               <span>Agentes de IA</span>
             </NavLink>
-            {can('flows:read') && (
-              <NavLink to="/knowledge" className={navItemClass}>
-                <BookOpen size={16} />
-                <span>Base Conhecimento</span>
-              </NavLink>
-            )}
+            <NavLink to="/knowledge" className={navItemClass}>
+              <BookOpen size={16} />
+              <span>Base Conhecimento</span>
+            </NavLink>
           </div>
         </div>
 
@@ -162,24 +159,11 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
                 <span>Logs de Execução</span>
               </NavLink>
             )}
-            {hasIntegrations ? (
+            {hasIntegrations && (
               <NavLink to="/integrations" className={navItemClass}>
                 <Plug size={16} />
                 <span>Integrações Externas</span>
               </NavLink>
-            ) : (
-              <div
-                className="flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-content-muted/60 cursor-not-allowed"
-                title="Disponível a partir do plano Vendedor"
-              >
-                <span className="flex items-center gap-3">
-                  <Plug size={16} />
-                  <span>Integrações</span>
-                </span>
-                <span className="flex items-center gap-1 text-[9px] uppercase font-bold text-content-muted">
-                  <Lock size={11} /> Vendedor
-                </span>
-              </div>
             )}
           </div>
         </div>

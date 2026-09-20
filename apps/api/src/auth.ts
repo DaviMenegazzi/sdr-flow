@@ -5,7 +5,8 @@ import {
   type MemberRole,
   type OrgTier,
   type Capability,
-  getCapabilities,
+  accountRoleSchema,
+  getAccountCapabilities,
 } from '@sdr/shared';
 
 export type AppRole = 'admin' | 'client';
@@ -91,6 +92,11 @@ export function authMiddleware(config: { supabaseUrl?: string; anonKey?: string 
     }
 
     const memberRole = memberData.role as MemberRole;
+    const appRole = accountRoleSchema.safeParse(profile.role);
+    if (!appRole.success) {
+      res.status(404).json({ error: 'Conta não encontrada.' });
+      return;
+    }
 
     // Consulta tier da organização ativa
     let orgTier: OrgTier = 'pre-venda';
@@ -106,13 +112,13 @@ export function authMiddleware(config: { supabaseUrl?: string; anonKey?: string 
     } catch {
       // fallback to pre-venda
     }
-    const caps = new Set<Capability>(getCapabilities(orgTier, memberRole));
+    const caps = new Set<Capability>(getAccountCapabilities(appRole.data, orgTier, memberRole));
 
     res.locals.auth = {
       userId: user.id,
       email: user.email,
-      appRole: profile.role as AppRole,
-      platformRole: profile.role as AppRole,
+      appRole: appRole.data,
+      platformRole: appRole.data,
       profileStatus: 'active',
       organizationId: targetOrgId,
       memberRole,

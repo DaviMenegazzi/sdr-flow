@@ -41,6 +41,7 @@ describe('Active flow bindings', () => {
       from: vi.fn((table: string) => {
         if (table === 'organizations') return query({ data: { tier: 'pre-venda' }, error: null });
         if (table === 'organization_members') return query({ data: { role: 'admin' }, error: null });
+        if (table === 'profiles') return query({ data: { role: 'admin', status: 'active' }, error: null });
         if (table === 'connections') {
           connectionReads += 1;
           return query(connectionReads === 1 ? { data: [connection], error: null } : { data: connection, error: null });

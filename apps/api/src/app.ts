@@ -32,6 +32,8 @@ import {
   type OrgTier,
   type Capability,
   getCapabilities,
+  getAccountCapabilities,
+  accountRoleSchema,
 } from '@sdr/shared';
 import { catalog, validateGraph, replayFlow, runPlayground, GoogleCalendarClient, type GoogleCalendarCredentials } from '@sdr/flow';
 import { parseEvolutionWebhook, parseMetaWebhook, processInboundWebhook } from './webhook.js';
@@ -244,7 +246,7 @@ export function createApp(config: ApiConfig = {}): Express {
     });
   });
 
-  app.get('/api/me/instances', async (_req, res) => {
+  app.get('/api/me/instances', requireCapability('instances:manage'), async (_req, res) => {
     const auth = res.locals.auth!;
     const { data, error } = await auth.db.from('connections').select('id,name,provider,status,phone,agent_id,created_at').eq('organization_id', auth.organizationId).order('created_at');
     if (error) throw error; res.json(data ?? []);
@@ -311,7 +313,7 @@ export function createApp(config: ApiConfig = {}): Express {
     if (error || !data) { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
     res.status(204).end();
   });
-  app.post('/api/me/instances/:connectionId/assign-agent', async (req, res) => {
+  app.post('/api/me/instances/:connectionId/assign-agent', requireCapability('instances:manage'), async (req, res) => {
     const auth = res.locals.auth!; const connectionId = uuidParam.safeParse(req.params.connectionId);
     const body = z.object({ agentId: z.string().uuid() }).strict().safeParse(req.body);
     if (!connectionId.success || !body.success) { res.status(400).json({ error: 'Dados inválidos.' }); return; }
@@ -476,8 +478,11 @@ export function createApp(config: ApiConfig = {}): Express {
     res.json({ success: steps.every(s => s.ok), steps });
   });
 
-  app.get('/api/catalog', (_req,res) => res.json(Object.values(catalog).map(({ schema: _schema, ...node }) => node)));
-  app.post('/api/flows/validate', (req,res) => {
+  const flowDesignAccess = config.supabaseUrl && config.anonKey
+    ? [protectedApi, requireCapability('flows:read')]
+    : [];
+  app.get('/api/catalog', ...flowDesignAccess, (_req,res) => res.json(Object.values(catalog).map(({ schema: _schema, ...node }) => node)));
+  app.post('/api/flows/validate', ...flowDesignAccess, (req,res) => {
     const input = req.body && typeof req.body === 'object' && 'graph' in req.body ? req.body.graph : req.body;
     const result = validateGraph(input);
     res.status(result.valid ? 200 : 422).json(result);
@@ -840,15 +845,27 @@ export function createApp(config: ApiConfig = {}): Express {
       res.status(401).json({ error: 'Sessão inválida ou expirada.' });
       return;
     }
-    const membership = await db
-      .from('organization_members')
-      .select('role')
-      .eq('organization_id', organizationId.data)
-      .eq('user_id', user.id)
-      .maybeSingle();
+    const [membership, profile] = await Promise.all([
+      db
+        .from('organization_members')
+        .select('role')
+        .eq('organization_id', organizationId.data)
+        .eq('user_id', user.id)
+        .maybeSingle(),
+      db
+        .from('profiles')
+        .select('role,status')
+        .eq('user_id', user.id)
+        .maybeSingle(),
+    ]);
     if (membership.error) throw membership.error;
     if (!membership.data) {
       res.status(403).json({ error: 'Sem acesso a esta organização.' });
+      return;
+    }
+    const platformRole = accountRoleSchema.safeParse(profile.data?.role);
+    if (profile.error || !platformRole.success || profile.data?.status !== 'active') {
+      res.status(403).json({ error: 'Conta inativa ou inválida.' });
       return;
     }
     let orgTier: OrgTier = 'pre-venda';
@@ -867,8 +884,11 @@ export function createApp(config: ApiConfig = {}): Express {
     res.locals.organizationId = organizationId.data;
     res.locals.userId = user.id;
     res.locals.role = membership.data.role;
+    res.locals.platformRole = platformRole.data;
     res.locals.orgTier = orgTier;
-    res.locals.capabilities = new Set<Capability>(getCapabilities(orgTier, membership.data.role as MemberRole));
+    res.locals.capabilities = new Set<Capability>(
+      getAccountCapabilities(platformRole.data, orgTier, membership.data.role as MemberRole),
+    );
     res.locals.scopes = ['*'];
     res.locals.authType = 'jwt';
     res.locals.db = db;
@@ -927,10 +947,20 @@ export function createApp(config: ApiConfig = {}): Express {
   // Team & Organization Management
   orgRoutes.get('/members', async (_req, res) => {
     const members = await (res.locals.orgs as OrganizationRepository).listMembers(res.locals.organizationId as string);
-    res.json(members);
+    const serviceDb = getServiceDb();
+    if (!serviceDb || members.length === 0) {
+      res.json(members);
+      return;
+    }
+    const { data: profiles } = await serviceDb
+      .from('profiles')
+      .select('user_id,display_name')
+      .in('user_id', members.map((member) => member.user_id));
+    const names = new Map((profiles ?? []).map((profile) => [profile.user_id, profile.display_name]));
+    res.json(members.map((member) => ({ ...member, display_name: names.get(member.user_id) ?? null })));
   });
 
-  orgRoutes.patch('/members/:userId', requireAdmin, async (req, res) => {
+  orgRoutes.patch('/members/:userId', requireOrgCapability('team:manage'), requireAdmin, async (req, res) => {
     const userId = z.uuid().parse(req.params.userId);
     const body = z.object({ role: memberRoleSchema }).parse(req.body);
     const updated = await (res.locals.orgs as OrganizationRepository).updateMemberRole(
@@ -941,7 +971,7 @@ export function createApp(config: ApiConfig = {}): Express {
     res.json(updated);
   });
 
-  orgRoutes.delete('/members/:userId', requireAdmin, async (req, res) => {
+  orgRoutes.delete('/members/:userId', requireOrgCapability('team:manage'), requireAdmin, async (req, res) => {
     const userId = z.uuid().parse(req.params.userId);
     const result = await (res.locals.orgs as OrganizationRepository).removeMember(
       res.locals.organizationId as string,
@@ -951,12 +981,12 @@ export function createApp(config: ApiConfig = {}): Express {
   });
 
   // Invitations
-  orgRoutes.get('/invitations', requireAdmin, async (_req, res) => {
+  orgRoutes.get('/invitations', requireOrgCapability('team:manage'), requireAdmin, async (_req, res) => {
     const list = await (res.locals.orgs as OrganizationRepository).listInvitations(res.locals.organizationId as string);
     res.json(list);
   });
 
-  orgRoutes.post('/invitations', requireAdmin, async (req, res) => {
+  orgRoutes.post('/invitations', requireOrgCapability('team:manage'), requireAdmin, async (req, res) => {
     const body = z.object({
       email: z.string().email(),
       role: memberRoleSchema.default('viewer'),
@@ -979,12 +1009,12 @@ export function createApp(config: ApiConfig = {}): Express {
   });
 
   // API Keys
-  orgRoutes.get('/api-keys', requireAdmin, async (_req, res) => {
+  orgRoutes.get('/api-keys', requireOrgCapability('apikeys:manage'), requireAdmin, async (_req, res) => {
     const list = await (res.locals.orgs as OrganizationRepository).listApiKeys(res.locals.organizationId as string);
     res.json(list);
   });
 
-  orgRoutes.post('/api-keys', requireAdmin, async (req, res) => {
+  orgRoutes.post('/api-keys', requireOrgCapability('apikeys:manage'), requireAdmin, async (req, res) => {
     const body = z.object({
       name: z.string().min(1).max(80),
       role: memberRoleSchema.default('viewer'),
@@ -1001,7 +1031,7 @@ export function createApp(config: ApiConfig = {}): Express {
     res.status(201).json(keyResult);
   });
 
-  orgRoutes.delete('/api-keys/:keyId', requireAdmin, async (req, res) => {
+  orgRoutes.delete('/api-keys/:keyId', requireOrgCapability('apikeys:manage'), requireAdmin, async (req, res) => {
     const keyId = z.uuid().parse(req.params.keyId);
     const result = await (res.locals.orgs as OrganizationRepository).deleteApiKey(
       res.locals.organizationId as string,
@@ -1013,6 +1043,7 @@ export function createApp(config: ApiConfig = {}): Express {
   const getServiceDb = () => (config.serviceRoleKey && config.supabaseUrl ? serviceDatabase(config.supabaseUrl, config.serviceRoleKey) : undefined);
 
   // WhatsApp Connections
+  orgRoutes.use('/connections', requireOrgCapability('instances:manage'));
   const createConnectionSchema = z.object({
     name: z.string().trim().min(1).max(100),
     provider: z.enum(['evolution', 'meta']),
@@ -1408,7 +1439,7 @@ export function createApp(config: ApiConfig = {}): Express {
   // Active flow bindings must use the same resolver as inbound turns. In particular,
   // an agent can pin an immutable version that differs from flows.published_version_id;
   // showing the draft or a global fallback here would make the UI lie about production.
-  orgRoutes.get('/active-flows', checkScope('flows:read'), async (_req, res) => {
+  orgRoutes.get('/active-flows', requireOrgCapability('flows:read'), checkScope('flows:read'), async (_req, res) => {
     const organizationId = res.locals.organizationId as string;
     const db = res.locals.db;
     const { data: connections, error } = await db
@@ -1443,7 +1474,7 @@ export function createApp(config: ApiConfig = {}): Express {
   });
 
   // Flows
-  orgRoutes.get('/flows', checkScope('flows:read'), async (_req, res) => {
+  orgRoutes.get('/flows', requireOrgCapability('flows:read'), checkScope('flows:read'), async (_req, res) => {
     res.json(await (res.locals.flows as FlowRepository).list());
   });
   orgRoutes.use((req, res, next) => {
@@ -1453,16 +1484,16 @@ export function createApp(config: ApiConfig = {}): Express {
     }
     next();
   });
-  orgRoutes.post('/flows', checkScope('flows:write'), async (req, res) => {
+  orgRoutes.post('/flows', requireOrgCapability('flows:edit'), checkScope('flows:write'), async (req, res) => {
     const body = saveFlowSchema.parse(req.body);
     res.status(201).json(await (res.locals.flows as FlowRepository).create(body.name, body.graph));
   });
-  orgRoutes.put('/flows/:flowId', checkScope('flows:write'), async (req, res) => {
+  orgRoutes.put('/flows/:flowId', requireOrgCapability('flows:edit'), checkScope('flows:write'), async (req, res) => {
     const flowId = z.uuid().parse(req.params.flowId);
     const body = saveFlowSchema.parse(req.body);
     res.json(await (res.locals.flows as FlowRepository).update(flowId, body.name, body.graph));
   });
-  orgRoutes.post('/flows/:flowId/publish', checkScope('flows:write'), async (req, res) => {
+  orgRoutes.post('/flows/:flowId/publish', requireOrgCapability('flows:publish'), checkScope('flows:write'), async (req, res) => {
     const flowId = z.uuid().parse(req.params.flowId);
     // The builder sends { graph, targetInstance } while API clients may send the
     // graph directly. Accept both shapes so publishing cannot silently discard
@@ -1534,7 +1565,7 @@ export function createApp(config: ApiConfig = {}): Express {
     limit: z.coerce.number().int().min(1).max(200).optional(),
     offset: z.coerce.number().int().min(0).optional(),
   });
-  orgRoutes.get('/executions', requireAdmin, checkScope('executions:read'), async (req, res) => {
+  orgRoutes.get('/executions', requireOrgCapability('flows:read'), requireAdmin, checkScope('executions:read'), async (req, res) => {
     const parsedQuery = listExecutionsQuerySchema.safeParse(req.query);
     if (!parsedQuery.success) {
       res.status(400).json({ error: parsedQuery.error.issues[0]?.message || 'Parâmetros inválidos.' });
@@ -1553,7 +1584,7 @@ export function createApp(config: ApiConfig = {}): Express {
     res.json({ ...result, limit: limit ?? 50, offset: offset ?? 0 });
   });
 
-  orgRoutes.get('/executions/:executionId', requireAdmin, checkScope('executions:read'), async (req, res) => {
+  orgRoutes.get('/executions/:executionId', requireOrgCapability('flows:read'), requireAdmin, checkScope('executions:read'), async (req, res) => {
     const executionId = z.uuid().parse(req.params.executionId);
     const organizationId = res.locals.organizationId as string;
     const db = getServiceDb() || res.locals.db;
@@ -1573,7 +1604,7 @@ export function createApp(config: ApiConfig = {}): Express {
     });
   });
 
-  orgRoutes.post('/executions/:executionId/replay', requireAdmin, checkScope('executions:write'), async (req, res) => {
+  orgRoutes.post('/executions/:executionId/replay', requireOrgCapability('flows:read'), requireAdmin, checkScope('executions:write'), async (req, res) => {
     const executionId = z.uuid().parse(req.params.executionId);
     const execRepo = res.locals.executions as ExecutionRepository;
     const execution = await execRepo.getExecution(executionId, res.locals.organizationId as string);
@@ -1713,7 +1744,7 @@ export function createApp(config: ApiConfig = {}): Express {
     }).optional(),
   });
 
-  orgRoutes.post('/flows/:id/playground', checkScope('flows:read'), async (req, res) => {
+  orgRoutes.post('/flows/:id/playground', requireOrgCapability('flows:read'), checkScope('flows:read'), async (req, res) => {
     const flowId = z.uuid().parse(req.params.id);
     const body = playgroundSchema.parse(req.body);
     const orgId = res.locals.organizationId as string;

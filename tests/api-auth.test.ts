@@ -9,7 +9,7 @@ const actor='00000000-0000-4000-8000-000000000002';
 const flow='00000000-0000-4000-8000-000000000003';
 const config={supabaseUrl:'https://example.supabase.co',anonKey:'public-test-key',serviceRoleKey:'private-test-key'};
 function identity(role:string|null='admin',valid=true) {
-  const chain={select:vi.fn(),eq:vi.fn(),maybeSingle:vi.fn().mockResolvedValue({data:role ? {role}:null,error:null})};
+  const chain={select:vi.fn(),eq:vi.fn(),maybeSingle:vi.fn().mockResolvedValue({data:role ? {role,status:'active'}:null,error:null})};
   chain.select.mockReturnValue(chain); chain.eq.mockReturnValue(chain);
   return vi.spyOn(database,'userDatabase').mockReturnValue({
     auth:{getUser:vi.fn().mockResolvedValue({data:{user:valid ? {id:actor}:null},error:valid ? null:new Error('expired')})},

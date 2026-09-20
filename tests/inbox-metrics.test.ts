@@ -397,7 +397,7 @@ describe('Phase 6 — Live Inbox, Metrics Dashboard, Daily Rollup & CSV Export',
       const mockChain = {
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
-        maybeSingle: vi.fn().mockResolvedValue({ data: { role: 'owner' }, error: null }),
+        maybeSingle: vi.fn().mockResolvedValue({ data: { role: 'admin', status: 'active' }, error: null }),
       };
 
       vi.spyOn(database, 'userDatabase').mockReturnValue({

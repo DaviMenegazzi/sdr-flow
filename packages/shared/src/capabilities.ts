@@ -3,6 +3,9 @@ import { z } from 'zod';
 export const memberRoleSchema = z.enum(['owner', 'admin', 'agent', 'viewer']);
 export type MemberRole = z.infer<typeof memberRoleSchema>;
 
+export const accountRoleSchema = z.enum(['admin', 'client']);
+export type AccountRole = z.infer<typeof accountRoleSchema>;
+
 export const orgTiers = ['pre-venda', 'vendedor', 'vendedor-senior'] as const;
 export type OrgTier = (typeof orgTiers)[number];
 export const orgTierSchema = z.enum(orgTiers);
@@ -133,6 +136,30 @@ export const CAPABILITIES: Record<OrgTier, Record<MemberRole, readonly Capabilit
 
 export function getCapabilities(tier: OrgTier, role: MemberRole): readonly Capability[] {
   return CAPABILITIES[tier]?.[role] ?? [];
+}
+
+const CLIENT_FORBIDDEN_CAPABILITIES = new Set<Capability>([
+  'instances:manage',
+  'flows:read',
+  'flows:edit',
+  'flows:publish',
+  'team:manage',
+  'apikeys:manage',
+]);
+
+/**
+ * Platform clients never inherit administrative product surfaces merely because
+ * their organization membership was accidentally elevated to owner/admin.
+ * The account role is trusted server data from public.profiles, not user metadata.
+ */
+export function getAccountCapabilities(
+  accountRole: AccountRole,
+  tier: OrgTier,
+  memberRole: MemberRole,
+): readonly Capability[] {
+  const memberCapabilities = getCapabilities(tier, memberRole);
+  if (accountRole === 'admin') return memberCapabilities;
+  return memberCapabilities.filter((capability) => !CLIENT_FORBIDDEN_CAPABILITIES.has(capability));
 }
 
 export function hasCapability(tier: OrgTier, role: MemberRole, capability: Capability): boolean {

@@ -18,8 +18,19 @@ interface Org {
 interface Member {
   organization_id: string;
   user_id: string;
+  display_name?: string | null;
   role: MemberRole;
   created_at: string;
+}
+
+interface AgentSummary {
+  id: string;
+  name: string;
+  description?: string | null;
+  status: string;
+  provider: string;
+  model: string;
+  is_default?: boolean;
 }
 
 interface Invitation {
@@ -260,6 +271,7 @@ export function Settings() {
   const [loadingTeam, setLoadingTeam] = useState(true);
 
   const [members, setMembers] = useState<Member[]>([]);
+  const [availableAgents, setAvailableAgents] = useState<AgentSummary[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<MemberRole>('viewer');
@@ -281,6 +293,7 @@ export function Settings() {
 
   const isAdminOrOwner = activeRole === 'owner' || activeRole === 'admin';
   const isPlatformAdmin = profile?.platformRole === 'admin' || profile?.role === 'admin';
+  const canManageTeam = isPlatformAdmin && isAdminOrOwner;
   const activeOrganization = organizations.find((org) => org.id === activeOrg);
 
   useEffect(() => {
@@ -289,7 +302,11 @@ export function Settings() {
       return;
     }
     void loadTeamData();
-  }, [activeOrg, session?.access_token]);
+  }, [activeOrg, session?.access_token, isPlatformAdmin]);
+
+  useEffect(() => {
+    if (!isPlatformAdmin && settingsTab !== 'team') setSettingsTab('team');
+  }, [isPlatformAdmin, settingsTab]);
 
   useEffect(() => {
     if (activeTier) setLoginOrgTier(activeTier);
@@ -300,16 +317,25 @@ export function Settings() {
     setLoadingTeam(true);
     try {
       const headers = { Authorization: `Bearer ${session.access_token}` };
-      const [membersRes, invitesRes, keysRes] = await Promise.all([
+      const [membersRes, agentsRes, invitesRes, keysRes] = await Promise.all([
         fetch(`/api/organizations/${activeOrg}/members`, { headers }),
-        fetch(`/api/organizations/${activeOrg}/invitations`, { headers }),
-        fetch(`/api/organizations/${activeOrg}/api-keys`, { headers }),
+        fetch('/api/me/agents', { headers: { ...headers, 'X-Organization-Id': activeOrg } }),
+        isPlatformAdmin
+          ? fetch(`/api/organizations/${activeOrg}/invitations`, { headers })
+          : Promise.resolve(null),
+        isPlatformAdmin
+          ? fetch(`/api/organizations/${activeOrg}/api-keys`, { headers })
+          : Promise.resolve(null),
       ]);
 
       if (!membersRes.ok) return false;
       setMembers(await membersRes.json());
-      if (invitesRes.ok) setInvitations(await invitesRes.json());
-      if (keysRes.ok) setApiKeys(await keysRes.json());
+      if (agentsRes.ok) {
+        const payload = await agentsRes.json();
+        setAvailableAgents(Array.isArray(payload?.agents) ? payload.agents : []);
+      }
+      if (invitesRes?.ok) setInvitations(await invitesRes.json());
+      if (keysRes?.ok) setApiKeys(await keysRes.json());
       return true;
     } catch {
       // API may be offline in dev
@@ -786,24 +812,28 @@ export function Settings() {
             >
               Time & Membros
             </button>
-            <button
-              className={settingsTab === 'invitations' ? 'primary' : ''}
-              onClick={() => setSettingsTab('invitations')}
-            >
-              Convites
-            </button>
-            <button
-              className={settingsTab === 'api-keys' ? 'primary' : ''}
-              onClick={() => setSettingsTab('api-keys')}
-            >
-              Chaves de API (S2S)
-            </button>
-            <button
-              className={settingsTab === 'new-org' ? 'primary' : ''}
-              onClick={() => setSettingsTab('new-org')}
-            >
-              + Nova Organização
-            </button>
+            {isPlatformAdmin && (
+              <>
+                <button
+                  className={settingsTab === 'invitations' ? 'primary' : ''}
+                  onClick={() => setSettingsTab('invitations')}
+                >
+                  Convites
+                </button>
+                <button
+                  className={settingsTab === 'api-keys' ? 'primary' : ''}
+                  onClick={() => setSettingsTab('api-keys')}
+                >
+                  Chaves de API (S2S)
+                </button>
+                <button
+                  className={settingsTab === 'new-org' ? 'primary' : ''}
+                  onClick={() => setSettingsTab('new-org')}
+                >
+                  + Nova Organização
+                </button>
+              </>
+            )}
           </div>
 
           {settingsTab === 'team' && (
@@ -845,7 +875,7 @@ export function Settings() {
 
               {loadingTeam ? (
                 <Card className="mt-3 p-0">
-                  <TableSkeleton columns={isAdminOrOwner ? 4 : 3} rows={4} />
+                  <TableSkeleton columns={canManageTeam ? 4 : 3} rows={4} />
                 </Card>
               ) : members.length === 0 ? (
                 <p className="muted">Nenhum membro encontrado ou sem permissão de visualização.</p>
@@ -857,17 +887,17 @@ export function Settings() {
                         <th style={{ padding: '10px 14px' }}>ID do Usuário</th>
                         <th style={{ padding: '10px 14px' }}>Papel</th>
                         <th style={{ padding: '10px 14px' }}>Data de Ingresso</th>
-                        {isAdminOrOwner && <th style={{ padding: '10px 14px', textAlign: 'right' }}>Ações</th>}
+                        {canManageTeam && <th style={{ padding: '10px 14px', textAlign: 'right' }}>Ações</th>}
                       </tr>
                     </thead>
                     <tbody>
                       {members.map((m) => (
                         <tr key={m.user_id} style={{ borderTop: '1px solid var(--color-border-secondary)' }}>
                           <td style={{ padding: '10px 14px', fontFamily: 'monospace' }}>
-                            {m.user_id} {m.user_id === session.user.id && '(Você)'}
+                            {m.display_name || m.user_id} {m.user_id === session.user.id && '(Você)'}
                           </td>
                           <td style={{ padding: '10px 14px' }}>
-                            {isAdminOrOwner && m.user_id !== session.user.id ? (
+                            {canManageTeam && m.user_id !== session.user.id ? (
                               <select
                                 value={m.role}
                                 onChange={(e) => handleUpdateMemberRole(m.user_id, e.target.value as MemberRole)}
@@ -883,7 +913,7 @@ export function Settings() {
                             )}
                           </td>
                           <td style={{ padding: '10px 14px' }}>{new Date(m.created_at).toLocaleDateString()}</td>
-                          {isAdminOrOwner && (
+                          {canManageTeam && (
                             <td style={{ padding: '10px 14px', textAlign: 'right' }}>
                               {m.user_id !== session.user.id && (
                                 <button
@@ -902,12 +932,48 @@ export function Settings() {
                   </table>
                 </div>
               )}
+
+              <div style={{ marginTop: 28 }}>
+                <h2>Agentes disponíveis</h2>
+                <p className="muted">Agentes de IA ativos nesta organização.</p>
+                {loadingTeam ? (
+                  <Card className="mt-3 p-0">
+                    <TableSkeleton columns={3} rows={3} />
+                  </Card>
+                ) : availableAgents.length === 0 ? (
+                  <p className="muted">Nenhum agente disponível nesta organização.</p>
+                ) : (
+                  <div style={{ border: '1px solid var(--color-border-secondary)', borderRadius: 8, overflow: 'hidden', marginTop: 12 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ background: 'var(--color-bg-secondary)', textAlign: 'left' }}>
+                          <th style={{ padding: '10px 14px' }}>Agente</th>
+                          <th style={{ padding: '10px 14px' }}>Modelo</th>
+                          <th style={{ padding: '10px 14px' }}>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {availableAgents.map((agent) => (
+                          <tr key={agent.id} style={{ borderTop: '1px solid var(--color-border-secondary)' }}>
+                            <td style={{ padding: '10px 14px' }}>
+                              <strong>{agent.name}</strong>
+                              {agent.description && <div className="muted">{agent.description}</div>}
+                            </td>
+                            <td style={{ padding: '10px 14px' }}>{agent.provider} · {agent.model}</td>
+                            <td style={{ padding: '10px 14px' }}><span className="badge">{agent.status}</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
-          {settingsTab === 'invitations' && (
+          {isPlatformAdmin && settingsTab === 'invitations' && (
             <div style={{ marginTop: 20 }}>
-              {isAdminOrOwner && (
+              {canManageTeam && (
                 <form className="settings-form" onSubmit={handleSendInvitation} style={{ marginBottom: 30 }}>
                   <h2>Convidar novo membro</h2>
                   <label>
@@ -991,7 +1057,7 @@ export function Settings() {
             </div>
           )}
 
-          {settingsTab === 'api-keys' && (
+          {isPlatformAdmin && settingsTab === 'api-keys' && (
             <div style={{ marginTop: 20 }}>
               <div className="runtime-note" style={{ marginBottom: 20 }}>
                 <strong>Chaves Servidor-a-Servidor (S2S):</strong> Utilize para integrar webhooks, pipelines e automações via cabeçalho <code>X-API-Key: sdr_live_...</code>.
@@ -1018,7 +1084,7 @@ export function Settings() {
                 </div>
               )}
 
-              {isAdminOrOwner && (
+              {canManageTeam && (
                 <form className="settings-form" onSubmit={handleCreateApiKey} style={{ marginBottom: 30 }}>
                   <h2>Criar nova Chave de API</h2>
                   <label>
@@ -1118,7 +1184,7 @@ export function Settings() {
             </div>
           )}
 
-          {settingsTab === 'new-org' && (
+          {isPlatformAdmin && settingsTab === 'new-org' && (
             <form className="settings-form" onSubmit={createOrg}>
               <h2>Criar nova Organização</h2>
               <p className="muted">Você se tornará o proprietário (owner) da nova organização com controle administrativo pleno.</p>
