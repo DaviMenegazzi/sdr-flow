@@ -61,8 +61,8 @@ const COLLECTIONS: CollectionMeta[] = [
     icon: CreditCard,
     tagColor: '#2ee86b',
     badgeBg: 'rgba(46, 232, 107, 0.12)',
-    description: 'Tabelas de mensalidades, taxas de adesão, coparticipação e condições de pagamento.',
-    placeholderTitle: 'Ex: Tabela de Preços Vida Card Individual e Familiar 2026',
+    description: 'Preços, taxas, condições de pagamento e validade das ofertas.',
+    placeholderTitle: 'Ex: Preços e condições atualizados',
     exampleContent: `Plano Familiar Vida Card:
 • Mensalidade: R$ 89,90 por mês (inclui titular + até 4 dependentes diretos).
 • Taxa de adesão: R$ 30,00 (isenção temporária na adesão online).
@@ -77,8 +77,8 @@ const COLLECTIONS: CollectionMeta[] = [
     icon: Stethoscope,
     tagColor: '#38bdf8',
     badgeBg: 'rgba(56, 189, 248, 0.12)',
-    description: 'Especialidades médicas disponíveis, exames laboratoriais e procedimentos cobertos.',
-    placeholderTitle: 'Ex: Especialidades Médicas e Exames Atendidos na Região',
+    description: 'Produtos, serviços, características e áreas atendidas.',
+    placeholderTitle: 'Ex: Produtos e serviços disponíveis',
     exampleContent: `Especialidades e Cobertura de Atendimento:
 • Médicos especialistas: Clínica Geral, Pediatria, Ginecologia/Obstetrícia, Ortopedia, Oftalmologia, Cardiologia e Dermatologia.
 • Odontologia: Avaliação, profilaxia (limpeza), restaurações e tratamento de canal com valores reduzidos.
@@ -91,8 +91,8 @@ const COLLECTIONS: CollectionMeta[] = [
     icon: HelpCircle,
     tagColor: '#a855f7',
     badgeBg: 'rgba(168, 85, 247, 0.12)',
-    description: 'Carências, agendamento de consultas, dependentes permitidos e horários.',
-    placeholderTitle: 'Ex: Regras de Carência para Consultas e Procedimentos',
+    description: 'Perguntas comuns dos clientes e respostas confirmadas.',
+    placeholderTitle: 'Ex: Como funciona o atendimento?',
     exampleContent: `Prazos de Carência e Regras de Agendamento:
 • Consultas médicas gerais: Sem carência! Podem ser agendadas logo após a confirmação da contratação.
 • Exames laboratoriais básicos: Sem carência.
@@ -106,8 +106,8 @@ const COLLECTIONS: CollectionMeta[] = [
     icon: ShieldAlert,
     tagColor: '#f59e0b',
     badgeBg: 'rgba(245, 158, 11, 0.12)',
-    description: 'Respostas persuasivas para "está caro", "já tenho convênio", "vou pensar".',
-    placeholderTitle: 'Ex: Como contornar quando o lead achar o plano caro',
+    description: 'Respostas a dúvidas e objeções comuns durante a venda.',
+    placeholderTitle: 'Ex: Como responder à dúvida sobre preço',
     exampleContent: `Argumentação de Economia e Custo-Benefício:
 • Uma consulta particular avulsa na rede privada custa entre R$ 250,00 e R$ 450,00.
 • Com o Vida Card por apenas R$ 89,90/mês para a família inteira, a consulta sai por apenas R$ 45,00.
@@ -121,8 +121,8 @@ const COLLECTIONS: CollectionMeta[] = [
     icon: FileText,
     tagColor: '#94a3b8',
     badgeBg: 'rgba(148, 163, 184, 0.12)',
-    description: 'Termos contratuais, horários de plantão, unidades físicas e cancelamento.',
-    placeholderTitle: 'Ex: Horários de Atendimento e Política de Cancelamento',
+    description: 'Termos, horários, localização e políticas da empresa.',
+    placeholderTitle: 'Ex: Horários e política de cancelamento',
     exampleContent: `Informações Institucionais e Diretrizes:
 • Horário de atendimento presencial das unidades: Segunda a sexta das 08h00 às 18h30; sábados das 08h00 às 12h00.
 • Atendimento de urgência e telemedicina: 24 horas por dia, 7 dias por semana pelo app oficial.
@@ -210,14 +210,6 @@ export function KnowledgePage() {
     setModalContent(doc.content);
     setModalError(null);
     setShowAddModal(true);
-  }
-
-  function applyExampleTemplate(colId: string) {
-    const meta = COLLECTIONS.find(c => c.id === colId);
-    if (!meta) return;
-    setModalCollection(meta.id);
-    setModalTitle(meta.placeholderTitle.replace(/^Ex:\s*/i, ''));
-    setModalContent(meta.exampleContent);
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -346,8 +338,8 @@ export function KnowledgePage() {
               Base de Conhecimento do SDR
             </h1>
             <p className="text-sm text-content-secondary max-w-2xl mt-1">
-              Tabelas de valores, planos, especialidades, regras de carência e respostas para objeções.
-              A IA consulta estes dados antes de responder aos clientes no WhatsApp, garantindo respostas com 100% de precisão e zero alucinações.
+              Cadastre informações confirmadas sobre produtos, preços, políticas e dúvidas frequentes.
+              O agente consulta os trechos relevantes durante o atendimento.
             </p>
           </div>
 
@@ -613,7 +605,7 @@ export function KnowledgePage() {
                       {new Date(doc.created_at).toLocaleDateString('pt-BR')}
                     </span>
 
-                    <div className="flex items-center gap-1.5">
+                    {doc.metadata?.training_fact_id ? <span className="text-[11px] text-content-muted">Gerenciado em Treinar meu SDR</span> : <div className="flex items-center gap-1.5">
                       <Button
                         type="button"
                         variant="outline"
@@ -631,7 +623,7 @@ export function KnowledgePage() {
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
-                    </div>
+                    </div>}
                   </div>
                 </Card>
               );
@@ -715,15 +707,6 @@ export function KnowledgePage() {
                       <Lightbulb className="w-3.5 h-3.5 text-brand shrink-0" />
                       <span><strong className="text-content">{currentMeta.name}:</strong> {currentMeta.description}</span>
                     </span>
-                    {!editingDocId && (
-                      <button
-                        type="button"
-                        onClick={() => applyExampleTemplate(modalCollection)}
-                        className="text-xs font-semibold text-brand hover:underline flex items-center gap-1 shrink-0"
-                      >
-                        <Sparkles className="w-3.5 h-3.5" /> Carregar Exemplo Pronto
-                      </button>
-                    )}
                   </div>
                 </div>
 
@@ -764,7 +747,7 @@ export function KnowledgePage() {
                     className="w-full bg-surface border border-border rounded-lg text-content p-3 text-xs leading-relaxed focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand resize-y font-mono"
                   />
                   <div className="mt-1.5 flex justify-between items-center text-[11px] text-content-muted">
-                    <span>A IA usará este texto como fonte inquestionável de verdade (Grounding) para não alucinar valores.</span>
+                    <span>Revise preços e condições antes de salvar. O agente pode usar este conteúdo como referência.</span>
                     <span>Markdown suportado (•, -, #)</span>
                   </div>
                 </div>

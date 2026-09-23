@@ -13,6 +13,7 @@ export interface PlaygroundInput {
   graph: FlowGraph;
   organizationId: string;
   message: string;
+  variables?: Record<string, unknown>;
   lead?: {
     name?: string;
     phone?: string;
@@ -43,10 +44,10 @@ export async function runPlayground(input: PlaygroundInput): Promise<PlaygroundR
   let capturedPrompt: string | undefined;
 
   const leadPhone = input.lead?.phone || '+5511999999999';
-  const leadName = input.lead?.name ?? 'Lead de Teste';
-  const leadCity = input.lead?.city ?? 'São Paulo';
-  const leadInterest = input.lead?.interest ?? 'Plano Familiar';
-  const leadUrgency = input.lead?.urgency ?? 'alta';
+  const leadName = input.lead?.name ?? 'Cliente de teste';
+  const leadCity = input.lead?.city ?? '';
+  const leadInterest = input.lead?.interest ?? '';
+  const leadUrgency = input.lead?.urgency ?? '';
 
   const leadContext: FlowContextLead = {
     id: crypto.randomUUID(),
@@ -90,7 +91,7 @@ export async function runPlayground(input: PlaygroundInput): Promise<PlaygroundR
         fromMe: false,
       },
     ],
-    variables: {},
+    variables: input.variables ?? {},
     tokens: { input: 0, output: 0 },
   };
 

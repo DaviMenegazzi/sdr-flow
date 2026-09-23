@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Bot, Send, User, Sparkles, MessageSquare, AlertCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Bot, Send, User } from 'lucide-react';
 import { Modal, Button, Badge } from '../components/ui';
+import { useSession } from '../session';
 import type { Agent } from './types';
 
 interface AgentPlaygroundModalProps {
@@ -14,22 +15,18 @@ export function AgentPlaygroundModal({
   onClose,
   agent,
 }: AgentPlaygroundModalProps) {
+  const { session } = useSession();
   const [messages, setMessages] = useState<
     Array<{ role: 'user' | 'assistant'; content: string; time: string }>
-  >([
-    {
-      role: 'assistant',
-      content:
-        'Olá! Sou o assistente virtual da VidaCard. Como posso te ajudar hoje?',
-      time: 'Agora',
-    },
-  ]);
+  >([]);
   const [input, setInput] = useState('');
   const [simulating, setSimulating] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => { setMessages([]); setError(''); }, [agent?.id]);
 
   if (!agent) return null;
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim() || simulating) return;
     const userText = input.trim();
     setInput('');
@@ -42,16 +39,18 @@ export function AgentPlaygroundModal({
 
     setMessages((prev) => [...prev, userMsg]);
     setSimulating(true);
-
-    // Simulação visual de resposta do agente
-    setTimeout(() => {
-      let reply = 'Entendido! Nós oferecemos planos individuais e familiares com consultas a partir de R$ 35,00 e ampla rede credenciada. Quantas pessoas fariam parte do plano com você?';
-      if (userText.toLowerCase().includes('preço') || userText.toLowerCase().includes('valor')) {
-        reply = 'Nossos planos iniciam em apenas R$ 29,90 por mês com cobertura ambulatorial e descontos em farmácias. Gostaria que eu simulasse os valores para a sua família?';
-      } else if (userText.toLowerCase().includes('humano') || userText.toLowerCase().includes('atendente')) {
-        reply = 'Com certeza! Estou transferindo seu atendimento para um de nossos especialistas humanos. Um instante!';
-      }
-
+    setError('');
+    try {
+      const response = await fetch(`/api/me/agents/${agent.id}/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
+        body: JSON.stringify({ message: userText }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Não foi possível testar o agente.');
+      if (result.status === 'failed') throw new Error(result.error || 'O fluxo falhou durante o teste.');
+      const reply = result.sentMessages?.filter((message: { type: string }) => message.type === 'text').map((message: { content: string }) => message.content).join('\n') || result.decision?.reply;
+      if (!reply) throw new Error('O fluxo terminou sem produzir uma resposta de texto.');
       setMessages((prev) => [
         ...prev,
         {
@@ -60,8 +59,11 @@ export function AgentPlaygroundModal({
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Falha ao testar o agente.');
+    } finally {
       setSimulating(false);
-    }, 900);
+    }
   };
 
   return (
@@ -81,12 +83,13 @@ export function AgentPlaygroundModal({
             {agent.model}
           </Badge>
           <span className="text-[11px] text-content-muted">
-            Ambiente de teste para validação de tom de voz e respostas
+            Cada pergunta executa um teste independente do fluxo publicado
           </span>
         </div>
       }
     >
       <div className="flex flex-col h-[420px]">
+        {error && <p role="alert" className="text-xs text-danger mb-3">{error}</p>}
         {/* Chat area */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-canvas/60 rounded-xl border border-border">
           {messages.map((m, idx) => {

@@ -5,6 +5,8 @@ export interface Agent {
   provider: string;
   model: string;
   system_prompt: string;
+  flow_id?: string | null;
+  active_flow_version_id?: string | null;
   tool_policy: Record<string, unknown>;
   model_config: Record<string, unknown>;
   is_default: boolean;

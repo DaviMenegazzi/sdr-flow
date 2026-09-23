@@ -12,7 +12,7 @@ export function createSdrTemplate(): FlowGraph {
   const pipeline: Array<[string, NodeType]> = [
     ['start', 'trigger.message_received'], ['test', 'guard.test_mode'], ['chat', 'guard.chat_type'],
     ['human', 'guard.human_takeover'], ['phone', 'input.normalize'], ['buffer', 'input.buffer'],
-    ['media', 'input.media'], ['memory', 'context.memory'], ['decide', 'agent.decide'],
+    ['media', 'input.media'], ['memory', 'context.memory'], ['knowledge', 'context.knowledge'], ['decide', 'agent.decide'],
     ['lead', 'action.update_lead'], ['stage', 'action.update_stage'], ['crm', 'action.crm_sync'], ['branch', 'flow.condition'],
   ];
   const nodes = pipeline.map(([id,type], index) => makeNode(type, id, index * 300, 180));

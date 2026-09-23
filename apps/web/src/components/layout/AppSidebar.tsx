@@ -2,6 +2,7 @@ import React from 'react';
 import { NavLink, Link } from 'react-router-dom';
 import {
   Workflow,
+  Sparkles,
   Radio,
   Users,
   Plug,
@@ -129,6 +130,10 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
             <NavLink to="/knowledge" className={navItemClass}>
               <BookOpen size={16} />
               <span>Base Conhecimento</span>
+            </NavLink>
+            <NavLink to="/training" className={navItemClass}>
+              <Sparkles size={16} />
+              <span>Treinar meu SDR</span>
             </NavLink>
           </div>
         </div>
