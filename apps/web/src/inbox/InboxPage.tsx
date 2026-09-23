@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   MessageSquare,
   Search,
@@ -27,12 +27,21 @@ import {
   Trash2,
   Plus,
   Check,
+  Users,
+  SlidersHorizontal,
+  ArrowLeft,
+  PanelRightClose,
+  PanelRightOpen,
+  MoreHorizontal,
+  Copy,
+  Hash,
 } from 'lucide-react';
 import { messagePreview } from '@sdr/shared';
 import { useSession } from '../session';
 import { useInstance } from '../context/InstanceContext';
 import { buildAgentDebugExport, createAgentDebugFilename } from './debug-export';
-import { Button, Badge, Input, Skeleton, SkeletonText } from '../components/ui';
+import { Button, Input, Skeleton, SkeletonText, EmptyState, IconButton, Popover, DropdownMenu, Select, SegmentedControl, toast } from '../components/ui';
+import { formatDayLabel, formatListTimestamp, formatPhone, formatRelative, formatTime, isSameDay } from '../lib/format';
 import {
   applyRealtimeEvent,
   type ConversationItem,
@@ -88,13 +97,31 @@ interface DebugSession {
 const STAGE_CONFIG: Record<string, { label: string; bg: string; text: string; variant: 'info' | 'warning' | 'accent' | 'success' | 'danger' | 'default' }> = {
   NEW_CONVERSATION: { label: 'Nova Conversa', bg: '#3b82f618', text: '#2563eb', variant: 'info' },
   QUALIFYING: { label: 'Qualificando', bg: '#f59e0b18', text: '#d97706', variant: 'warning' },
-  COLLECTING_INFORMATION: { label: 'Coleta de Info', bg: '#8b5cf618', text: '#7c3aed', variant: 'accent' },
+  COLLECTING_INFORMATION: { label: 'Coletando informações', bg: '#8b5cf618', text: '#7c3aed', variant: 'accent' },
   PRESENTING_SOLUTION: { label: 'Apresentação', bg: '#06b6d418', text: '#0891b2', variant: 'info' },
   NEGOTIATING: { label: 'Negociação', bg: '#ec489918', text: '#db2777', variant: 'warning' },
   CONVERTED: { label: 'Convertido', bg: '#10b98118', text: '#059669', variant: 'success' },
-  HUMAN_HANDOFF: { label: 'Humano / Handoff', bg: '#ef444418', text: '#dc2626', variant: 'danger' },
+  HUMAN_HANDOFF: { label: 'Encaminhado a humano', bg: '#ef444418', text: '#dc2626', variant: 'danger' },
   CLOSED: { label: 'Encerrado', bg: '#6b728018', text: '#4b5563', variant: 'default' },
 };
+
+// Stage dots use one ordinal ramp (earlier → later) plus reserved colors for the two outcomes.
+const STAGE_DOT: Record<string, string> = {
+  NEW_CONVERSATION: 'bg-content-muted',
+  QUALIFYING: 'bg-brand/40',
+  COLLECTING_INFORMATION: 'bg-brand/60',
+  PRESENTING_SOLUTION: 'bg-brand/80',
+  NEGOTIATING: 'bg-brand',
+  CONVERTED: 'bg-success',
+  HUMAN_HANDOFF: 'bg-warning',
+  CLOSED: 'bg-border-strong',
+};
+
+function humanizeKey(key: string) {
+  const last = key.split('.').pop() ?? key;
+  const text = last.replace(/[_-]+/g, ' ').trim();
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
 
 export function InboxPage() {
   const { session, activeOrg } = useSession();
@@ -129,8 +156,10 @@ export function InboxPage() {
   const [showAddMemoryField, setShowAddMemoryField] = useState<boolean>(false);
   const [newMemoryPath, setNewMemoryPath] = useState<string>('');
   const [newMemoryValue, setNewMemoryValue] = useState<string>('');
-  const [contextPanelWidth, setContextPanelWidth] = useState<number>(256);
+  const [contextPanelWidth, setContextPanelWidth] = useState<number>(300);
   const [isResizingContextPanel, setIsResizingContextPanel] = useState(false);
+  // The lead panel is open by default only where there is room for it next to the thread.
+  const [contextOpen, setContextOpen] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth >= 1440);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const contextPanelResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -472,8 +501,10 @@ export function InboxPage() {
       listFailureStreak.current = 0;
       if (detailFailureStreak.current === 0) setSyncStalled(false);
 
+      // On phones the list is its own screen (master/detail), so nothing is auto-opened there.
+      const wideScreen = typeof window === 'undefined' || window.matchMedia('(min-width: 768px)').matches;
       setSelectedId(prev => {
-        if (!prev && list.length > 0 && list[0]) return list[0].id;
+        if (!prev && wideScreen && list.length > 0 && list[0]) return list[0].id;
         return prev;
       });
     } catch (err) {
@@ -816,80 +847,164 @@ export function InboxPage() {
     }
   }
 
+  const displayNameOf = (c: ConversationItem) =>
+    c.lead.is_group ? c.lead.group_subject || c.lead.name || 'Grupo sem nome' : c.lead.name || formatPhone(c.lead.phone);
+  const needsHuman = (c: ConversationItem) => c.handled_by === 'HUMAN' || c.stage === 'HUMAN_HANDOFF';
+  const humanQueue = conversations.filter(needsHuman);
+  const aiList = conversations.filter(c => !needsHuman(c));
+  const orderedIds = [...humanQueue, ...aiList].map(c => c.id);
+  const activeFilterCount = (stageFilter !== 'ALL' ? 1 : 0);
+  const selectedConnection = connections.find(c => c.id === connectionFilter);
+
+  // ↑/↓ move through the list like a mail client; the list container owns the shortcut.
+  const onListKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault();
+    const index = selectedId ? orderedIds.indexOf(selectedId) : -1;
+    const next = orderedIds[event.key === 'ArrowDown' ? Math.min(orderedIds.length - 1, index + 1) : Math.max(0, index - 1)];
+    if (next) {
+      setSelectedId(next);
+      document.getElementById(`conv-${next}`)?.focus();
+    }
+  };
+
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 144)}px`;
+  }, [replyText]);
+
+  const renderRow = (c: ConversationItem) => {
+    const isSelected = c.id === selectedId;
+    const stageConf = STAGE_CONFIG[c.stage];
+    const waiting = needsHuman(c);
+    return (
+      <button
+        key={c.id}
+        id={`conv-${c.id}`}
+        type="button"
+        onClick={() => setSelectedId(c.id)}
+        aria-current={isSelected ? 'true' : undefined}
+        className={`inbox-row flex w-full min-h-0 flex-col items-stretch justify-start gap-1 rounded-none border-0 border-l-2 px-3.5 py-3 text-left outline-none transition-colors focus-visible:bg-surface-elevated ${
+          isSelected ? 'border-l-brand bg-brand/5' : 'border-l-transparent bg-transparent hover:bg-surface-elevated'
+        }`}
+      >
+        <span className="flex w-full items-center gap-2">
+          {c.lead.is_group && <Users className="h-3.5 w-3.5 flex-shrink-0 text-content-muted" aria-label="Grupo" />}
+          <strong className="min-w-0 flex-1 truncate text-xs font-semibold text-content">{displayNameOf(c)}</strong>
+          <span className={`flex-shrink-0 text-2xs tabular-nums ${waiting ? 'font-semibold text-warning' : 'text-content-muted'}`}>
+            {waiting ? formatRelative(c.last_message_at) : formatListTimestamp(c.last_message_at)}
+          </span>
+        </span>
+        <span className="w-full truncate text-2xs text-content-secondary">
+          {c.last_message ? messagePreview(c.last_message.message_type, c.last_message.content) : 'Nenhuma mensagem recente.'}
+        </span>
+        <span className="flex items-center gap-1.5 text-2xs text-content-muted">
+          <span className={`h-1.5 w-1.5 rounded-full ${STAGE_DOT[c.stage] ?? 'bg-content-muted'}`} aria-hidden="true" />
+          {stageConf?.label ?? c.stage}
+          {c.handled_by === 'HUMAN' && (
+            <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-info/30 bg-info/10 px-1.5 text-info">
+              <User className="h-2.5 w-2.5" /> Humano
+            </span>
+          )}
+        </span>
+      </button>
+    );
+  };
+
+  const conversationTitle = selectedConv ? displayNameOf(selectedConv) : '';
+
   return (
-    <div className="inbox-page flex h-full w-full overflow-hidden bg-canvas">
-      {/* LEFT COLUMN: Filters & Conversation List */}
-      <div className="inbox-conversation-list w-80 border-r border-border flex flex-col flex-shrink-0 bg-surface">
-        {/* Inbox Header */}
-        <div className="p-3.5 border-b border-border flex flex-col gap-2.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <MessageSquare className="w-4 h-4 text-brand-fg" />
-              <h2 className="text-sm font-semibold text-content m-0">Inbox</h2>
-              {syncStalled && (
-                <Badge variant="danger" size="sm" className="gap-1">
-                  <AlertCircle className="w-3 h-3" /> Desatualizado
-                </Badge>
-              )}
-            </div>
-            <button
-              onClick={() => {
-                listFailureStreak.current = 0;
-                detailFailureStreak.current = 0;
-                setSyncStalled(false);
-                void loadConversations();
-                if (selectedId) void loadConversationDetail(selectedId);
-              }}
-              className="p-1 rounded text-content-muted hover:text-content hover:bg-surface-muted transition-colors border-0 bg-transparent cursor-pointer"
-              title="Atualizar lista"
+    <div className="inbox-page relative flex h-full w-full overflow-hidden bg-canvas">
+      {/* LEFT: conversation list (full screen on phones until a conversation is opened) */}
+      <section
+        aria-label="Conversas"
+        className={`w-full flex-shrink-0 flex-col border-r border-border bg-surface md:flex md:w-[300px] xl:w-[320px] ${selectedId ? 'hidden' : 'flex'}`}
+      >
+        <div className="flex flex-col gap-2 border-b border-border p-3">
+          <div className="flex items-center gap-2">
+            <Input
+              placeholder="Buscar nome ou telefone"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && void loadConversations()}
+              leftIcon={<Search className="h-3.5 w-3.5 text-content-muted" />}
+              className="!h-8"
+              aria-label="Buscar conversas"
+            />
+            <Popover
+              align="end"
+              width={272}
+              className="p-3"
+              trigger={
+                <Button variant={activeFilterCount ? 'secondary' : 'outline'} size="md" aria-label="Filtros" className="flex-shrink-0 px-2.5">
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                  {activeFilterCount > 0 && <span className="tabular-nums">{activeFilterCount}</span>}
+                </Button>
+              }
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingList ? 'animate-spin' : ''}`} />
-            </button>
+              <div className="flex flex-col gap-3">
+                <label className="flex flex-col gap-1.5 text-2xs font-medium text-content-secondary">
+                  Estágio
+                  <Select
+                    value={stageFilter}
+                    onChange={setStageFilter}
+                    options={[{ value: 'ALL', label: 'Todos os estágios' }, ...Object.entries(STAGE_CONFIG).map(([value, conf]) => ({ value, label: conf.label }))]}
+                  />
+                </label>
+                {activeFilterCount > 0 && (
+                  <button type="button" onClick={() => setStageFilter('ALL')} className="min-h-0 self-start border-0 bg-transparent p-0 text-2xs font-medium text-brand-fg hover:underline">
+                    Limpar filtros
+                  </button>
+                )}
+              </div>
+            </Popover>
           </div>
-
-          {/* Search Input */}
-          <Input
-            placeholder="Buscar por nome, telefone..."
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && void loadConversations()}
-            leftIcon={<Search className="w-3.5 h-3.5 text-content-muted" />}
+          <SegmentedControl
+            fullWidth
+            size="sm"
+            aria-label="Quem atende"
+            value={agentFilter}
+            onChange={setAgentFilter}
+            options={[
+              { value: 'ALL', label: 'Todos', count: agentFilter === 'ALL' ? conversations.length : undefined },
+              { value: 'AI', label: 'IA', count: agentFilter === 'ALL' ? conversations.filter(c => c.handled_by !== 'HUMAN').length : undefined },
+              { value: 'HUMAN', label: 'Humano', count: agentFilter === 'ALL' ? conversations.filter(c => c.handled_by === 'HUMAN').length : undefined },
+            ]}
           />
-
-          {/* Agent Filter Tabs */}
-          <div className="flex p-0.5 bg-surface-muted rounded-lg border border-border/60 gap-1">
-            {(['ALL', 'AI', 'HUMAN'] as const).map(tab => (
+          {connections.length > 1 && (
+            <Select
+              size="sm"
+              appearance="chip"
+              prefix="Instância:"
+              value={connectionFilter}
+              onChange={setConnectionFilter}
+              options={[{ value: 'ALL', label: 'Todas' }, ...connections.map(c => ({ value: c.id, label: c.name }))]}
+            />
+          )}
+          {syncStalled && (
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-warning-border bg-warning-bg px-2.5 py-1.5 text-2xs text-warning">
+              <span className="flex items-center gap-1.5"><AlertCircle className="h-3 w-3" /> Lista desatualizada</span>
               <button
-                key={tab}
-                onClick={() => setAgentFilter(tab)}
-                className={`flex-1 text-xs py-1 rounded-md font-medium transition-colors duration-150 ease-out border-0 cursor-pointer ${
-                  agentFilter === tab
-                    ? 'bg-surface text-content shadow-xs font-semibold'
-                    : 'bg-transparent text-content-muted hover:text-content'
-                }`}
+                type="button"
+                onClick={() => {
+                  listFailureStreak.current = 0;
+                  detailFailureStreak.current = 0;
+                  setSyncStalled(false);
+                  void loadConversations();
+                  if (selectedId) void loadConversationDetail(selectedId);
+                }}
+                className="min-h-0 border-0 bg-transparent p-0 font-semibold text-warning hover:underline"
               >
-                {tab === 'ALL' ? 'Todos' : tab === 'AI' ? 'IA' : 'Humano'}
+                Tentar agora
               </button>
-            ))}
-          </div>
-
-          {/* Stage Filter Dropdown */}
-          <select
-            value={stageFilter}
-            onChange={e => setStageFilter(e.target.value)}
-            className="w-full text-xs py-1.5 px-2.5 bg-surface border border-border rounded-lg text-content focus:outline-none focus:ring-1 focus:ring-brand"
-          >
-            <option value="ALL">Todos os Estágios</option>
-            {Object.entries(STAGE_CONFIG).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v.label}
-              </option>
-            ))}
-          </select>
+            </div>
+          )}
         </div>
 
-        {/* Conversation Cards List */}
-        <div className="flex-1 overflow-y-auto divide-y divide-border/40">
+        <div className="flex-1 overflow-y-auto" onKeyDown={onListKeyDown}>
           {loadingList ? (
             <div role="status" aria-live="polite">
               <span className="sr-only">Carregando conversas…</span>
@@ -899,315 +1014,309 @@ export function InboxPage() {
                     <Skeleton className="h-3.5 w-32" />
                     <Skeleton className="h-2.5 w-9" />
                   </div>
-                  <div className="mb-2 flex gap-1.5">
-                    <Skeleton className="h-5 w-20" rounded="full" />
-                    <Skeleton className="h-5 w-14" rounded="full" />
-                  </div>
-                  <Skeleton className="h-3 w-11/12" />
+                  <Skeleton className="mb-2 h-3 w-11/12" />
+                  <Skeleton className="h-2.5 w-20" />
                 </div>
               ))}
             </div>
           ) : conversations.length === 0 ? (
-            <div className="p-8 text-center text-xs text-content-muted">
-              Nenhuma conversa encontrada neste filtro.
-            </div>
+            <EmptyState
+              icon={<MessageSquare size={18} />}
+              title="Nenhuma conversa aqui"
+              description={activeFilterCount || searchTerm ? 'Tente limpar a busca ou os filtros.' : 'As conversas aparecem assim que um lead escrever no WhatsApp.'}
+            />
           ) : (
-            conversations.map(c => {
-              const isSelected = c.id === selectedId;
-              const stageConf = STAGE_CONFIG[c.stage] || { label: c.stage, variant: 'default' as const };
-              const displayName = c.lead.is_group
-                ? (c.lead.group_subject || c.lead.name || 'Grupo sem nome')
-                : (c.lead.name || c.lead.phone);
-              const timeStr = c.last_message_at
-                ? new Date(c.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                : '';
-
-              return (
-                <div
-                  key={c.id}
-                  onClick={() => setSelectedId(c.id)}
-                  className={`p-3.5 cursor-pointer transition-colors border-l-2 ${
-                    isSelected
-                      ? 'bg-brand/5 border-l-brand'
-                      : 'border-l-transparent hover:bg-surface-muted/60'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <strong className="text-xs font-semibold text-content truncate max-w-[180px]">
-                      {displayName}
-                    </strong>
-                    <span className="text-2xs text-content-muted">{timeStr}</span>
+            <>
+              {humanQueue.length > 0 && (
+                <div>
+                  <div className="sticky top-0 z-[1] flex items-center gap-1.5 bg-surface/95 px-3.5 pb-1 pt-3 text-2xs font-semibold text-warning backdrop-blur">
+                    <UserCheck className="h-3 w-3" /> Atendimento humano · {humanQueue.length}
                   </div>
-
-                  <div className="flex items-center gap-1.5 mb-1.5">
-                    <Badge variant={stageConf.variant} size="sm">
-                      {stageConf.label}
-                    </Badge>
-                    <Badge
-                      variant={c.handled_by === 'HUMAN' ? 'success' : 'accent'}
-                      size="sm"
-                      className="gap-1"
-                    >
-                      {c.handled_by === 'HUMAN' ? <User className="w-2.5 h-2.5" /> : <Sparkles className="w-2.5 h-2.5" />}
-                      {c.handled_by === 'HUMAN' ? 'Humano' : 'IA'}
-                    </Badge>
-                  </div>
-
-                  <p className="text-2xs text-content-muted truncate m-0">
-                    {c.last_message ? messagePreview(c.last_message.message_type, c.last_message.content) : 'Nenhuma mensagem recente.'}
-                  </p>
+                  <div className="divide-y divide-border/50">{humanQueue.map(renderRow)}</div>
                 </div>
-              );
-            })
+              )}
+              {aiList.length > 0 && (
+                <div>
+                  {humanQueue.length > 0 && (
+                    <div className="sticky top-0 z-[1] bg-surface/95 px-3.5 pb-1 pt-3 text-2xs font-semibold text-content-muted backdrop-blur">
+                      Com a IA · {aiList.length}
+                    </div>
+                  )}
+                  <div className="divide-y divide-border/50">{aiList.map(renderRow)}</div>
+                </div>
+              )}
+            </>
           )}
         </div>
-      </div>
+      </section>
 
-      {/* CENTER COLUMN: Chat Thread */}
-      <div className="flex-1 flex flex-col min-w-0 bg-canvas">
-        {!selectedConv && loadingList ? (
+      {/* CENTER: thread */}
+      <section aria-label="Conversa" className={`min-w-0 flex-1 flex-col bg-canvas md:flex ${selectedId ? 'flex' : 'hidden'}`}>
+        {!selectedConv && (loadingList || loadingMessages) ? (
           <div role="status" aria-live="polite" className="flex h-full flex-col">
             <span className="sr-only">Carregando conversa…</span>
-            <div className="flex h-14 items-center justify-between border-b border-border bg-surface px-6" aria-hidden="true">
+            <div className="flex h-14 items-center justify-between border-b border-border bg-surface px-5" aria-hidden="true">
               <SkeletonText lines={2} className="w-56" />
-              <div className="flex gap-2">
-                <Skeleton className="h-8 w-28" />
-                <Skeleton className="h-8 w-32" />
-              </div>
+              <Skeleton className="h-8 w-28" />
             </div>
             <div className="flex flex-1 flex-col gap-5 p-6" aria-hidden="true">
               {Array.from({ length: 5 }, (_, index) => (
                 <div key={index} className={`w-2/3 ${index % 2 ? 'self-end' : 'self-start'}`}>
-                  <Skeleton className={`h-3 w-24 ${index % 2 ? 'ml-auto' : ''}`} />
-                  <Skeleton className={`mt-1.5 h-14 w-full ${index % 2 ? 'rounded-tr-sm' : 'rounded-tl-sm'}`} rounded="lg" />
+                  <Skeleton className="mt-1.5 h-14 w-full" rounded="lg" />
                 </div>
               ))}
-            </div>
-            <div className="flex gap-3 border-t border-border bg-surface p-3.5" aria-hidden="true">
-              <Skeleton className="h-9 flex-1" rounded="lg" />
-              <Skeleton className="h-9 w-24" rounded="lg" />
             </div>
           </div>
         ) : selectedConv ? (
           <>
-            {/* Active Conversation Top Bar */}
-            <div className="inbox-conversation-header h-14 px-6 border-b border-border flex items-center justify-between gap-4 bg-surface flex-shrink-0">
-              <div className="min-w-0">
-                <h2 className="text-sm font-semibold text-content m-0 flex items-center gap-2 truncate">
-                  {selectedConv.lead.is_group
-                    ? (selectedConv.lead.group_subject || selectedConv.lead.name || 'Grupo sem nome')
-                    : (selectedConv.lead.name || 'Lead sem nome')}
-                  <span className="text-xs font-normal text-content-muted">
-                    {selectedConv.lead.phone}
-                  </span>
-                </h2>
-                <div className="flex items-center gap-2 mt-0.5 text-2xs text-content-muted">
-                  {selectedConv.connection && <span>Conexão: {selectedConv.connection.name}</span>}
-                  <span>•</span>
-                  <span>ID: {selectedConv.id.slice(0, 8)}</span>
-                </div>
+            <header className="flex h-14 flex-shrink-0 items-center gap-2 border-b border-border bg-surface px-3 md:px-5">
+              <IconButton
+                className="md:hidden"
+                label="Voltar para a lista"
+                icon={<ArrowLeft size={16} />}
+                onClick={() => {
+                  setSelectedId(null);
+                  setSelectedConv(null);
+                }}
+              />
+              <div className="min-w-0 flex-1">
+                <h2 className="m-0 truncate text-sm font-semibold text-content">{conversationTitle}</h2>
+                <p className="m-0 truncate text-2xs text-content-muted">
+                  {selectedConv.lead.is_group ? 'Grupo' : formatPhone(selectedConv.lead.phone)}
+                  {selectedConv.connection && ` · ${selectedConv.connection.name}`}
+                </p>
               </div>
-
-              <div className="inbox-conversation-actions flex items-center gap-2 flex-shrink-0">
-                <Button
-                  className="inbox-conversation-action"
-                  onClick={() => void openDebug()}
-                  disabled={debugLoading}
-                  variant={debugOpen ? 'primary' : 'outline'}
-                  size="sm"
-                  title="Ouvir e inspecionar a próxima execução do agente nesta conversa"
-                >
-                  {debugLoading ? <LoaderCircle className="animate-spin w-3.5 h-3.5" /> : <Bug className="w-3.5 h-3.5" />}
-                  {debugOpen ? 'Fechar debug' : debugSession?.status === 'armed' ? 'Debug aguardando' : 'Debug do agente'}
-                </Button>
-
-                {/* Stage Dropdown */}
-                <select
-                  value={selectedConv.stage}
-                  onChange={e => handleStageChange(e.target.value)}
-                  className="inbox-stage-select text-xs py-1.5 px-2 bg-surface border border-border rounded-lg text-content focus:outline-none focus:ring-1 focus:ring-brand"
-                >
-                  {Object.entries(STAGE_CONFIG).map(([k, v]) => (
-                    <option key={k} value={k}>
-                      {v.label}
-                    </option>
-                  ))}
-                </select>
-
-                {/* Takeover / Release Button */}
-                {selectedConv.handled_by === 'HUMAN' ? (
-                  <Button
-                    className="inbox-conversation-action"
-                    onClick={handleRelease}
-                    disabled={actionLoading}
-                    variant="accent"
-                    size="sm"
-                    title="Devolver controle para o fluxo de IA"
+              <Popover
+                align="end"
+                width={240}
+                className="p-1"
+                role="listbox"
+                aria-label="Estágio da conversa"
+                trigger={
+                  <button
+                    type="button"
+                    className="flex h-7 min-h-0 flex-shrink-0 items-center gap-1.5 rounded-full border border-border bg-surface-elevated px-2.5 text-xs font-medium text-content hover:border-border-strong"
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    Devolver para IA
-                  </Button>
-                ) : (
-                  <Button
-                    className="inbox-conversation-action"
-                    onClick={handleTakeover}
-                    disabled={actionLoading}
-                    variant="success"
-                    size="sm"
-                    title="Pausar a IA e assumir o atendimento humano"
-                  >
-                    <UserCheck className="w-3.5 h-3.5" />
-                    Assumir Conversa
-                  </Button>
+                    <span className={`h-1.5 w-1.5 rounded-full ${STAGE_DOT[selectedConv.stage] ?? 'bg-content-muted'}`} />
+                    <span className="hidden sm:inline">{STAGE_CONFIG[selectedConv.stage]?.label ?? selectedConv.stage}</span>
+                    <ChevronDown className="h-3 w-3 text-content-muted" />
+                  </button>
+                }
+              >
+                {close => (
+                  <>
+                    <div className="px-2.5 pb-1 pt-2 text-2xs font-medium text-content-muted">Mover para o estágio</div>
+                    {Object.entries(STAGE_CONFIG).map(([value, conf]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        role="option"
+                        aria-selected={value === selectedConv.stage}
+                        onClick={() => {
+                          close();
+                          if (value !== selectedConv.stage) void handleStageChange(value);
+                        }}
+                        className="flex w-full min-h-0 items-center gap-2 rounded-lg border-0 bg-transparent px-2.5 py-2 text-left text-xs text-content hover:bg-surface-elevated focus:bg-surface-elevated"
+                      >
+                        <span className={`h-1.5 w-1.5 rounded-full ${STAGE_DOT[value] ?? 'bg-content-muted'}`} />
+                        <span className="flex-1">{conf.label}</span>
+                        {value === selectedConv.stage && <Check className="h-3.5 w-3.5 text-brand-fg" />}
+                      </button>
+                    ))}
+                  </>
                 )}
-              </div>
-            </div>
+              </Popover>
+              <IconButton
+                label={contextOpen ? 'Ocultar contexto do lead' : 'Mostrar contexto do lead'}
+                icon={contextOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+                onClick={() => {
+                  setContextOpen(open => !open);
+                  if (debugOpen) setDebugOpen(false);
+                }}
+              />
+              <DropdownMenu
+                aria-label="Mais ações da conversa"
+                width={240}
+                trigger={<IconButton label="Mais ações" icon={<MoreHorizontal size={16} />} tooltip={false} />}
+                items={[
+                  {
+                    label: debugOpen ? 'Fechar debug do agente' : 'Debug do agente',
+                    description: 'Acompanhar a próxima resposta, bloco a bloco',
+                    icon: <Bug size={14} />,
+                    onSelect: () => void openDebug(),
+                  },
+                  {
+                    label: 'Copiar telefone',
+                    icon: <Copy size={14} />,
+                    disabled: selectedConv.lead.is_group,
+                    onSelect: () => {
+                      void navigator.clipboard?.writeText(selectedConv.lead.phone);
+                      toast.success('Telefone copiado');
+                    },
+                  },
+                  { type: 'separator' },
+                  {
+                    label: 'Copiar ID da conversa',
+                    description: 'Para suporte técnico',
+                    icon: <Hash size={14} />,
+                    onSelect: () => {
+                      void navigator.clipboard?.writeText(selectedConv.id);
+                      toast.success('ID copiado', { description: selectedConv.id });
+                    },
+                  },
+                ]}
+              />
+            </header>
 
-            {/* Error Notification */}
             {error && (
-              <div className="px-4 py-2 bg-danger/10 border-b border-danger/20 text-danger text-xs flex items-center gap-2">
-                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            {/* Bot Active Warning Banner */}
-            {selectedConv.handled_by !== 'HUMAN' && (
-              <div className="px-5 py-2 bg-brand/10 border-b border-brand/20 flex items-center justify-between text-xs text-brand-600 dark:text-brand-400">
-                <span className="flex items-center gap-2">
-                  <Bot className="w-3.5 h-3.5 text-brand-fg" />
-                  O agente SDR autônomo está respondendo ativamente a este lead.
-                </span>
-                <button
-                  onClick={handleTakeover}
-                  disabled={actionLoading}
-                  className="text-xs font-semibold underline hover:no-underline text-brand-fg bg-transparent border-0 cursor-pointer"
-                >
-                  Assumir Agora
+              <div className="flex items-center gap-2 border-b border-danger/20 bg-danger/10 px-4 py-2 text-xs text-danger">
+                <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                <span className="flex-1">{error}</span>
+                <button type="button" onClick={() => setError(null)} aria-label="Fechar aviso" className="min-h-0 border-0 bg-transparent p-0 text-danger">
+                  <X className="h-3.5 w-3.5" />
                 </button>
               </div>
             )}
 
-            {/* Messages Thread */}
-            <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-3.5 bg-canvas">
+            {/* Who is answering — the one primary action of the thread lives here. */}
+            {selectedConv.handled_by !== 'HUMAN' ? (
+              <div className="flex items-center justify-between gap-3 border-b border-brand/20 bg-brand/5 px-4 py-2 text-xs md:px-5">
+                <span className="flex min-w-0 items-center gap-2 text-content-secondary">
+                  <Sparkles className="h-3.5 w-3.5 flex-shrink-0 text-brand-fg" />
+                  <span className="truncate">A IA está respondendo esta conversa</span>
+                </span>
+                <Button size="sm" variant="primary" onClick={handleTakeover} loading={actionLoading}>
+                  <UserCheck className="h-3.5 w-3.5" /> Assumir
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-3 border-b border-info/20 bg-info/5 px-4 py-2 text-xs md:px-5">
+                <span className="flex min-w-0 items-center gap-2 text-content-secondary">
+                  <User className="h-3.5 w-3.5 flex-shrink-0 text-info" />
+                  <span className="truncate">Atendimento humano · a IA está pausada</span>
+                </span>
+                <Button size="sm" variant="secondary" onClick={handleRelease} loading={actionLoading}>
+                  <Sparkles className="h-3.5 w-3.5" /> Devolver para a IA
+                </Button>
+              </div>
+            )}
+
+            <div className="flex flex-1 flex-col gap-3 overflow-y-auto bg-canvas px-4 py-5 md:px-6">
               {loadingMessages ? (
                 <div role="status" aria-live="polite" className="flex flex-col gap-5 py-2">
                   <span className="sr-only">Carregando mensagens…</span>
                   {Array.from({ length: 5 }, (_, index) => (
                     <div key={index} className={`w-2/3 ${index % 2 ? 'self-end' : 'self-start'}`} aria-hidden="true">
-                      <Skeleton className={`h-2.5 w-24 ${index % 2 ? 'ml-auto' : ''}`} />
                       <Skeleton className="mt-1.5 h-14 w-full" rounded="lg" />
                     </div>
                   ))}
                 </div>
               ) : messages.length === 0 ? (
-                <div className="text-center text-xs text-content-muted py-10">
-                  Nenhuma mensagem registrada nesta conversa.
-                </div>
+                <div className="py-10 text-center text-xs text-content-muted">Nenhuma mensagem registrada nesta conversa.</div>
               ) : (
-                messages.map(m => {
+                messages.map((m, index) => {
+                  const previous = messages[index - 1];
+                  const daySeparator = !previous || !isSameDay(previous.created_at, m.created_at);
                   const isLead = m.direction === 'INBOUND';
                   const isAi = m.sender === 'ai';
                   const isHuman = m.sender === 'human';
-                  const isSystem = m.sender === 'system';
+                  const separator = daySeparator ? (
+                    <div className="my-2 flex items-center gap-3 text-2xs font-medium text-content-muted" role="separator">
+                      <span className="h-px flex-1 bg-border" />
+                      {formatDayLabel(m.created_at)}
+                      <span className="h-px flex-1 bg-border" />
+                    </div>
+                  ) : null;
 
-                  if (isSystem) {
+                  if (m.sender === 'system') {
                     return (
-                      <div key={m.id} className="self-center max-w-[90%] flex flex-col items-center gap-1 my-1">
-                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-danger/10 border border-danger/20 text-danger text-xs">
-                          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                      <React.Fragment key={m.id}>
+                        {separator}
+                        <div className="my-1 flex max-w-[90%] items-center gap-2 self-center rounded-lg border border-danger/20 bg-danger/10 px-3 py-1.5 text-xs text-danger">
+                          <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
                           <span>{m.content}</span>
+                          <span className="text-2xs text-danger/70">{formatTime(m.created_at)}</span>
                         </div>
-                        <span className="text-2xs text-content-muted">
-                          {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
+                      </React.Fragment>
                     );
                   }
 
                   return (
-                    <div
-                      key={m.id}
-                      className={`flex flex-col max-w-[75%] ${
-                        isLead ? 'self-start items-start' : 'self-end items-end'
-                      }`}
-                    >
-                      {/* Sender Label */}
-                      <div className="text-2xs text-content-muted mb-1 flex items-center gap-1">
-                        {isLead ? (
-                          <span>{m.sender_name || (selectedConv.lead.is_group ? 'Participante' : selectedConv.lead.name || 'Lead')}</span>
-                        ) : isAi ? (
-                          <>
-                            <Sparkles className="w-2.5 h-2.5 text-brand-fg" />
-                            <span className="text-brand-fg font-semibold">SDR Flow IA</span>
-                          </>
-                        ) : (
-                          <>
-                            <User className="w-2.5 h-2.5 text-success" />
-                            <span className="text-success font-semibold">Atendente Humano</span>
-                          </>
-                        )}
-                        <span>•</span>
-                        <span>{new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    <React.Fragment key={m.id}>
+                      {separator}
+                      <div className={`flex max-w-[85%] flex-col md:max-w-[72%] ${isLead ? 'items-start self-start' : 'items-end self-end'}`}>
+                        <div className="mb-1 flex items-center gap-1 text-2xs text-content-muted">
+                          {isLead ? (
+                            <span>{m.sender_name || (selectedConv.lead.is_group ? 'Participante' : selectedConv.lead.name || 'Lead')}</span>
+                          ) : isAi ? (
+                            <>
+                              <Sparkles className="h-2.5 w-2.5 text-brand-fg" />
+                              <span>Agente IA</span>
+                            </>
+                          ) : (
+                            <>
+                              <User className="h-2.5 w-2.5 text-info" />
+                              <span>{m.sender_name || 'Atendente'}</span>
+                            </>
+                          )}
+                          <span aria-hidden="true">·</span>
+                          <span className="tabular-nums">{formatTime(m.created_at)}</span>
+                        </div>
+                        <div
+                          className={`whitespace-pre-wrap break-words px-3.5 py-2.5 text-[13px] leading-relaxed ${
+                            isLead
+                              ? 'rounded-2xl rounded-tl-sm border border-border bg-surface text-content'
+                              : isHuman
+                              ? 'rounded-2xl rounded-tr-sm border border-info/30 bg-info/15 text-content'
+                              : 'rounded-2xl rounded-tr-sm border border-brand/30 bg-brand/15 text-content'
+                          }`}
+                        >
+                          {messagePreview(m.message_type, m.content)}
+                        </div>
                       </div>
-
-                      {/* Bubble */}
-                      <div
-                        className={`px-3.5 py-2.5 text-[13px] leading-relaxed break-words shadow-xs ${
-                          isLead
-                            ? 'rounded-2xl rounded-tl-sm bg-surface text-content border border-border'
-                            : isHuman
-                            ? 'rounded-2xl rounded-tr-sm bg-info/15 text-content border border-info/30'
-                            : 'rounded-2xl rounded-tr-sm bg-brand/15 text-content border border-brand/30'
-                        }`}
-                      >
-                        {messagePreview(m.message_type, m.content)}
-                      </div>
-                    </div>
+                    </React.Fragment>
                   );
                 })
               )}
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Input Reply Box */}
-            <form
-              onSubmit={handleSendMessage}
-              className="p-3.5 border-t border-border flex gap-2.5 bg-surface"
-            >
-              <input
-                type="text"
-                placeholder={
-                  selectedConv.handled_by === 'HUMAN'
-                    ? 'Digite sua resposta como atendente humano...'
-                    : 'Digite sua mensagem (a conversa será assumida automaticamente)...'
-                }
+            <form onSubmit={handleSendMessage} className="flex items-end gap-2 border-t border-border bg-surface p-3">
+              <textarea
+                ref={composerRef}
+                rows={1}
+                aria-label="Mensagem"
+                placeholder="Escreva uma mensagem…"
                 value={replyText}
                 onChange={e => setReplyText(e.target.value)}
-                className="flex-1 px-3.5 py-2 bg-surface-muted/50 border border-border rounded-lg text-xs text-content placeholder:text-content-muted focus:outline-none focus:ring-1 focus:ring-brand"
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    if (replyText.trim()) void handleSendMessage(e as unknown as React.FormEvent);
+                  }
+                }}
+                className="max-h-36 min-h-[36px] flex-1 resize-none rounded-lg border border-border bg-surface-elevated px-3 py-2 text-[13px] leading-5 text-content placeholder:text-content-muted focus:border-brand focus:outline-none"
               />
-              <Button
-                type="submit"
-                variant="primary"
-                size="sm"
-                disabled={!replyText.trim()}
-              >
-                <Send className="w-3.5 h-3.5" />
-                Enviar
+              <Button type="submit" variant="primary" size="lg" disabled={!replyText.trim()}>
+                <Send className="h-3.5 w-3.5" />
+                <span className={selectedConv.handled_by === 'HUMAN' ? '' : 'hidden sm:inline'}>
+                  {selectedConv.handled_by === 'HUMAN' ? 'Enviar' : 'Assumir e enviar'}
+                </span>
               </Button>
             </form>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-content-muted gap-3">
-            <MessageSquare className="w-12 h-12 stroke-[1.2]" />
-            <p className="m-0 text-sm">Selecione uma conversa ao lado para iniciar o atendimento.</p>
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 text-content-muted">
+            <MessageSquare className="h-10 w-10 stroke-[1.2]" />
+            <p className="m-0 text-sm">Selecione uma conversa para começar.</p>
+            <p className="m-0 text-2xs">Dica: use ↑ e ↓ para navegar pela lista.</p>
           </div>
         )}
-      </div>
+      </section>
 
       {/* RIGHT COLUMN: one-shot agent execution debugger */}
       {selectedConv && debugOpen && (
-        <aside className="inbox-debug-panel" aria-label="Debug do agente">
+        <aside className="inbox-debug-panel absolute inset-y-0 right-0 z-20 max-w-[90vw] shadow-modal xl:relative xl:shadow-none" aria-label="Debug do agente">
           <div className="inbox-debug-heading">
             <div>
               <span className="eyebrow">DEBUG DO AGENTE</span>
@@ -1342,184 +1451,150 @@ export function InboxPage() {
         </aside>
       )}
 
-      {/* RIGHT COLUMN: Lead & Commercial Context */}
-      {selectedConv && !debugOpen && (
-        <div
-          className="inbox-context-panel relative border-l border-border p-4 overflow-y-auto flex-shrink-0 bg-surface flex flex-col gap-4"
+
+      {/* RIGHT: lead context — collapsible; overlays the thread on narrower screens */}
+      {selectedConv && !debugOpen && contextOpen && (
+        <aside
+          aria-label="Contexto do lead"
+          className="absolute inset-y-0 right-0 z-20 flex w-[300px] max-w-[90vw] flex-shrink-0 flex-col gap-5 overflow-y-auto border-l border-border bg-surface p-4 shadow-modal xl:relative xl:shadow-none"
           style={{ width: contextPanelWidth }}
         >
           <div
-            className={`absolute left-0 top-0 bottom-0 w-1.5 -ml-0.5 cursor-col-resize hover:bg-brand/40 ${isResizingContextPanel ? 'bg-brand/40' : ''}`}
+            className={`absolute bottom-0 left-0 top-0 -ml-0.5 hidden w-1.5 cursor-col-resize hover:bg-brand/40 xl:block ${isResizingContextPanel ? 'bg-brand/40' : ''}`}
             onMouseDown={startContextPanelResize}
+            aria-hidden="true"
           />
-          <span className="text-2xs font-bold uppercase tracking-wider text-content-muted">
-            CONTEXTO DO LEAD
-          </span>
-
-          {/* Lead Card */}
-          <div className="p-3 rounded-lg bg-surface-muted/50 border border-border flex flex-col gap-2">
-            <strong className="text-xs font-semibold text-content block">
-              {selectedConv.lead.name || 'Sem nome informado'}
-            </strong>
-            <div className="flex flex-col gap-1.5 text-xs text-content-muted">
-              <span className="flex items-center gap-1.5">
-                <Phone className="w-3 h-3 text-content-muted" /> {selectedConv.lead.phone}
-              </span>
+          <section>
+            <h3 className="m-0 mb-2 text-2xs font-semibold uppercase tracking-wider text-content-muted">Lead</h3>
+            <p className="m-0 text-sm font-semibold text-content">{selectedConv.lead.name || 'Sem nome informado'}</p>
+            <dl className="m-0 mt-2 flex flex-col gap-1.5 text-xs text-content-secondary">
+              {!selectedConv.lead.is_group && (
+                <div className="group flex items-center gap-1.5">
+                  <Phone className="h-3 w-3 text-content-muted" />
+                  <dd className="m-0 flex-1">{formatPhone(selectedConv.lead.phone)}</dd>
+                  <IconButton
+                    size="sm"
+                    label="Copiar telefone"
+                    icon={<Copy size={12} />}
+                    className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                    onClick={() => {
+                      void navigator.clipboard?.writeText(selectedConv.lead.phone);
+                      toast.success('Telefone copiado');
+                    }}
+                  />
+                </div>
+              )}
               {selectedConv.lead.city && (
-                <span className="flex items-center gap-1.5">
-                  <MapPin className="w-3 h-3 text-content-muted" /> {selectedConv.lead.city}
-                </span>
+                <div className="flex items-center gap-1.5"><MapPin className="h-3 w-3 text-content-muted" /><dd className="m-0">{selectedConv.lead.city}</dd></div>
               )}
               {selectedConv.lead.interest && (
-                <span className="flex items-center gap-1.5">
-                  <Tag className="w-3 h-3 text-content-muted" /> {selectedConv.lead.interest}
-                </span>
+                <div className="flex items-center gap-1.5"><Tag className="h-3 w-3 text-content-muted" /><dd className="m-0">{selectedConv.lead.interest}</dd></div>
               )}
-            </div>
-          </div>
+            </dl>
+          </section>
 
-          {/* Deal Card */}
           {selectedConv.deal && (
-            <div className="p-3 rounded-lg bg-surface-muted/50 border border-border flex flex-col gap-2">
-              <strong className="text-xs font-semibold text-content flex items-center gap-1.5">
-                <Briefcase className="w-3 h-3 text-brand-fg" />
-                Negócio no CRM
-              </strong>
-              <div className="text-xs text-content-muted flex flex-col gap-1">
-                <span>Título: <span className="text-content font-medium">{selectedConv.deal.title}</span></span>
-                <span>Status: <strong className="text-content">{selectedConv.deal.status}</strong></span>
-                {selectedConv.deal.score !== null && <span>Pontuação: <span className="text-content font-medium">{selectedConv.deal.score} / 100</span></span>}
+            <section>
+              <h3 className="m-0 mb-2 text-2xs font-semibold uppercase tracking-wider text-content-muted">Oportunidade</h3>
+              <div className="flex flex-col gap-1 text-xs text-content-secondary">
+                <span className="font-medium text-content">{selectedConv.deal.title}</span>
+                <span>Status: {selectedConv.deal.status}</span>
+                {selectedConv.deal.score !== null && <span>Pontuação: {selectedConv.deal.score} / 100</span>}
               </div>
-            </div>
+            </section>
           )}
 
-          {/* Commercial Memory */}
-          <div className="flex items-center justify-between">
-            <span className="text-2xs font-bold uppercase tracking-wider text-content-muted">
-              MEMÓRIA COMERCIAL
-            </span>
-            <button
-              type="button"
-              className="text-content-muted hover:text-content"
-              title="Adicionar campo"
-              onClick={() => setShowAddMemoryField(v => !v)}
-              disabled={memoryActionLoading}
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {showAddMemoryField && (
-            <div className="p-2.5 rounded-lg bg-surface-muted/40 border border-border text-xs flex flex-col gap-1.5">
-              <input
-                className="w-full bg-transparent border border-border rounded px-2 py-1 text-xs text-content"
-                placeholder="Chave (ex: notes ou custom_fields.minha_chave)"
-                value={newMemoryPath}
-                onChange={e => setNewMemoryPath(e.target.value)}
-              />
-              <input
-                className="w-full bg-transparent border border-border rounded px-2 py-1 text-xs text-content"
-                placeholder="Valor"
-                value={newMemoryValue}
-                onChange={e => setNewMemoryValue(e.target.value)}
-              />
-              <div className="flex gap-1.5 justify-end">
-                <button
-                  type="button"
-                  className="text-content-muted hover:text-content px-2 py-1"
-                  onClick={() => { setShowAddMemoryField(false); setNewMemoryPath(''); setNewMemoryValue(''); }}
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  className="text-brand-fg disabled:opacity-50 px-2 py-1"
-                  disabled={!newMemoryPath.trim() || memoryActionLoading}
-                  onClick={() => handleMemoryChange(newMemoryPath.trim(), { value: newMemoryValue })}
-                >
-                  <Check className="w-3.5 h-3.5" />
-                </button>
-              </div>
+          <section>
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="m-0 text-2xs font-semibold uppercase tracking-wider text-content-muted">Memória comercial</h3>
+              <IconButton size="sm" label="Adicionar campo" icon={<Plus size={14} />} disabled={memoryActionLoading} onClick={() => setShowAddMemoryField(v => !v)} />
             </div>
-          )}
 
-          {memoryRows.length === 0 ? (
-            <p className="text-xs text-content-muted italic m-0">
-              Nenhum dado comercial extraído ainda.
-            </p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {memoryRows.map(row => (
-                <div
-                  key={row.path}
-                  className="p-2.5 rounded-lg bg-surface-muted/40 border border-border text-xs"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-content-muted block text-2xs uppercase tracking-wide">
-                      {row.label}
-                    </span>
-                    {editingMemoryPath !== row.path && (
-                      <div className="flex items-center gap-1.5 flex-shrink-0">
-                        {row.editable && (
+            {showAddMemoryField && (
+              <form
+                className="mb-2 flex flex-col gap-1.5 rounded-lg border border-border bg-surface-elevated p-2.5"
+                onSubmit={e => {
+                  e.preventDefault();
+                  if (newMemoryPath.trim()) void handleMemoryChange(newMemoryPath.trim(), { value: newMemoryValue });
+                }}
+              >
+                <input autoFocus className="h-8 rounded-md border border-border bg-surface px-2 text-xs" placeholder="Campo (ex.: dependentes)" value={newMemoryPath} onChange={e => setNewMemoryPath(e.target.value)} />
+                <input className="h-8 rounded-md border border-border bg-surface px-2 text-xs" placeholder="Valor" value={newMemoryValue} onChange={e => setNewMemoryValue(e.target.value)} />
+                <div className="flex justify-end gap-1.5">
+                  <Button size="sm" variant="ghost" type="button" onClick={() => { setShowAddMemoryField(false); setNewMemoryPath(''); setNewMemoryValue(''); }}>Cancelar</Button>
+                  <Button size="sm" variant="primary" type="submit" disabled={!newMemoryPath.trim() || memoryActionLoading}>Adicionar</Button>
+                </div>
+              </form>
+            )}
+
+            {memoryRows.length === 0 ? (
+              <p className="m-0 text-xs text-content-muted">A IA ainda não extraiu dados desta conversa.</p>
+            ) : (
+              <dl className="m-0 flex flex-col divide-y divide-border/60">
+                {memoryRows.map(row => (
+                  <div key={row.path} className="group flex items-start gap-2 py-2">
+                    <div className="min-w-0 flex-1">
+                      <dt className="text-2xs text-content-muted">{humanizeKey(row.label)}</dt>
+                      {editingMemoryPath === row.path ? (
+                        <form
+                          className="mt-1"
+                          onSubmit={e => {
+                            e.preventDefault();
+                            void handleMemoryChange(row.path, { value: memoryDraft });
+                          }}
+                        >
+                          <input
+                            autoFocus
+                            className="h-8 w-full rounded-md border border-brand bg-surface-elevated px-2 text-xs"
+                            value={memoryDraft}
+                            onChange={e => setMemoryDraft(e.target.value)}
+                            onBlur={() => setEditingMemoryPath(null)}
+                            onKeyDown={e => e.key === 'Escape' && setEditingMemoryPath(null)}
+                            aria-label={`Editar ${humanizeKey(row.label)}`}
+                          />
+                          <span className="mt-1 block text-2xs text-content-muted">Enter salva · Esc cancela</span>
+                        </form>
+                      ) : row.editable ? (
+                        <dd className="m-0">
                           <button
                             type="button"
-                            className="text-content-muted hover:text-content"
-                            title="Editar"
                             disabled={memoryActionLoading}
                             onClick={() => {
                               setEditingMemoryPath(row.path);
                               setMemoryDraft(String(row.value ?? ''));
                             }}
+                            className="-mx-1 flex min-h-0 w-full justify-start rounded border-0 bg-transparent px-1 py-0.5 text-left text-xs font-medium text-content hover:bg-surface-elevated"
+                            title="Clique para editar"
                           >
-                            <Pencil className="w-3.5 h-3.5" />
+                            {String(row.value)}
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          className="text-content-muted hover:text-danger"
-                          title="Excluir"
-                          disabled={memoryActionLoading}
-                          onClick={() => handleMemoryChange(row.path, { delete: true })}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  {editingMemoryPath === row.path ? (
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <input
-                        className="flex-1 min-w-0 bg-transparent border border-border rounded px-2 py-1 text-xs text-content"
-                        value={memoryDraft}
-                        onChange={e => setMemoryDraft(e.target.value)}
-                        autoFocus
-                      />
-                      <button
-                        type="button"
-                        className="text-content-muted hover:text-content"
-                        onClick={() => setEditingMemoryPath(null)}
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        className="text-brand-fg disabled:opacity-50"
-                        disabled={memoryActionLoading}
-                        onClick={() => handleMemoryChange(row.path, { value: memoryDraft })}
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                      </button>
+                        </dd>
+                      ) : (
+                        <dd className="m-0 break-all text-xs font-medium text-content">{JSON.stringify(row.value)}</dd>
+                      )}
                     </div>
-                  ) : (
-                    <span className="text-content break-all whitespace-pre-wrap font-medium block mt-0.5">
-                      {typeof row.value === 'object' ? JSON.stringify(row.value) : String(row.value)}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+                    <IconButton
+                      size="sm"
+                      variant="danger"
+                      label={`Remover ${humanizeKey(row.label)}`}
+                      icon={<X size={12} />}
+                      className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                      disabled={memoryActionLoading}
+                      onClick={() => {
+                        const previous = row.value;
+                        void handleMemoryChange(row.path, { delete: true }).then(() =>
+                          toast.success(`${humanizeKey(row.label)} removido`, {
+                            action: row.editable ? { label: 'Desfazer', onClick: () => void handleMemoryChange(row.path, { value: String(previous ?? '') }) } : undefined,
+                          })
+                        );
+                      }}
+                    />
+                  </div>
+                ))}
+              </dl>
+            )}
+          </section>
+        </aside>
       )}
     </div>
   );
