@@ -90,27 +90,27 @@ describe('Postgres migrations, RLS and publication',() => {
     const version=(await db.query<{id:string}>('select * from public.publish_flow($1,$2,$3,$4)',[orgA,other,userA,graph])).rows[0]!.id;
     await expect(db.query('update public.flows set published_version_id=$1 where id=$2',[version,flowA])).rejects.toThrow();
   });
-  it('caps active agents per owner even when inserted directly, bypassing create_agent_for_current_user',async () => {
+  it('caps active agents per organization even when inserted directly, bypassing create_agent_for_current_user',async () => {
     // packages/db/src/connection-repository.ts inserts a dedicated agent per connection
     // straight into ai_agents, never through that RPC — the cap must hold for both paths.
     await db.exec('set role service_role');
     try {
-      const before=await db.query<{count:string}>("select count(*)::text as count from public.ai_agents where organization_id=$1 and owner_user_id=$2 and status='active'",[orgA,userA]);
+      const before=await db.query<{count:string}>("select count(*)::text as count from public.ai_agents where organization_id=$1 and status='active'",[orgA]);
       const limit=Number(before.rows[0]!.count)+1;
-      await db.query('update public.account_limits set max_agents=$1 where organization_id=$2 and owner_user_id=$3',[limit,orgA,userA]);
+      await db.query("insert into public.organization_limits(organization_id,override_agents,max_agents,reason) values($1,true,$2,'teste') on conflict(organization_id) do update set override_agents=true,max_agents=excluded.max_agents",[orgA,limit]);
       await db.query("insert into public.ai_agents(organization_id,owner_user_id,name,provider,model) values($1,$2,'Agente extra','openai','gpt-4.1-mini')",[orgA,userA]);
       await expect(db.query("insert into public.ai_agents(organization_id,owner_user_id,name,provider,model) values($1,$2,'Agente demais','openai','gpt-4.1-mini')",[orgA,userA])).rejects.toThrow('Agent limit reached');
     } finally { await db.exec('reset role'); }
   });
-  it('caps connections per owner once max_instances is set, and never blocks when it is null',async () => {
+  it('caps connections per organization once max_instances is set, and never blocks when it is null',async () => {
     await db.exec('set role service_role');
     try {
-      const before=await db.query<{count:string}>('select count(*)::text as count from public.connections where organization_id=$1 and owner_user_id=$2',[orgA,userA]);
+      const before=await db.query<{count:string}>('select count(*)::text as count from public.connections where organization_id=$1',[orgA]);
       const limit=Number(before.rows[0]!.count)+1;
-      await db.query('update public.account_limits set max_instances=$1 where organization_id=$2 and owner_user_id=$3',[limit,orgA,userA]);
+      await db.query("insert into public.organization_limits(organization_id,override_instances,max_instances,reason) values($1,true,$2,'teste') on conflict(organization_id) do update set override_instances=true,max_instances=excluded.max_instances",[orgA,limit]);
       await db.query("insert into public.connections(organization_id,name,provider) values($1,'Instância extra','evolution')",[orgA]);
       await expect(db.query("insert into public.connections(organization_id,name,provider) values($1,'Instância demais','evolution')",[orgA])).rejects.toThrow('Instance limit reached');
-      await db.query('update public.account_limits set max_instances=null where organization_id=$1 and owner_user_id=$2',[orgA,userA]);
+      await db.query('update public.organization_limits set max_instances=null where organization_id=$1',[orgA]);
       await db.query("insert into public.connections(organization_id,name,provider) values($1,'Instância sem teto','evolution')",[orgA]);
     } finally { await db.exec('reset role'); }
   });
@@ -124,7 +124,7 @@ describe('Postgres migrations, RLS and publication',() => {
   it("stores each agent's OpenAI key separately: service_role-only, per-agent, invisible to other agents",async () => {
     await db.exec('set role service_role');
     try {
-      await db.query('update public.account_limits set max_agents=20 where organization_id=$1 and owner_user_id=$2',[orgA,userA]);
+      await db.query('update public.organization_limits set override_agents=true,max_agents=20 where organization_id=$1',[orgA]);
       const agentId=(await db.query<{id:string}>("insert into public.ai_agents(organization_id,owner_user_id,name,provider,model) values($1,$2,'Agente com chave','openai','gpt-4.1-mini') returning id",[orgA,userA])).rows[0]!.id;
       const otherAgentId=(await db.query<{id:string}>("insert into public.ai_agents(organization_id,owner_user_id,name,provider,model) values($1,$2,'Outro agente','openai','gpt-4.1-mini') returning id",[orgA,userA])).rows[0]!.id;
 

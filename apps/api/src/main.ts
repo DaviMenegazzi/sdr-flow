@@ -2,6 +2,7 @@ import { config } from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import pino from 'pino';
 import { createApp } from './app.js';
+import { resolveBillingGateway } from './billing/gateway.js';
 import { wsServer } from './ws.js';
 import { runtimeConfigFromEnv } from '@sdr/flow/server';
 import { serviceDatabase, userDatabase } from '@sdr/db';
@@ -11,6 +12,8 @@ if (process.env.NODE_ENV === 'production' && (!process.env.SUPABASE_URL || !proc
 const app = createApp({
   ...runtimeConfigFromEnv(process.env),
   publicApiUrl: process.env.PUBLIC_API_URL,
+  publicAppUrl: process.env.PUBLIC_APP_URL,
+  billingGateway: resolveBillingGateway(process.env),
   supabaseUrl: process.env.SUPABASE_URL,
   anonKey: process.env.SUPABASE_ANON_KEY,
   serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,

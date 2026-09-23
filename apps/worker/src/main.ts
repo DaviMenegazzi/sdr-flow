@@ -6,7 +6,7 @@ import IORedis from 'ioredis';
 import pino from 'pino';
 import { queueNames } from '@sdr/shared';
 import { runtimeConfigFromEnv } from '@sdr/flow/server';
-import { serviceDatabase } from '@sdr/db';
+import { serviceDatabase, BillingRepository, drainBillingEvents } from '@sdr/db';
 import {
   RedisTurnBuffer,
   processTurn,
@@ -120,6 +120,26 @@ if (!redisUrl) {
   }, Number(process.env.OUTBOX_DISPATCH_INTERVAL_MS) || 30_000);
   dispatchInterval.unref();
 
+  // Cobrança da assinatura (docs/BILLING.md): Postgres é a fonte de verdade. Reprocessa
+  // webhooks pendentes/falhos com backoff e aplica fim de carência, cancelamentos no fim
+  // do período, downgrades agendados e concessões vencidas. Divergências vão para o log.
+  const billing = new BillingRepository(db);
+  let billingTick = 0;
+  const billingInterval = setInterval(() => {
+    billingTick += 1;
+    void (async () => {
+      await drainBillingEvents(billing);
+      const changed = await billing.runMaintenance();
+      if (changed) logger.info({ changed }, 'Direitos de plano atualizados pela rotina de cobrança');
+      // Relatório de conciliação a cada ~hora (60 ticks de 60 s).
+      if (billingTick % 60 === 1) {
+        const report = await billing.reconciliationReport();
+        if (report.length) logger.warn({ divergences: report.slice(0, 50), total: report.length }, 'Divergências de cobrança encontradas');
+      }
+    })().catch(err => logger.error({ err }, 'Falha na rotina de cobrança'));
+  }, Number(process.env.BILLING_MAINTENANCE_INTERVAL_MS) || 60_000);
+  billingInterval.unref();
+
   let ready = false;
   maintenanceWorker.on('ready', () => {
     ready = true;
@@ -147,6 +167,7 @@ if (!redisUrl) {
     process.on(signal, async () => {
       logger.info('Encerrando worker: aguardando trabalhos ativos...');
       clearInterval(dispatchInterval);
+      clearInterval(billingInterval);
       await traceBatchWriter.stop();
       await Promise.all([maintenanceWorker.close(), turnBuffer.close(), eventPublisher.close(), debugRegistry.close(), traceSink.close(), traceWriterRedis.quit(), leadClassificationQueue?.close(), leadClassificationWorker?.close()]);
       health.close(() => process.exit(0));

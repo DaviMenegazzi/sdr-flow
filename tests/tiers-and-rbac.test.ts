@@ -197,29 +197,22 @@ describe('Tiers, RBAC and Multi-User Isolation', () => {
       });
     });
 
-    it('persists and enforces the tier column in organizations table', async () => {
-      // Default tier is pre-venda
-      const initial = await db.query<{ tier: string }>(
-        'select tier from public.organizations where id=$1',
-        [orgA]
-      );
+    it('persists the tier column and only lets entitlement sync change it', async () => {
+      const initial = await db.query<{ tier: string }>('select tier from public.organizations where id=$1', [orgA]);
       expect(initial.rows[0]?.tier).toBe('pre-venda');
 
-      // Update to vendedor
-      await db.query("update public.organizations set tier='vendedor' where id=$1", [orgA]);
-      const updated = await db.query<{ tier: string }>(
-        'select tier from public.organizations where id=$1',
-        [orgA]
+      // Direct writes (even privileged ones) are refused: the tier is a projection of entitlements.
+      await expect(db.query("update public.organizations set tier='vendedor' where id=$1", [orgA])).rejects.toThrow(
+        'managed by billing entitlements',
       );
-      expect(updated.rows[0]?.tier).toBe('vendedor');
 
-      // Update to vendedor-senior
-      await db.query("update public.organizations set tier='vendedor-senior' where id=$1", [orgA]);
-      const senior = await db.query<{ tier: string }>(
-        'select tier from public.organizations where id=$1',
-        [orgA]
-      );
-      expect(senior.rows[0]?.tier).toBe('vendedor-senior');
+      await db.query("insert into public.organization_plan_grants(organization_id,tier,reason) values($1,'vendedor','teste')", [orgA]);
+      await db.query("select private.sync_org_entitlement($1,'manual_grant')", [orgA]);
+      expect((await db.query<{ tier: string }>('select tier from public.organizations where id=$1', [orgA])).rows[0]?.tier).toBe('vendedor');
+
+      await db.query("update public.organization_plan_grants set tier='vendedor-senior' where organization_id=$1", [orgA]);
+      await db.query("select private.sync_org_entitlement($1,'manual_grant')", [orgA]);
+      expect((await db.query<{ tier: string }>('select tier from public.organizations where id=$1', [orgA])).rows[0]?.tier).toBe('vendedor-senior');
     });
   });
 

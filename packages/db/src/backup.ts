@@ -28,6 +28,14 @@ const PUBLIC_TABLES = [
   'knowledge_documents',
   'conversation_summaries',
   'metrics_daily',
+  // Cobrança da assinatura (histórico financeiro; sem cartão, documento ou segredo —
+  // clientes do gateway e a inbox de webhooks ficam no schema privado e fora do backup).
+  'organization_limits',
+  'organization_plan_grants',
+  'organization_subscriptions',
+  'checkout_intents',
+  'billing_payments',
+  'billing_entitlement_changes',
 ];
 
 export class BackupService {
@@ -97,6 +105,12 @@ export class BackupService {
         'knowledge_documents',
         'conversation_summaries',
         'metrics_daily',
+        'organization_limits',
+        'organization_plan_grants',
+        'organization_subscriptions',
+        'checkout_intents',
+        'billing_payments',
+        'billing_entitlement_changes',
       ];
 
       await db.query('begin');
@@ -122,6 +136,8 @@ export class BackupService {
           }
         }
         const flowPublishedUpdates: Array<{ id: string; orgId: string; pubId: string }> = [];
+        // organization_subscriptions.latest_payment_id ↔ billing_payments.subscription_id is circular.
+        const latestPaymentUpdates: Array<{ id: string; orgId: string; paymentId: string }> = [];
 
         for (const table of orderedTables) {
           const rows = snapshot.tables[table] || [];
@@ -136,6 +152,10 @@ export class BackupService {
                 pubId: rowCopy.published_version_id,
               });
               rowCopy.published_version_id = null;
+            }
+            if (table === 'organization_subscriptions' && rowCopy.latest_payment_id) {
+              latestPaymentUpdates.push({ id: rowCopy.id, orgId: rowCopy.organization_id, paymentId: rowCopy.latest_payment_id });
+              rowCopy.latest_payment_id = null;
             }
 
             const keys = Object.keys(rowCopy);
@@ -164,6 +184,13 @@ export class BackupService {
           await db.query(
             `update public.flows set published_version_id = $1 where id = $2 and organization_id = $3`,
             [item.pubId, item.id, item.orgId]
+          );
+        }
+
+        for (const item of latestPaymentUpdates) {
+          await db.query(
+            `update public.organization_subscriptions set latest_payment_id = $1 where id = $2 and organization_id = $3`,
+            [item.paymentId, item.id, item.orgId]
           );
         }
 

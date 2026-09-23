@@ -52,7 +52,7 @@ function mockAuthenticatedDb(platformRole: 'admin' | 'client') {
 afterEach(() => vi.restoreAllMocks());
 
 describe('Admin login provisioning', () => {
-  it('creates a confirmed login scoped to the selected organization and chosen plan', async () => {
+  it('creates a confirmed login scoped to the selected organization without touching its plan', async () => {
     vi.spyOn(database, 'userDatabase').mockReturnValue(mockAuthenticatedDb('admin'));
     const createUser = vi.fn().mockResolvedValue({
       data: { user: { id: createdUserId, email: 'cliente@example.test' } },
@@ -71,7 +71,6 @@ describe('Admin login provisioning', () => {
         password: 'senha-segura-123',
         accountRole: 'client',
         memberRole: 'agent',
-        orgTier: 'vendedor',
       });
 
     expect(response.status).toBe(201);
@@ -81,8 +80,8 @@ describe('Admin login provisioning', () => {
       organizationId,
       accountRole: 'client',
       memberRole: 'agent',
-      orgTier: 'vendedor',
     });
+    expect(response.body).not.toHaveProperty('orgTier');
     expect(createUser).toHaveBeenCalledWith({
       email: 'cliente@example.test',
       password: 'senha-segura-123',
@@ -92,10 +91,20 @@ describe('Admin login provisioning', () => {
         sdr_target_organization_id: organizationId,
         sdr_member_role: 'agent',
         sdr_app_role: 'client',
-        sdr_org_tier: 'vendedor',
         sdr_provisioned_by: adminUserId,
       },
     });
+  });
+
+  it('rejects a plan sent with the login: plans change only through billing or an audited grant', async () => {
+    vi.spyOn(database, 'userDatabase').mockReturnValue(mockAuthenticatedDb('admin'));
+    const serviceSpy = vi.spyOn(database, 'serviceDatabase');
+    const response = await request(createApp(config))
+      .post(`/api/admin/organizations/${organizationId}/logins`)
+      .auth('valid-token', { type: 'bearer' })
+      .send({ displayName: 'Cliente', email: 'c@example.test', password: 'senha-segura-123', memberRole: 'agent', orgTier: 'vendedor-senior' });
+    expect(response.status).toBe(400);
+    expect(serviceSpy).not.toHaveBeenCalled();
   });
 
   it('does not expose account creation to a regular client', async () => {
@@ -111,7 +120,6 @@ describe('Admin login provisioning', () => {
         password: 'senha-segura-123',
         accountRole: 'admin',
         memberRole: 'owner',
-        orgTier: 'vendedor-senior',
       });
 
     expect(response.status).toBe(404);

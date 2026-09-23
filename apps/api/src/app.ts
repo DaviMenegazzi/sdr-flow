@@ -21,11 +21,11 @@ import {
   type MetaCredentials,
   type ConversationWithLead,
   type CalendarAccountEntity,
+  type BillingGateway,
 } from '@sdr/db';
 import {
   saveFlowSchema,
   memberRoleSchema,
-  orgTierSchema,
   type MemberRole,
   type FlowGraph,
   normalizeConversationStage,
@@ -35,6 +35,7 @@ import {
   getCapabilities,
   getAccountCapabilities,
   accountRoleSchema,
+  type BillingOffer,
 } from '@sdr/shared';
 import { catalog, validateGraph, replayFlow, runPlayground, GoogleCalendarClient, type GoogleCalendarCredentials } from '@sdr/flow';
 import { parseEvolutionWebhook, parseMetaWebhook, processInboundWebhook } from './webhook.js';
@@ -62,6 +63,7 @@ import {
   resolveFlowForConnection,
 } from '@sdr/runtime';
 import { authMiddleware, requireRole, requireCapability, requireOrgRole, uuidParam } from './auth.js';
+import { registerBillingRoutes } from './billing/routes.js';
 
 export interface ApiConfig extends RuntimeConfig {
   supabaseUrl?: string;
@@ -75,6 +77,11 @@ export interface ApiConfig extends RuntimeConfig {
   googleOAuthClientId?: string;
   googleOAuthClientSecret?: string;
   googleOAuthRedirectUri?: string;
+  /** URL pública do app web (retorno do checkout). Usa publicApiUrl quando ausente. */
+  publicAppUrl?: string;
+  /** Adapter do gateway da assinatura; null/ausente = cobrança indisponível (503). */
+  billingGateway?: BillingGateway | null;
+  billingOffers?: readonly BillingOffer[];
 }
 
 function resolveGoogleOAuthCredentials(config: ApiConfig) {
@@ -254,16 +261,18 @@ export function createApp(config: ApiConfig = {}): Express {
   });
   app.get('/api/me/agents', async (_req, res) => {
     const auth = res.locals.auth!;
-    const [{ data, error }, { data: limits }] = await Promise.all([
+    const [{ data, error }, { data: limitRows }] = await Promise.all([
       auth.db.from('ai_agents').select('id,name,description,status,provider,model,system_prompt,tool_policy,model_config,is_default,created_at,updated_at').eq('organization_id', auth.organizationId).neq('status','archived').order('created_at'),
-      auth.db.from('account_limits').select('max_agents,max_instances').eq('organization_id', auth.organizationId).maybeSingle(),
+      (auth.db as any).rpc('get_organization_limits', { p_org: auth.organizationId }),
     ]);
     if (error) throw error;
+    const effective = Array.isArray(limitRows) ? limitRows[0] : limitRows;
+    const limits = effective ? { max_agents: effective.max_agents, max_instances: effective.max_instances } : null;
     const serviceDb = getServiceDb();
     const agents = serviceDb
       ? await Promise.all((data ?? []).map(async agent => ({ ...agent, hasOpenaiKey: await agentHasOpenAIKey(serviceDb, agent.id) })))
       : (data ?? []).map(agent => ({ ...agent, hasOpenaiKey: false }));
-    res.json({ agents, limits: limits ?? { max_agents: 2, max_instances: null }, used: data?.length ?? 0 });
+    res.json({ agents, limits: limits ?? { max_agents: 2, max_instances: 1 }, used: data?.length ?? 0 });
   });
   app.post('/api/me/agents', async (req, res) => {
     const auth = res.locals.auth!;
@@ -370,7 +379,6 @@ export function createApp(config: ApiConfig = {}): Express {
       password: z.string().min(8).max(72),
       accountRole: z.enum(['admin', 'client']).default('client'),
       memberRole: memberRoleSchema.default('viewer'),
-      orgTier: orgTierSchema,
     }).strict().safeParse(req.body);
 
     if (!organizationId.success || !body.success) {
@@ -393,7 +401,6 @@ export function createApp(config: ApiConfig = {}): Express {
         sdr_target_organization_id: organizationId.data,
         sdr_member_role: body.data.memberRole,
         sdr_app_role: body.data.accountRole,
-        sdr_org_tier: body.data.orgTier,
         sdr_provisioned_by: auth.userId,
       },
     });
@@ -413,8 +420,15 @@ export function createApp(config: ApiConfig = {}): Express {
       accountRole: body.data.accountRole,
       memberRole: body.data.memberRole,
       organizationId: organizationId.data,
-      orgTier: body.data.orgTier,
     });
+  });
+  // Plano da organização: só muda por assinatura confirmada ou concessão auditada.
+  registerBillingRoutes(app, {
+    supabaseUrl: config.supabaseUrl,
+    serviceRoleKey: config.serviceRoleKey,
+    publicAppUrl: config.publicAppUrl || config.publicApiUrl,
+    gateway: config.billingGateway ?? null,
+    offers: config.billingOffers,
   });
   app.get('/api/debug/inbox-test', async (_req, res) => {
     const steps: Array<{ step: string; ok: boolean; detail?: any }> = [];

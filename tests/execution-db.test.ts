@@ -149,6 +149,8 @@ describe('Execution & Conversation Persistence (PGlite)', () => {
       [org1, flowRes.rows[0]?.id!, user1]
     );
     const version1 = versionRes.rows[0]?.id!;
+    // Pre-venda caps instances at 1 (private.plan_limits); this scenario needs two.
+    await db.query("insert into public.organization_limits(organization_id,override_instances,max_instances,reason) values($1,true,null,'teste')", [org1]);
 
     const conn1Res = await db.query<{ id: string }>(
       "insert into public.connections (organization_id, name, provider, phone) values ($1, 'Whats A', 'evolution', '5511999991111') returning id",

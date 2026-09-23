@@ -31,7 +31,8 @@ describe('Supabase account and instance isolation',()=>{
     expect(after).toBe(before);
     expect((await db.query<{role:string}>('select role from public.organization_members where organization_id=$1 and user_id=$2',[orgA,provisionedClient])).rows[0]?.role).toBe('agent');
     expect((await db.query<{role:string;default_organization_id:string}>('select role,default_organization_id from public.profiles where user_id=$1',[provisionedClient])).rows[0]).toMatchObject({role:'client',default_organization_id:orgA});
-    expect((await db.query<{tier:string}>('select tier from public.organizations where id=$1',[orgA])).rows[0]?.tier).toBe('vendedor');
+    // Creating a login never changes the organization's plan (sdr_org_tier is ignored).
+    expect((await db.query<{tier:string}>('select tier from public.organizations where id=$1',[orgA])).rows[0]?.tier).toBe('pre-venda');
     expect((await db.query('select id from public.ai_agents where organization_id=$1 and owner_user_id=$2',[orgA,provisionedClient])).rows).toHaveLength(0);
     expect((await db.query("select id from public.ai_agents where organization_id=$1 and status='active'",[orgA])).rows.length).toBeGreaterThanOrEqual(1);
     expect((await db.query("select id from public.audit_events where organization_id=$1 and action='account.login_created' and entity_id=$2",[orgA,provisionedClient])).rows).toHaveLength(1);
