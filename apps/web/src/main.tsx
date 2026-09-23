@@ -14,10 +14,8 @@ import '@fontsource/sora/700.css';
 import './styles.css';
 
 // Fase 5 (11.4): every main route below is code-split — shell, auth and navigation (imported
-// above) are the only things that must stay in the initial chunk. `Settings` is the one
-// exception in practice: it lives in the same module as `SessionProvider` (session.tsx), which
-// is already eager for the whole app, so lazy-wrapping it here documents intent but does not by
-// itself shrink the initial bundle — splitting that file is a separate, larger refactor.
+// above) are the only things that must stay in the initial chunk. Settings lives in its own
+// module (settings/SettingsPage), so it is split like the other pages.
 const Builder = lazy(() => import('./builder/Builder').then(m => ({ default: m.Builder })));
 const ConnectionsPage = lazy(() => import('./connections/ConnectionsPage').then(m => ({ default: m.ConnectionsPage })));
 const AgentsPage = lazy(() => import('./agents/AgentsPage').then(m => ({ default: m.AgentsPage })));
@@ -28,7 +26,7 @@ const KnowledgePage = lazy(() => import('./knowledge/KnowledgePage').then(m => (
 const InboxPage = lazy(() => import('./inbox/InboxPage').then(m => ({ default: m.InboxPage })));
 const DashboardPage = lazy(() => import('./metrics/DashboardPage').then(m => ({ default: m.DashboardPage })));
 const ExecutionLogPage = lazy(() => import('./logs/ExecutionLogPage').then(m => ({ default: m.ExecutionLogPage })));
-const Settings = lazy(() => import('./session').then(m => ({ default: m.Settings })));
+const Settings = lazy(() => import('./settings/SettingsPage').then(m => ({ default: m.SettingsPage })));
 
 function RouteLoadingFallback() {
   return (
