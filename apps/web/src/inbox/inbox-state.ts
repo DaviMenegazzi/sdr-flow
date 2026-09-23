@@ -21,6 +21,11 @@ export interface ConversationItem {
     memory: Record<string, unknown>;
     is_group?: boolean;
     group_subject?: string | null;
+    /** Lead-level sales funnel (survives session resets), set by the worker. */
+    funnel_stage?: string;
+    /** 0–100 purchase interest from the Laya classifier. */
+    lead_score?: number | null;
+    temperature?: 'HOT' | 'WARM' | 'COLD' | null;
   };
   connection?: {
     id: string;

@@ -35,6 +35,7 @@ import {
   MoreHorizontal,
   Copy,
   Hash,
+  Thermometer,
 } from 'lucide-react';
 import { messagePreview } from '@sdr/shared';
 import { useSession } from '../session';
@@ -115,6 +116,13 @@ const STAGE_DOT: Record<string, string> = {
   CONVERTED: 'bg-success',
   HUMAN_HANDOFF: 'bg-warning',
   CLOSED: 'bg-border-strong',
+};
+
+// Lead temperature from the Laya classifier (leads.temperature / lead_score).
+const TEMPERATURE_CONFIG: Record<'HOT' | 'WARM' | 'COLD', { label: string; text: string; fill: string }> = {
+  HOT: { label: 'Quente', text: 'text-danger', fill: 'bg-danger' },
+  WARM: { label: 'Morno', text: 'text-warning', fill: 'bg-warning' },
+  COLD: { label: 'Frio', text: 'text-info', fill: 'bg-info' },
 };
 
 function humanizeKey(key: string) {
@@ -880,6 +888,7 @@ export function InboxPage() {
     const isSelected = c.id === selectedId;
     const stageConf = STAGE_CONFIG[c.stage];
     const waiting = needsHuman(c);
+    const temperature = c.lead.temperature ? TEMPERATURE_CONFIG[c.lead.temperature] : null;
     return (
       <button
         key={c.id}
@@ -907,6 +916,15 @@ export function InboxPage() {
           {c.handled_by === 'HUMAN' && (
             <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-info/30 bg-info/10 px-1.5 text-info">
               <User className="h-2.5 w-2.5" /> Humano
+            </span>
+          )}
+          {temperature && (
+            <span
+              className={`ml-auto inline-flex items-center gap-0.5 font-medium tabular-nums ${temperature.text}`}
+              title={`Lead ${temperature.label.toLowerCase()} · interesse ${c.lead.lead_score ?? '—'}/100`}
+            >
+              <Thermometer className="h-2.5 w-2.5" aria-hidden="true" />
+              {c.lead.lead_score ?? temperature.label}
             </span>
           )}
         </span>
@@ -1492,6 +1510,42 @@ export function InboxPage() {
               )}
             </dl>
           </section>
+
+          {(() => {
+            const temperature = selectedConv.lead.temperature ? TEMPERATURE_CONFIG[selectedConv.lead.temperature] : null;
+            const score = selectedConv.lead.lead_score;
+            const funnelStage = selectedConv.lead.funnel_stage && selectedConv.lead.funnel_stage !== 'NEW_CONVERSATION'
+              ? selectedConv.lead.funnel_stage
+              : null;
+            if (!temperature && !funnelStage) return null;
+            return (
+              <section>
+                <h3 className="m-0 mb-2 text-2xs font-semibold uppercase tracking-wider text-content-muted">Qualificação</h3>
+                {temperature && (
+                  <>
+                    <div className="flex items-center justify-between text-xs" title="Interesse de compra estimado pela IA">
+                      <span className={`inline-flex items-center gap-1 font-medium ${temperature.text}`}>
+                        <Thermometer className="h-3 w-3" aria-hidden="true" />
+                        {temperature.label}
+                      </span>
+                      <span className="tabular-nums text-content-secondary">
+                        <span className="font-semibold text-content">{score ?? '—'}</span> / 100
+                      </span>
+                    </div>
+                    <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-border" aria-hidden="true">
+                      <div className={`h-full rounded-full ${temperature.fill}`} style={{ width: `${Math.max(0, Math.min(100, score ?? 0))}%` }} />
+                    </div>
+                  </>
+                )}
+                {funnelStage && (
+                  <p className={`m-0 flex items-center gap-1.5 text-xs text-content-secondary ${temperature ? 'mt-2.5' : ''}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${STAGE_DOT[funnelStage] ?? 'bg-content-muted'}`} aria-hidden="true" />
+                    Etapa do funil: <span className="font-medium text-content">{STAGE_CONFIG[funnelStage]?.label ?? funnelStage}</span>
+                  </p>
+                )}
+              </section>
+            );
+          })()}
 
           {selectedConv.deal && (
             <section>

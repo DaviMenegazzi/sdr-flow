@@ -102,7 +102,7 @@ function fakeDb(state: { lead: Record<string, unknown>; messages: Array<Record<s
         }
         if (table === 'leads') return { data: state.lead, error: null };
         if (table === 'conversations') return { data: [{ id: 'conv-1' }], error: null };
-        if (table === 'messages') return { data: [...state.messages].reverse(), error: null };
+        if (table === 'messages') return { data: [...state.messages].reverse().filter(row => !('sender' in filters) || row.sender === filters.sender), error: null };
         if (table === 'deals') return { data: state.deal ?? null, error: null };
         return { data: null, error: null };
       };
@@ -162,13 +162,25 @@ describe('lead funnel service', () => {
   });
 
   it('keeps an interested lead where it is and skips short conversations without calling Laya', async () => {
-    const db = fakeDb({ lead: { id: 'lead-1', funnel_stage: 'NEGOTIATING', is_group: false }, messages: [message('INBOUND', 'quero fechar'), message('INBOUND', 'no pix')] });
+    const db = fakeDb({ lead: { id: 'lead-1', funnel_stage: 'NEGOTIATING', is_group: false }, messages: [message('INBOUND', 'quero fechar'), message('OUTBOUND', 'Perfeito!'), message('INBOUND', 'no pix')] });
     const result = await classifyLeadWithLaya({ db: db as any, laya: laya(3.9) }, { organizationId: 'org-1', leadId: 'lead-1', conversationId: 'conv-1' });
     expect(result).toMatchObject({ status: 'classified', score: 98, temperature: 'HOT', move: null });
 
     const short = laya(2);
-    const skipped = await classifyLeadWithLaya({ db: fakeDb({ lead: { id: 'l', funnel_stage: 'NEW_CONVERSATION', is_group: false }, messages: [message('INBOUND', 'oi')] }) as any, laya: short }, { organizationId: 'o', leadId: 'l', conversationId: 'c' });
+    const skipped = await classifyLeadWithLaya({ db: fakeDb({ lead: { id: 'l', funnel_stage: 'NEW_CONVERSATION', is_group: false }, messages: [message('OUTBOUND', 'Olá!'), message('INBOUND', 'oi')] }) as any, laya: short }, { organizationId: 'o', leadId: 'l', conversationId: 'c' });
     expect(skipped).toEqual({ status: 'skipped', reason: 'not_enough_messages' });
     expect(short.fetch).not.toHaveBeenCalled();
+  });
+
+  it('never classifies a chat the SDR did not answer (owner replying from the phone is not a lead)', async () => {
+    const layaConfig = laya(0.1);
+    const db = fakeDb({
+      lead: { id: 'lead-1', funnel_stage: 'NEW_CONVERSATION', is_group: false },
+      messages: [{ ...message('OUTBOUND', 'tem disponibilidade dia 12?'), sender: 'human' }, message('INBOUND', 'dia 12 não temos'), message('INBOUND', 'só 11 ou 13')],
+    });
+    const result = await classifyLeadWithLaya({ db: db as any, laya: layaConfig }, { organizationId: 'org-1', leadId: 'lead-1', conversationId: 'conv-1' });
+    expect(result).toEqual({ status: 'skipped', reason: 'sdr_never_replied' });
+    expect(layaConfig.fetch).not.toHaveBeenCalled();
+    expect(db.writes).toEqual([]);
   });
 });

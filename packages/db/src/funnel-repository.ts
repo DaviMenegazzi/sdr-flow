@@ -30,6 +30,32 @@ export class FunnelRepository {
   }
 
   /**
+   * Whether the SDR (sender 'ai') ever answered this lead. conversations.stage HUMAN_HANDOFF is
+   * not proof of that: the webhook also sets it whenever the owner types from the phone, which
+   * covers personal and supplier chats that must stay out of the sales funnel.
+   */
+  async leadHasSdrReplies(organizationId: string, leadId: string): Promise<boolean> {
+    const { data: conversations, error } = await this.db
+      .from('conversations')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .eq('lead_id', leadId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) throw error;
+    if (!conversations || conversations.length === 0) return false;
+    const { data: replies, error: messagesError } = await this.db
+      .from('messages')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .in('conversation_id', conversations.map((conversation: { id: string }) => conversation.id))
+      .eq('sender', 'ai')
+      .limit(1);
+    if (messagesError) throw messagesError;
+    return (replies?.length ?? 0) > 0;
+  }
+
+  /**
    * Moves leads.funnel_stage only if it still equals `move.from`, so a Laya job and a turn racing
    * on the same lead cannot overwrite each other. Returns false when someone else moved it first.
    */
