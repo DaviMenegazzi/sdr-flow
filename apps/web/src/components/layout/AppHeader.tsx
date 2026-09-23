@@ -31,14 +31,14 @@ export function AppHeader() {
 
   const getPageInfo = (path: string) => {
     if (path.startsWith('/flows')) return { title: 'Construtor de Fluxos', category: 'Automação' };
-    if (path.startsWith('/connections')) return { title: 'WhatsApp (Instâncias)', category: 'Operação' };
+    if (path.startsWith('/connections')) return { title: 'Conexões WhatsApp', category: 'Operação' };
     if (path.startsWith('/integrations')) return { title: 'Integrações Externas', category: 'Dados' };
     if (path.startsWith('/knowledge')) return { title: 'Base de Conhecimento', category: 'Automação' };
-    if (path.startsWith('/inbox')) return { title: 'Inbox de Atendimento', category: 'Operação' };
-    if (path.startsWith('/dashboard')) return { title: 'Painel de Indicadores', category: 'Inteligência' };
-    if (path.startsWith('/templates')) return { title: 'Biblioteca de Modelos', category: 'Automação' };
+    if (path.startsWith('/inbox')) return { title: 'Atendimento', category: 'Operação' };
+    if (path.startsWith('/dashboard')) return { title: 'Indicadores', category: 'Inteligência' };
+    if (path.startsWith('/templates')) return { title: 'Modelos SDR', category: 'Automação' };
     if (path.startsWith('/agents')) return { title: 'Agentes de IA', category: 'Automação' };
-    if (path.startsWith('/admin')) return { title: 'Administração de Contas', category: 'Sistema' };
+    if (path.startsWith('/admin')) return { title: 'Administração', category: 'Sistema' };
     if (path.startsWith('/settings')) return { title: 'Configurações', category: 'Sistema' };
     return { title: 'Visão Geral', category: 'Plataforma' };
   };

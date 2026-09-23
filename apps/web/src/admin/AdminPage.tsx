@@ -76,7 +76,7 @@ export function AdminPage() {
               <Shield className="w-3.5 h-3.5" /> PAINEL DE CONTROLE ADMINISTRATIVO
             </div>
             <h1 className="text-2xl font-bold text-content tracking-tight">
-              Gestão de Contas & Organizações
+              Administração
             </h1>
             <p className="text-sm text-content-secondary max-w-2xl mt-1">
               Gerencie organizações, acessos de clientes, permissões e cotas de recursos.

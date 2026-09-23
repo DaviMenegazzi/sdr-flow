@@ -91,13 +91,13 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
             {can('inbox:read') && (
               <NavLink to="/inbox" className={navItemClass}>
                 <MessageSquare size={16} />
-                <span>Atendimento (Inbox)</span>
+                <span>Atendimento</span>
               </NavLink>
             )}
             {can('instances:manage') && (
               <NavLink to="/connections" className={navItemClass}>
                 <Radio size={16} />
-                <span>WhatsApp Instâncias</span>
+                <span>Conexões WhatsApp</span>
               </NavLink>
             )}
           </div>
@@ -128,7 +128,7 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
             </NavLink>
             <NavLink to="/knowledge" className={navItemClass}>
               <BookOpen size={16} />
-              <span>Base Conhecimento</span>
+              <span>Base de Conhecimento</span>
             </NavLink>
           </div>
         </div>
@@ -142,7 +142,7 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
             {can('dashboard:read') && (
               <NavLink to="/dashboard" className={navItemClass}>
                 <BarChart3 size={16} />
-                <span>Indicadores (KPIs)</span>
+                <span>Indicadores</span>
               </NavLink>
             )}
             {can('flows:read') && (
@@ -189,11 +189,11 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
           title={dark ? 'Mudar para Modo Claro' : 'Mudar para Modo Escuro'}
         >
           <span className="flex items-center gap-2">
-            {dark ? <Sun size={15} className="text-warning" /> : <Moon size={15} className="text-content-secondary" />}
-            <span>{dark ? 'Modo Claro' : 'Modo Escuro'}</span>
+            {dark ? <Moon size={15} className="text-content-secondary" /> : <Sun size={15} className="text-warning" />}
+            <span>Tema</span>
           </span>
-          <span className="text-2xs px-1.5 py-0.5 bg-surface-elevated border border-border rounded text-content-muted font-mono">
-            {dark ? 'Dark' : 'Light'}
+          <span className="text-2xs px-1.5 py-0.5 bg-surface-elevated border border-border rounded text-content-secondary">
+            {dark ? 'Escuro' : 'Claro'}
           </span>
         </button>
 

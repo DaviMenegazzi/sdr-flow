@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode, type Fo
 import { createClient, type Session } from '@supabase/supabase-js';
 import { CheckCircle2, Sliders, UserPlus } from 'lucide-react';
 import type { MemberRole, OrgTier, Capability } from '@sdr/shared';
-import { Button, Input, Modal, Card, TableSkeleton } from './components/ui';
+import { Badge, Button, Input, Modal, Card, TableSkeleton, Tabs } from './components/ui';
 
 const url = import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.SUPABASE_ANON_KEY;
@@ -651,7 +651,7 @@ export function Settings() {
             <Sliders size={14} /> ADMINISTRAÇÃO & AJUSTES
           </div>
           <h1 className="text-2xl font-bold text-content tracking-tight">
-            Organizações e Equipe
+            Configurações
           </h1>
           <p className="text-sm text-content-secondary max-w-2xl mt-1">
             Gerencie membros, convites e chaves de integração da organização ativa.
@@ -780,9 +780,9 @@ export function Settings() {
             <div>
               <strong>{session.user.email}</strong>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-                <span className="badge" style={{ textTransform: 'uppercase' }}>
+                <Badge variant="outline" size="sm">
                   Papel: {activeRole ?? 'sem papel'}
-                </span>
+                </Badge>
               </div>
             </div>
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -805,36 +805,21 @@ export function Settings() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 10, margin: '24px 0 16px', borderBottom: '1px solid var(--color-border-secondary)', paddingBottom: 12 }}>
-            <button
-              className={settingsTab === 'team' ? 'primary' : ''}
-              onClick={() => setSettingsTab('team')}
-            >
-              Time & Membros
-            </button>
-            {isPlatformAdmin && (
-              <>
-                <button
-                  className={settingsTab === 'invitations' ? 'primary' : ''}
-                  onClick={() => setSettingsTab('invitations')}
-                >
-                  Convites
-                </button>
-                <button
-                  className={settingsTab === 'api-keys' ? 'primary' : ''}
-                  onClick={() => setSettingsTab('api-keys')}
-                >
-                  Chaves de API (S2S)
-                </button>
-                <button
-                  className={settingsTab === 'new-org' ? 'primary' : ''}
-                  onClick={() => setSettingsTab('new-org')}
-                >
-                  + Nova Organização
-                </button>
-              </>
-            )}
-          </div>
+          <Tabs
+            className="mt-6 mb-4"
+            activeTab={settingsTab}
+            onChange={setSettingsTab}
+            tabs={[
+              { id: 'team', label: 'Time & Membros' },
+              ...(isPlatformAdmin
+                ? [
+                    { id: 'invitations' as const, label: 'Convites' },
+                    { id: 'api-keys' as const, label: 'Chaves de API (S2S)' },
+                    { id: 'new-org' as const, label: 'Nova Organização' },
+                  ]
+                : []),
+            ]}
+          />
 
           {settingsTab === 'team' && (
             <div style={{ marginTop: 20 }}>

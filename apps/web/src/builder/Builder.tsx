@@ -112,7 +112,7 @@ function Editor() {
 
   useEffect(() => {
     if (!nodesInitialized || !fitRequested) return;
-    void fitView({ nodes: graph.nodes.map(node => ({ id: node.id })), padding: 0.15, duration: 300 });
+    void fitView({ nodes: graph.nodes.map(node => ({ id: node.id })), padding: 0.15, maxZoom: 1, duration: 300 });
     setFitRequested(false);
   }, [nodesInitialized, fitRequested, graph.nodes, fitView]);
 
@@ -558,7 +558,7 @@ function Editor() {
         <button
           type="button"
           onClick={() => setActiveTab('canvas')}
-          className={`builder-tab flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-colors duration-150 ease-out -mb-[1px] ${
+          className={`builder-tab flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-0 border-b-2 rounded-none bg-transparent min-h-0 transition-colors duration-150 ease-out -mb-[1px] ${
             activeTab === 'canvas'
               ? 'border-brand text-brand-fg font-semibold'
               : 'border-transparent text-content-secondary hover:text-content-primary hover:border-border'
@@ -571,7 +571,7 @@ function Editor() {
         <button
           type="button"
           onClick={() => setActiveTab('prompts')}
-          className={`builder-tab flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-colors duration-150 ease-out -mb-[1px] ${
+          className={`builder-tab flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-0 border-b-2 rounded-none bg-transparent min-h-0 transition-colors duration-150 ease-out -mb-[1px] ${
             activeTab === 'prompts'
               ? 'border-brand text-brand-fg font-semibold'
               : 'border-transparent text-content-secondary hover:text-content-primary hover:border-border'
@@ -587,7 +587,7 @@ function Editor() {
         <button
           type="button"
           onClick={() => setActiveTab('variables')}
-          className={`builder-tab flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-colors duration-150 ease-out -mb-[1px] ${
+          className={`builder-tab flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-0 border-b-2 rounded-none bg-transparent min-h-0 transition-colors duration-150 ease-out -mb-[1px] ${
             activeTab === 'variables'
               ? 'border-brand text-brand-fg font-semibold'
               : 'border-transparent text-content-secondary hover:text-content-primary hover:border-border'
@@ -937,6 +937,7 @@ function Editor() {
             fitView
             minZoom={0.08}
             maxZoom={2}
+            fitViewOptions={{ maxZoom: 1, padding: 0.3 }}
             snapToGrid
             snapGrid={[20, 20]}
             onConnect={connect}

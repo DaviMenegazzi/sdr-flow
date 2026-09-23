@@ -343,7 +343,7 @@ export function KnowledgePage() {
               <BookOpen className="w-3.5 h-3.5" /> BASE DE CONHECIMENTO VETORIAL (RAG)
             </div>
             <h1 className="text-2xl font-bold text-content tracking-tight">
-              Base de Conhecimento do SDR
+              Base de Conhecimento
             </h1>
             <p className="text-sm text-content-secondary max-w-2xl mt-1">
               Tabelas de valores, planos, especialidades, regras de carência e respostas para objeções.

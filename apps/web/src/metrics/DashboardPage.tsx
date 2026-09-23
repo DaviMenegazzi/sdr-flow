@@ -24,7 +24,17 @@ import {
 } from 'recharts';
 import { useSession } from '../session';
 import { useInstance } from '../context/InstanceContext';
-import { Button, Card, Badge, CardGridSkeleton, Skeleton, TableSkeleton } from '../components/ui';
+import { Link } from 'react-router-dom';
+import { Button, Card, Badge, CardGridSkeleton, EmptyState, Skeleton, TableSkeleton } from '../components/ui';
+
+// Costs are billed in USD; tiny per-flow costs keep more decimals so they don't read as zero.
+function formatUsd(value: number | undefined | null) {
+  const amount = value ?? 0;
+  const digits = amount > 0 && amount < 0.01 ? 4 : 2;
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'USD', minimumFractionDigits: digits, maximumFractionDigits: digits }).format(amount);
+}
+
+const formatCompact = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 });
 
 interface FunnelStep {
   stage: string;
@@ -179,7 +189,7 @@ export function DashboardPage() {
               <BarChart3 className="w-3.5 h-3.5" /> INDICADORES DE DESEMPENHO
             </div>
             <h1 className="text-2xl font-bold text-content tracking-tight">
-              Painel Gerencial SDR
+              Indicadores
             </h1>
             <p className="text-sm text-content-secondary max-w-2xl mt-1">
               Taxas de conversão, tempo de resposta, funil e custos consolidados em tempo real.
@@ -312,10 +322,10 @@ export function DashboardPage() {
           </div>
           <div>
             <div className="text-2xl font-bold text-content tracking-tight">
-              ${metrics?.totalEstimatedCost?.toFixed(3) ?? '0.000'}
+              {formatUsd(metrics?.totalEstimatedCost)}
             </div>
             <span className="block text-2xs text-content-muted mt-1">
-              {((metrics?.totalTokens ?? 0) / 1000).toFixed(1)}k tokens consumidos
+              {formatCompact.format(metrics?.totalTokens ?? 0)} tokens consumidos
             </span>
           </div>
         </Card>
@@ -328,7 +338,7 @@ export function DashboardPage() {
           </div>
           <div>
             <div className="text-2xl font-bold text-content tracking-tight">
-              ${metrics?.costPerQualifiedLead?.toFixed(3) ?? '0.000'}
+              {formatUsd(metrics?.costPerQualifiedLead)}
             </div>
             <span className="block text-2xs text-content-muted mt-1">
               Eficiência de custo da IA
@@ -361,7 +371,7 @@ export function DashboardPage() {
             <span className="text-xs text-content-muted">Por Estágio Canônico</span>
           </div>
 
-          <div className="w-full h-64">
+          <div className={`w-full ${metrics?.funnel && metrics.funnel.length > 0 ? 'h-64' : ''}`}>
             {metrics?.funnel && metrics.funnel.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={metrics.funnel} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
@@ -381,9 +391,12 @@ export function DashboardPage() {
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full flex items-center justify-center text-xs text-content-muted">
-                Sem dados de funil disponíveis.
-              </div>
+              <EmptyState
+                icon={<BarChart3 size={18} />}
+                title="Sem dados de funil ainda"
+                description="O funil aparece quando as conversas começarem a passar pelos estágios do fluxo publicado."
+                action={<Link to="/connections" className="text-xs font-semibold text-brand-fg hover:underline">Conectar WhatsApp</Link>}
+              />
             )}
           </div>
         </Card>
@@ -395,7 +408,7 @@ export function DashboardPage() {
             <span className="text-xs text-content-muted">Consolidado por Data</span>
           </div>
 
-          <div className="w-full h-64">
+          <div className={`w-full ${metrics?.dailyTrends && metrics.dailyTrends.length > 0 ? 'h-64' : ''}`}>
             {metrics?.dailyTrends && metrics.dailyTrends.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={metrics.dailyTrends} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -425,9 +438,11 @@ export function DashboardPage() {
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full flex items-center justify-center text-xs text-content-muted">
-                Sem dados temporais disponíveis.
-              </div>
+              <EmptyState
+                icon={<TrendingUp size={18} />}
+                title="Sem atendimentos no período"
+                description="A evolução diária começa a ser desenhada no primeiro dia com conversas."
+              />
             )}
           </div>
         </Card>
@@ -473,16 +488,19 @@ export function DashboardPage() {
                     <td className="py-3 px-3 text-success dark:text-success font-semibold">{f.qualifiedCount}</td>
                     <td className="py-3 px-3 font-semibold text-content">{f.qualificationRate}%</td>
                     <td className="py-3 px-3 text-content-muted">{f.totalTokens.toLocaleString()}</td>
-                    <td className="py-3 px-3 text-content-muted">${f.totalCost.toFixed(4)}</td>
+                    <td className="py-3 px-3 text-content-muted">{formatUsd(f.totalCost)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         ) : (
-          <div className="py-6 text-center text-xs text-content-muted">
-            Nenhum fluxo publicado associado a conversas ainda.
-          </div>
+          <EmptyState
+            icon={<Workflow size={18} />}
+            title="Nenhum fluxo publicado com conversas"
+            description="Publique um fluxo e vincule a uma instância para comparar versões."
+            action={<Link to="/flows" className="text-xs font-semibold text-brand-fg hover:underline">Abrir o Construtor</Link>}
+          />
         )}
       </Card>
     </div>

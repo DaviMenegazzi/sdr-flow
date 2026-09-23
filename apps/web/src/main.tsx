@@ -137,7 +137,7 @@ function ProtectedApp() {
                       BIBLIOTECA DE MODELOS
                     </span>
                     <h1 className="text-2xl font-bold tracking-tight text-content-primary mt-2">
-                      Comece com um fluxo comprovado
+                      Modelos SDR
                     </h1>
                     <p className="text-xs text-content-secondary mt-1 max-w-xl">
                       Modelos prontos e parametrizados para qualificação, agendamento de consultas e atendimento humanizado.

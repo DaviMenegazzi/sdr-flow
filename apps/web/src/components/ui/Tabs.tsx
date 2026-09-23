@@ -32,10 +32,10 @@ export function Tabs<T extends string = string>({
               key={tab.id}
               type="button"
               onClick={() => onChange(tab.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors duration-150 ease-out ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border-0 min-h-0 transition-colors duration-150 ease-out ${
                 isActive
                   ? 'bg-surface text-content-primary shadow-sm'
-                  : 'text-content-secondary hover:text-content-primary'
+                  : 'bg-transparent text-content-secondary hover:text-content-primary'
               }`}
             >
               {tab.icon}
@@ -65,7 +65,7 @@ export function Tabs<T extends string = string>({
             key={tab.id}
             type="button"
             onClick={() => onChange(tab.id)}
-            className={`flex items-center gap-2 py-3 px-1 text-xs font-medium border-b-2 transition-colors duration-150 ease-out -mb-[1px] ${
+            className={`flex items-center gap-2 py-3 px-1 text-xs font-medium border-0 border-b-2 rounded-none bg-transparent min-h-0 transition-colors duration-150 ease-out -mb-[1px] ${
               isActive
                 ? 'border-brand text-brand-fg font-semibold'
                 : 'border-transparent text-content-secondary hover:text-content-primary hover:border-border'

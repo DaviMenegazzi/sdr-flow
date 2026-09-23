@@ -232,7 +232,7 @@ export function IntegrationsPage() {
           <ShieldCheck size={15} />
           Conexões Multi-inquilino Seguras
         </div>
-        <h1 className="text-2xl font-bold tracking-tight text-content-primary">Conexões Externas</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-content-primary">Integrações Externas</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-content-secondary">
           Conecte ferramentas externas como o Google Calendar diretamente à sua organização. As credenciais são criptografadas e isoladas no banco de dados com segurança nível empresarial (RLS).
         </p>

@@ -390,7 +390,7 @@ export function ConnectionsPage() {
               <Radio className="w-3.5 h-3.5" /> TRANSPORTE & MENSAGERIA
             </div>
             <h1 className="text-2xl font-bold text-content tracking-tight">
-              Conexões de WhatsApp
+              Conexões WhatsApp
             </h1>
             <p className="text-sm text-content-secondary max-w-2xl mt-1">
               Conecte números via Evolution API (QR Code ao vivo) ou Meta Cloud API oficial com isolamento por organização.
