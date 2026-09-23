@@ -13,7 +13,8 @@ import { useBuilder } from './store';
 import { useSession } from '../session';
 import { useInstance } from '../context/InstanceContext';
 import { PlaygroundModal } from './PlaygroundModal';
-import { Badge, Button, DropdownMenu, IconButton, Input, Modal, Popover, SegmentedControl, Skeleton, Tooltip, toast, type MenuItem } from '../components/ui';
+import { Badge, Button, DropdownMenu, IconButton, Input, Modal, Popover, SegmentedControl, Skeleton, Tooltip, confirmDialog, toast, type MenuItem } from '../components/ui';
+import { formatDateTime } from '../lib/format';
 
 const nodeTypes = { flowNode: FlowNode };
 const PORT_LABELS: Record<string, string> = { pass: 'permitido', blocked: 'bloqueado', true: 'sim', false: 'não' };
@@ -28,6 +29,15 @@ interface SavedFlow {
   published?: boolean;
   publishedVersion?: number;
   published_version_id?: string | null;
+}
+
+interface ActiveBinding {
+  flowId: string;
+  flow?: SavedFlow;
+  name: string;
+  version: number;
+  publishedAt: string;
+  instanceName: string;
 }
 
 interface InstanceOption {
@@ -76,7 +86,10 @@ function Editor() {
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     return () => observer.disconnect();
   }, []);
-  const [activeBindings, setActiveBindings] = useState<Record<string, { flowId: string; flow?: any }>>({});
+  const [activeBindings, setActiveBindings] = useState<Record<string, ActiveBinding>>({});
+  // Instance the auto-open last ran for: switching instance re-opens that instance's active flow.
+  const autoOpenedForRef = useRef<string | null>(null);
+  const dirtyRef = useRef(false);
   const autoOpenSuppressedRef = useRef(false);
   const [liveError, setLiveError] = useState<{ nodeId: string; error: string; timestamp: string } | null>(null);
 
@@ -154,20 +167,27 @@ function Editor() {
       }));
       setSavedFlows(flows);
 
-      const activeData: Record<string, { flowId: string; flow?: SavedFlow }> = {};
-      if (currentInstance?.agent_id) {
-        const agentRes = await fetch(`/api/me/agents/${currentInstance.agent_id}`, { headers: flowApiHeaders });
-        if (agentRes.ok) {
-          const agent = await agentRes.json();
-          const activeFlow = agent.flow_id
-            ? flows.find(flow => flow.id === agent.flow_id && flow.published_version_id)
-            : flows.find(flow => flow.published_version_id);
-          if (activeFlow) {
-            const keys = [targetInstance, activeInstance, currentInstance.id, currentInstance.name]
-              .filter((key): key is string => Boolean(key));
-            for (const key of new Set(keys)) {
-              activeData[key] = { flowId: activeFlow.id, flow: activeFlow };
-            }
+      // Same resolution the runtime uses (connection → agent → published flow), so what the
+      // builder calls "ativo" is exactly what answers messages on this number.
+      const activeData: Record<string, ActiveBinding> = {};
+      const activeRes = await fetch(`/api/organizations/${activeOrg}/active-flows`, { headers: flowApiHeaders }).catch(() => null);
+      if (activeRes?.ok) {
+        const bindings = (await activeRes.json()) as Array<{
+          connection: { id: string; name: string; instanceName: string };
+          flow: { id: string; name: string; version: number; publishedAt: string };
+        }>;
+        for (const binding of Array.isArray(bindings) ? bindings : []) {
+          const saved = flows.find(flow => flow.id === binding.flow.id);
+          const entry: ActiveBinding = {
+            flowId: binding.flow.id,
+            flow: saved,
+            name: binding.flow.name,
+            version: binding.flow.version,
+            publishedAt: binding.flow.publishedAt,
+            instanceName: binding.connection.name,
+          };
+          for (const key of new Set([binding.connection.id, binding.connection.name, binding.connection.instanceName])) {
+            if (key) activeData[key] = entry;
           }
         }
       }
@@ -181,10 +201,7 @@ function Editor() {
           openFlow(flowToOpen, `Fluxo "${flowToOpen.name}" carregado.`);
         }
       } else {
-        const activeFlow = resolveActiveBinding(activeData)?.flow;
-        if (activeFlow && !autoOpenSuppressedRef.current && openFlow(activeFlow, `Fluxo ativo "${activeFlow.name}" carregado.`)) {
-          autoOpenSuppressedRef.current = true;
-        }
+        autoOpenActive(activeData);
       }
     } catch {
       // Ignora erro no carregamento inicial silencioso
@@ -197,14 +214,22 @@ function Editor() {
     void refreshData();
   }, [managedFlowApi, activeOrg, session?.access_token, currentInstance?.agent_id, targetInstance]);
 
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get('id') || autoOpenSuppressedRef.current) return;
-    const activeFlow = resolveActiveBinding(activeBindings)?.flow;
-    if (!activeFlow) return;
-    if (openFlow(activeFlow, `Fluxo ativo "${activeFlow.name}" carregado.`)) {
+  /**
+   * First load (and every instance switch) opens the flow that is active on the selected
+   * instance, unless the user explicitly opened another flow or has unsaved edits.
+   */
+  function autoOpenActive(bindings: Record<string, ActiveBinding>) {
+    if (new URLSearchParams(window.location.search).get('id')) return;
+    const instanceKey = currentInstance?.id || targetInstance || '';
+    if (!instanceKey || autoOpenedForRef.current === instanceKey) return;
+    if (autoOpenSuppressedRef.current && autoOpenedForRef.current === null) return;
+    if (dirtyRef.current) return;
+    const binding = resolveActiveBinding(bindings);
+    autoOpenedForRef.current = instanceKey;
+    if (binding?.flow && openFlow(binding.flow, `Fluxo ativo "${binding.flow.name}" carregado.`)) {
       autoOpenSuppressedRef.current = true;
     }
-  }, [activeBindings, activeInstance, targetInstance, currentInstance?.id, currentInstance?.name]);
+  }
 
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
@@ -282,7 +307,7 @@ function Editor() {
     setFitRequested(true);
   };
 
-  function resolveActiveBinding(bindings: Record<string, { flowId: string; flow?: SavedFlow }>) {
+  function resolveActiveBinding(bindings: Record<string, ActiveBinding>) {
     const keys = Array.from(
       new Set([targetInstance, activeInstance, currentInstance?.name, currentInstance?.id].filter((key): key is string => Boolean(key)))
     );
@@ -300,7 +325,7 @@ function Editor() {
     setFlowId(flow.id);
     if (flow.targetInstance) setActiveInstance(flow.targetInstance);
     layout(parsed.data);
-    setNotice(message);
+    if (message) setNotice(message);
     return true;
   }
 
@@ -438,13 +463,17 @@ function Editor() {
     window.history.replaceState(null, '', `?id=${flow.id}`);
   };
 
-  const isInstanceActiveWithThisFlow = targetInstance && activeBindings[targetInstance]?.flowId === flowId;
-  const currentSaved = savedFlows.find(flow => flow.id === flowId);
+  const activeBinding = resolveActiveBinding(activeBindings);
+  const isInstanceActiveWithThisFlow = Boolean(flowId && activeBinding?.flowId === flowId);
+  const instanceLabel = currentInstance?.name || targetInstance || 'esta instância';
 
   // "Salvo" vs "alterações não salvas": compare against the last graph that reached the server.
   const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
   const snapshot = JSON.stringify({ name: state.name, graph });
   const dirty = flowId ? savedSnapshot !== null && savedSnapshot !== snapshot : graph.nodes.length > 0;
+  // The untouched starter graph is not "work": it must not block opening the active flow.
+  const pristineRef = useRef(snapshot);
+  dirtyRef.current = flowId ? dirty : snapshot !== pristineRef.current;
   useEffect(() => {
     // A freshly opened or saved flow becomes the new baseline once its layout settles.
     if (flowId && savedSnapshot === null) setSavedSnapshot(snapshot);
@@ -584,7 +613,7 @@ function Editor() {
           maxLength={120}
           value={state.name}
           onChange={event => state.setName(event.target.value)}
-          className="h-8 w-[clamp(120px,18vw,240px)] min-w-0 rounded-lg border border-transparent bg-transparent px-2 text-sm font-semibold text-content outline-none hover:border-border focus:border-brand"
+          className="h-8 w-[clamp(120px,16vw,220px)] min-w-[120px] flex-shrink-0 rounded-lg border border-transparent bg-transparent px-2 text-sm font-semibold text-content outline-none hover:border-border focus:border-brand"
         />
         <Popover
           align="start"
@@ -609,7 +638,11 @@ function Editor() {
                 >
                   <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${flow.published ? 'bg-success' : 'bg-content-muted'}`} />
                   <span className="min-w-0 flex-1 truncate">{flow.name}</span>
-                  <span className="flex-shrink-0 text-2xs text-content-muted">{flow.published ? `v${flow.publishedVersion || 1}` : 'rascunho'}</span>
+                  {activeBinding?.flowId === flow.id ? (
+                    <span className="flex-shrink-0 rounded-full border border-success/40 bg-success/10 px-1.5 text-2xs font-semibold text-content">Ativo · v{activeBinding.version}</span>
+                  ) : (
+                    <span className="flex-shrink-0 text-2xs text-content-muted">{flow.published ? 'publicado' : 'rascunho'}</span>
+                  )}
                   {flow.id === flowId && <CheckCircle2 size={13} className="flex-shrink-0 text-brand-fg" />}
                 </button>
               ))}
@@ -627,11 +660,63 @@ function Editor() {
           )}
         </Popover>
 
-        <span className={`hidden items-center gap-1.5 whitespace-nowrap text-2xs xl:inline-flex ${dirty && flowId ? 'text-warning' : 'text-content-muted'}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${dirty && flowId ? 'bg-warning' : flowId ? 'bg-success' : 'bg-content-muted'}`} />
-          {statusLabel}
-          {isInstanceActiveWithThisFlow && <span className="text-content-muted">· publicado{currentSaved?.publishedVersion ? ` v${currentSaved.publishedVersion}` : ''}</span>}
+        <span
+          title={statusLabel}
+          className={`inline-flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap text-2xs ${dirty && flowId ? 'text-warning' : 'text-content-muted'}`}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${dirty && flowId ? 'bg-warning' : flowId ? 'bg-success' : 'bg-content-muted'}`} aria-hidden="true" />
+          <span className={dirty && flowId ? '' : 'hidden 2xl:inline'}>{statusLabel}</span>
         </span>
+
+        {/* Which flow answers on this number: the most important fact on this screen. */}
+        {!loadingFlows && (
+          isInstanceActiveWithThisFlow && activeBinding ? (
+            <Tooltip content={`Responde às mensagens de ${instanceLabel}. Versão ${activeBinding.version} publicada em ${formatDateTime(activeBinding.publishedAt)}.`}>
+              <span className="inline-flex h-7 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-success/40 bg-success/10 px-2.5 text-2xs font-semibold text-content">
+                <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" />
+                Fluxo ativo
+                <span className="font-normal text-content-secondary">· v{activeBinding.version}</span>
+              </span>
+            </Tooltip>
+          ) : activeBinding ? (
+            <span
+              title={`O fluxo que responde em ${instanceLabel} é "${activeBinding.name}" (v${activeBinding.version}).`}
+              className="inline-flex h-7 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-border px-2.5 text-2xs text-content-secondary"
+            >
+              <span className="h-1.5 w-1.5 rounded-full border border-border-strong" aria-hidden="true" />
+              <span className="hidden xl:inline">Inativo ·</span>
+              <button
+                type="button"
+                onClick={async () => {
+                  const target = activeBinding.flow ?? savedFlows.find(flow => flow.id === activeBinding.flowId);
+                  if (!target) return;
+                  if (
+                    dirty &&
+                    !(await confirmDialog({
+                      title: 'Abrir o fluxo ativo?',
+                      description: 'As alterações não salvas deste fluxo serão perdidas.',
+                      confirmLabel: 'Descartar e abrir',
+                      danger: true,
+                    }))
+                  )
+                    return;
+                  autoOpenSuppressedRef.current = true;
+                  if (openFlow(target, '')) window.history.replaceState(null, '', `?id=${target.id}`);
+                }}
+                className="min-h-0 border-0 bg-transparent p-0 text-2xs font-semibold text-content hover:underline"
+              >
+                Abrir o ativo
+              </button>
+            </span>
+          ) : (
+            <Tooltip content={`Nenhum fluxo publicado responde em ${instanceLabel}. Publique este fluxo para ativá-lo.`}>
+              <span className="inline-flex h-7 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-warning/40 bg-warning/10 px-2.5 text-2xs font-medium text-content">
+                <span className="h-1.5 w-1.5 rounded-full bg-warning" aria-hidden="true" />
+                Sem fluxo ativo
+              </span>
+            </Tooltip>
+          )
+        )}
 
         <SegmentedControl
           className="mx-auto"
@@ -658,7 +743,7 @@ function Editor() {
               }`}
             >
               {validation.valid ? <CheckCircle2 size={14} className="text-success" /> : <AlertTriangle size={14} />}
-              <span className="hidden lg:inline">{validation.valid ? 'Sem problemas' : `${validation.issues.length} ${validation.issues.length === 1 ? 'problema' : 'problemas'}`}</span>
+              <span className="hidden whitespace-nowrap lg:inline">{validation.valid ? 'Sem problemas' : `${validation.issues.length} ${validation.issues.length === 1 ? 'problema' : 'problemas'}`}</span>
               {!validation.valid && <span className="lg:hidden">{validation.issues.length}</span>}
             </button>
           }
