@@ -1,8 +1,22 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, ChevronLeft, ChevronRight, Download, LoaderCircle, RefreshCw, ScrollText } from 'lucide-react';
+import { AlertCircle, ChevronLeft, ChevronRight, Download, LoaderCircle, RefreshCw, X } from 'lucide-react';
 import { useSession } from '../session';
 import { useInstance } from '../context/InstanceContext';
-import { Badge, Button, Card, TableSkeleton, type BadgeProps } from '../components/ui';
+import {
+  Button,
+  Checkbox,
+  DateRangePicker,
+  DEFAULT_PRESETS,
+  EmptyState,
+  IconButton,
+  PageContainer,
+  PageHeader,
+  SegmentedControl,
+  TableSkeleton,
+  Tooltip,
+  type DateRange,
+} from '../components/ui';
+import { formatDateTime, formatNumber, formatPhone, formatRelative } from '../lib/format';
 import { ExecutionDetailModal } from './ExecutionDetailModal';
 import type { ExecutionDetail, ExecutionListItem, ExecutionStatus, ExecutionStep } from './types';
 import {
@@ -15,28 +29,28 @@ import {
 
 const PAGE_SIZE = 50;
 
-const STATUS_BADGE: Record<ExecutionStatus, { variant: NonNullable<BadgeProps['variant']>; label: string }> = {
-  completed: { variant: 'success', label: 'Concluída' },
-  failed: { variant: 'danger', label: 'Falhou' },
-  running: { variant: 'warning', label: 'Executando' },
-  queued: { variant: 'default', label: 'Na fila' },
-  waiting: { variant: 'info', label: 'Aguardando' },
+const STATUS_META: Record<ExecutionStatus, { dot: string; label: string }> = {
+  completed: { dot: 'bg-success', label: 'Concluída' },
+  failed: { dot: 'bg-danger', label: 'Falhou' },
+  running: { dot: 'bg-warning', label: 'Executando' },
+  queued: { dot: 'bg-content-muted', label: 'Na fila' },
+  waiting: { dot: 'bg-info', label: 'Aguardando' },
 };
 
-const STATUS_OPTIONS: Array<{ value: ExecutionStatus | ''; label: string }> = [
-  { value: '', label: 'Todos os status' },
-  { value: 'completed', label: 'Concluída' },
-  { value: 'failed', label: 'Falhou' },
+const STATUS_FILTERS: Array<{ value: ExecutionStatus | ''; label: string }> = [
+  { value: '', label: 'Todas' },
+  { value: 'failed', label: 'Falhas' },
   { value: 'running', label: 'Executando' },
   { value: 'waiting', label: 'Aguardando' },
-  { value: 'queued', label: 'Na fila' },
 ];
+
+const LOG_PRESETS = [{ key: '24h', label: 'Últimas 24 horas', days: 1 }, ...DEFAULT_PRESETS.filter(p => p.key !== 'today')];
 
 function formatDuration(startIso: string, endIso: string | null): string {
   if (!endIso) return '—';
   const ms = new Date(endIso).getTime() - new Date(startIso).getTime();
   if (!Number.isFinite(ms) || ms < 0) return '—';
-  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} s`;
 }
 
 export function ExecutionLogPage() {
@@ -49,8 +63,9 @@ export function ExecutionLogPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [status, setStatus] = useState<ExecutionStatus | ''>('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [range, setRange] = useState<DateRange>({ start: '', end: '', preset: 'all' });
+  const startDate = range.start;
+  const endDate = range.end;
   const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -129,16 +144,18 @@ export function ExecutionLogPage() {
     setSelectedIds(allVisibleSelected ? new Set() : new Set(executions.map(exec => exec.id)));
   }
 
-  const loadExecutions = useCallback(async () => {
+  const loadExecutions = useCallback(async (silent = false) => {
     if (!activeOrg || !session?.access_token || !connectionId) {
       setExecutions([]);
       setTotal(0);
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (!silent) {
+      setLoading(true);
+      setSelectedIds(new Set());
+    }
     setError('');
-    setSelectedIds(new Set());
     try {
       const params = new URLSearchParams({ connectionId, limit: String(PAGE_SIZE), offset: String(offset) });
       if (status) params.set('status', status);
@@ -168,223 +185,207 @@ export function ExecutionLogPage() {
     void loadExecutions();
   }, [loadExecutions]);
 
+  // While something is still running, keep the page fresh instead of asking for a manual reload.
+  const hasActive = executions.some(exec => exec.status === 'running' || exec.status === 'queued' || exec.status === 'waiting');
+  useEffect(() => {
+    if (!hasActive) return;
+    const timer = window.setInterval(() => void loadExecutions(true), 30_000);
+    return () => window.clearInterval(timer);
+  }, [hasActive, loadExecutions]);
+
   const page = Math.floor(offset / PAGE_SIZE) + 1;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const selecting = selectedIds.size > 0;
+  const someVisibleSelected = executions.some(exec => selectedIds.has(exec.id));
 
   return (
-    <div className="h-full overflow-y-auto p-6 md:p-8 bg-canvas text-content">
-      <div className="max-w-6xl mx-auto space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand-fg mb-1">
-              <ScrollText className="w-3.5 h-3.5" /> INTELIGÊNCIA & DADOS
-            </div>
-            <h1 className="text-2xl font-bold text-content tracking-tight">Logs de Execução</h1>
-            <p className="text-sm text-content-secondary max-w-2xl mt-1">
-              Toda ativação de fluxo da instância{' '}
-              <strong className="text-content-primary">{currentInstance?.name || 'selecionada'}</strong>: lead, quando
-              rodou, modelo usado, tokens gastos e o passo a passo completo.
-            </p>
-          </div>
-        </div>
-
-        {!connectionId ? (
-          <Card className="p-4 bg-surface border-border">
-            <p className="text-xs text-content-muted m-0">
-              Nenhuma instância conectada selecionada. Escolha uma instância no topo da página para ver seu histórico de execuções.
-            </p>
-          </Card>
-        ) : (
-          <>
-            <Card className="p-4 bg-surface border-border">
-              <div className="flex flex-wrap items-end gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="text-2xs font-semibold text-content-secondary">Status</label>
-                  <select
-                    value={status}
-                    onChange={e => setStatus(e.target.value as ExecutionStatus | '')}
-                    className="w-auto shrink-0 text-xs py-1.5 px-2.5 rounded-lg bg-surface-elevated border border-border text-content-primary outline-none focus:border-brand"
-                  >
-                    {STATUS_OPTIONS.map(opt => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-2xs font-semibold text-content-secondary">De</label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={e => setStartDate(e.target.value)}
-                    className="text-xs py-1.5 px-2.5 rounded-lg bg-surface-elevated border border-border text-content-primary outline-none focus:border-brand"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-2xs font-semibold text-content-secondary">Até</label>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={e => setEndDate(e.target.value)}
-                    className="text-xs py-1.5 px-2.5 rounded-lg bg-surface-elevated border border-border text-content-primary outline-none focus:border-brand"
-                  />
-                </div>
-                <button
-                  type="button"
+    <PageContainer>
+      <PageHeader
+        title="Logs de Execução"
+        description={
+          connectionId
+            ? `Cada vez que um fluxo rodou em ${currentInstance?.name || 'esta instância'}: lead, resultado e o passo a passo.`
+            : undefined
+        }
+        toolbar={
+          connectionId ? (
+            <>
+              <SegmentedControl<ExecutionStatus | ''>
+                aria-label="Status"
+                value={status}
+                onChange={setStatus}
+                options={STATUS_FILTERS.map(f => ({ value: f.value, label: f.label }))}
+              />
+              <DateRangePicker value={range} onChange={setRange} presets={LOG_PRESETS} allowAll />
+              <div className="ml-auto flex items-center gap-2 text-2xs text-content-muted">
+                {hasActive && <span>Atualiza sozinho a cada 30 s</span>}
+                <IconButton
+                  label="Recarregar"
+                  icon={<RefreshCw size={15} className={loading ? 'animate-spin' : ''} />}
                   onClick={() => void loadExecutions()}
-                  className="p-1.5 rounded-lg text-xs bg-surface-elevated border border-border hover:bg-surface text-content-secondary hover:text-content-primary transition-colors cursor-pointer flex items-center gap-1.5"
-                  title="Recarregar"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Recarregar
-                </button>
+                />
               </div>
-            </Card>
+            </>
+          ) : undefined
+        }
+      />
 
-            {error && (
-              <div className="p-3 rounded-lg bg-danger-bg border border-danger-border text-danger text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" /> <span>{error}</span>
-              </div>
-            )}
+      {!connectionId ? (
+        <EmptyState
+          title="Escolha uma instância"
+          description="Selecione um número no topo da página para ver o histórico de execuções dele."
+        />
+      ) : (
+        <>
+          {error && (
+            <div className="mb-4 flex items-center gap-2 rounded-lg border border-danger-border bg-danger-bg p-3 text-xs text-danger">
+              <AlertCircle size={16} className="flex-shrink-0" /> <span>{error}</span>
+            </div>
+          )}
 
-            {selectedIds.size > 0 && (
-              <div className="p-2.5 rounded-lg bg-brand/10 border border-brand/20 flex items-center justify-between gap-3">
-                <span className="text-xs font-semibold text-content-primary">
-                  {selectedIds.size} execuç{selectedIds.size === 1 ? 'ão selecionada' : 'ões selecionadas'}
-                </span>
-                <Button variant="primary" size="sm" loading={bulkDownloading} onClick={() => void downloadSelected()}>
-                  <Download size={14} /> Baixar selecionados (JSON)
-                </Button>
-              </div>
-            )}
-
-            <Card className="p-0 bg-surface border-border overflow-hidden">
-              {loading && executions.length === 0 ? (
-                <TableSkeleton columns={9} rows={6} />
-              ) : (
+          <div className="overflow-hidden rounded-xl border border-border bg-surface">
+            {loading && executions.length === 0 ? (
+              <TableSkeleton columns={6} rows={6} />
+            ) : executions.length === 0 ? (
+              <EmptyState
+                title="Nenhuma execução"
+                description={
+                  status || range.start || range.end
+                    ? 'Nada com estes filtros. Tente outro período ou status.'
+                    : 'Quando um lead mandar mensagem e um fluxo publicado rodar, ele aparece aqui.'
+                }
+              />
+            ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left border-collapse">
+                <table className="group/table w-full border-collapse text-left text-xs">
                   <thead>
-                    <tr className="bg-surface-muted/50 border-b border-border text-content-muted">
-                      <th className="py-2.5 px-4 font-medium w-8">
-                        <input
-                          type="checkbox"
-                          checked={allVisibleSelected}
-                          onChange={toggleSelectAll}
-                          aria-label="Selecionar todas as execuções desta página"
-                          className="cursor-pointer"
-                        />
+                    <tr className="border-b border-border text-2xs text-content-muted">
+                      <th className="w-10 py-2 pl-4 pr-0 font-medium">
+                        <span className={selecting ? '' : 'opacity-0 transition-opacity hover:opacity-100 focus-within:opacity-100 group-hover/table:opacity-100 [@media(hover:none)]:opacity-100'}>
+                          <Checkbox
+                            checked={allVisibleSelected}
+                            indeterminate={someVisibleSelected && !allVisibleSelected}
+                            onChange={toggleSelectAll}
+                            aria-label="Selecionar todas as execuções desta página"
+                          />
+                        </span>
                       </th>
-                      <th className="py-2.5 px-4 font-medium">Lead</th>
-                      <th className="py-2.5 px-4 font-medium">Data/Hora</th>
-                      <th className="py-2.5 px-4 font-medium">Modelo</th>
-                      <th className="py-2.5 px-4 font-medium">Tokens</th>
-                      <th className="py-2.5 px-4 font-medium">Status</th>
-                      <th className="py-2.5 px-4 font-medium">Fluxo</th>
-                      <th className="py-2.5 px-4 font-medium">Duração</th>
-                      <th className="py-2.5 px-4 font-medium text-right">Baixar</th>
+                      <th className="px-3 py-2 font-medium">Status</th>
+                      <th className="px-3 py-2 font-medium">Lead</th>
+                      <th className="hidden px-3 py-2 font-medium md:table-cell">Fluxo</th>
+                      <th className="px-3 py-2 font-medium">Quando</th>
+                      <th className="px-3 py-2 text-right font-medium">Duração</th>
+                      <th className="w-12" />
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border/60">
-                    {executions.length === 0 ? (
-                      <tr>
-                        <td colSpan={9} className="py-6 px-4 text-center text-content-muted">
-                          Nenhuma execução registrada para esta instância com os filtros atuais.
-                        </td>
-                      </tr>
-                    ) : (
-                      executions.map(exec => (
+                  <tbody>
+                    {executions.map(exec => {
+                      const meta = STATUS_META[exec.status];
+                      const checked = selectedIds.has(exec.id);
+                      const tokens = exec.input_tokens + exec.output_tokens;
+                      return (
                         <tr
                           key={exec.id}
-                          className="hover:bg-surface-muted/40 transition-colors cursor-pointer"
+                          tabIndex={0}
+                          aria-label={`Abrir execução de ${exec.lead?.name || exec.lead?.phone || 'lead'}`}
                           onClick={() => setSelectedExecutionId(exec.id)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') setSelectedExecutionId(exec.id);
+                            if (e.key === ' ') {
+                              e.preventDefault();
+                              toggleSelected(exec.id);
+                            }
+                          }}
+                          className={`group cursor-pointer border-b border-border last:border-0 outline-none transition-colors hover:bg-surface-elevated focus-visible:bg-surface-elevated ${
+                            checked ? 'bg-brand/5' : ''
+                          }`}
                         >
-                          <td className="py-3 px-4" onClick={e => e.stopPropagation()}>
-                            <input
-                              type="checkbox"
-                              checked={selectedIds.has(exec.id)}
-                              onChange={() => toggleSelected(exec.id)}
-                              aria-label="Selecionar execução"
-                              className="cursor-pointer"
-                            />
+                          <td className="py-2.5 pl-4 pr-0" onClick={e => e.stopPropagation()}>
+                            <span
+                              className={`transition-opacity ${
+                                selecting || checked ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100'
+                              }`}
+                            >
+                              <Checkbox checked={checked} onChange={() => toggleSelected(exec.id)} aria-label="Selecionar execução" tabIndex={-1} />
+                            </span>
                           </td>
-                          <td className="py-3 px-4 font-semibold text-content">
-                            {exec.lead?.name || exec.lead?.phone || '—'}
+                          <td className="whitespace-nowrap px-3 py-2.5">
+                            <span className="inline-flex items-center gap-1.5 font-medium text-content">
+                              <span className={`h-2 w-2 rounded-full ${meta?.dot ?? 'bg-content-muted'}`} aria-hidden="true" />
+                              {meta?.label ?? exec.status}
+                            </span>
                           </td>
-                          <td className="py-3 px-4 text-content-secondary">
-                            {new Date(exec.created_at).toLocaleString('pt-BR')}
+                          <td className="max-w-[220px] px-3 py-2.5">
+                            <p className="m-0 truncate font-medium text-content">{exec.lead?.name || formatPhone(exec.lead?.phone) || '—'}</p>
+                            {exec.lead?.name && <p className="m-0 truncate text-2xs text-content-muted">{formatPhone(exec.lead.phone)}</p>}
                           </td>
-                          <td className="py-3 px-4 font-mono text-content-secondary">{exec.model || '—'}</td>
-                          <td className="py-3 px-4 text-content-secondary">
-                            {exec.input_tokens + exec.output_tokens}
+                          <td className="hidden max-w-[220px] truncate px-3 py-2.5 text-content-secondary md:table-cell">
+                            {exec.flow_version?.flow?.name ? `${exec.flow_version.flow.name} · v${exec.flow_version.version}` : '—'}
                           </td>
-                          <td className="py-3 px-4">
-                            <Badge variant={STATUS_BADGE[exec.status]?.variant || 'default'} size="sm">
-                              {STATUS_BADGE[exec.status]?.label || exec.status}
-                            </Badge>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-content-secondary">
+                            <Tooltip content={`${formatDateTime(exec.created_at)}${tokens ? ` · ${formatNumber(tokens)} tokens` : ''}`}>
+                              <span>{formatRelative(exec.created_at)}</span>
+                            </Tooltip>
                           </td>
-                          <td className="py-3 px-4 text-content-secondary">
-                            {exec.flow_version?.flow?.name
-                              ? `${exec.flow_version.flow.name} · v${exec.flow_version.version}`
-                              : '—'}
-                          </td>
-                          <td className="py-3 px-4 text-content-secondary">
+                          <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-content-secondary">
                             {formatDuration(exec.created_at, exec.finished_at)}
                           </td>
-                          <td className="py-3 px-4 text-right" onClick={e => e.stopPropagation()}>
-                            <button
-                              type="button"
-                              onClick={() => void downloadOne(exec.id)}
-                              disabled={downloadingId === exec.id}
-                              title="Baixar fluxo completo desta execução (JSON)"
-                              className="p-1.5 rounded-lg text-content-muted hover:text-content-primary hover:bg-surface-elevated transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                              {downloadingId === exec.id ? (
-                                <LoaderCircle size={14} className="animate-spin" />
-                              ) : (
-                                <Download size={14} />
-                              )}
-                            </button>
+                          <td className="py-1 pr-2 text-right" onClick={e => e.stopPropagation()}>
+                            <span className="opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+                              <IconButton
+                                label="Baixar JSON desta execução"
+                                size="sm"
+                                tabIndex={-1}
+                                disabled={downloadingId === exec.id}
+                                onClick={() => void downloadOne(exec.id)}
+                                icon={downloadingId === exec.id ? <LoaderCircle size={14} className="animate-spin" /> : <Download size={14} />}
+                              />
+                            </span>
                           </td>
                         </tr>
-                      ))
-                    )}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
-              )}
-            </Card>
-
-            {total > 0 && (
-              <div className="flex items-center justify-between text-xs text-content-muted">
-                <span>
-                  {total} execuç{total === 1 ? 'ão' : 'ões'} · página {page} de {pageCount}
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={offset === 0}
-                    onClick={() => setOffset(o => Math.max(0, o - PAGE_SIZE))}
-                    className="p-1.5 rounded-lg bg-surface-elevated border border-border hover:bg-surface disabled:opacity-40 disabled:cursor-not-allowed text-content-secondary hover:text-content-primary transition-colors cursor-pointer flex items-center gap-1"
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" /> Anterior
-                  </button>
-                  <button
-                    type="button"
-                    disabled={offset + PAGE_SIZE >= total}
-                    onClick={() => setOffset(o => o + PAGE_SIZE)}
-                    className="p-1.5 rounded-lg bg-surface-elevated border border-border hover:bg-surface disabled:opacity-40 disabled:cursor-not-allowed text-content-secondary hover:text-content-primary transition-colors cursor-pointer flex items-center gap-1"
-                  >
-                    Próxima <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
             )}
-          </>
-        )}
-      </div>
+          </div>
+
+          {total > 0 && (
+            <div className="mt-3 flex items-center justify-between text-xs text-content-muted">
+              <span className="tabular-nums">
+                {formatNumber(total)} {total === 1 ? 'execução' : 'execuções'}
+                {pageCount > 1 && ` · página ${page} de ${pageCount}`}
+              </span>
+              {pageCount > 1 && (
+                <div className="flex items-center gap-1">
+                  <Button size="sm" variant="ghost" disabled={offset === 0} onClick={() => setOffset(o => Math.max(0, o - PAGE_SIZE))}>
+                    <ChevronLeft size={14} /> Anterior
+                  </Button>
+                  <Button size="sm" variant="ghost" disabled={offset + PAGE_SIZE >= total} onClick={() => setOffset(o => o + PAGE_SIZE)}>
+                    Próxima <ChevronRight size={14} />
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Bulk actions float in only while something is selected. */}
+      {selecting && (
+        <div className="motion-popover fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2 shadow-modal">
+          <span className="text-xs font-medium tabular-nums text-content">
+            {selectedIds.size} {selectedIds.size === 1 ? 'selecionada' : 'selecionadas'}
+          </span>
+          <Button size="sm" variant="primary" loading={bulkDownloading} onClick={() => void downloadSelected()}>
+            <Download size={14} /> Baixar JSON
+          </Button>
+          <IconButton label="Limpar seleção" size="sm" icon={<X size={14} />} onClick={() => setSelectedIds(new Set())} />
+        </div>
+      )}
 
       <ExecutionDetailModal executionId={selectedExecutionId} onClose={() => setSelectedExecutionId(null)} />
-    </div>
+    </PageContainer>
   );
 }
