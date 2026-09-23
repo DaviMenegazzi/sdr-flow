@@ -217,7 +217,7 @@ export function AgentDrawer({
               onClick={() => setActiveTab(tab.id as any)}
               className={`flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-all duration-150 whitespace-nowrap -mb-[1px] cursor-pointer ${
                 isActive
-                  ? 'border-brand text-brand font-semibold'
+                  ? 'border-brand text-brand-fg font-semibold'
                   : 'border-transparent text-content-secondary hover:text-content hover:border-border'
               }`}
             >
@@ -261,7 +261,7 @@ export function AgentDrawer({
               <label className="text-xs font-semibold text-content block">
                 Modelo de Linguagem
               </label>
-              <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded bg-surface-elevated text-content-muted border border-border">
+              <span className="text-2xs font-mono font-medium px-2 py-0.5 rounded bg-surface-elevated text-content-muted border border-border">
                 OpenAI
               </span>
             </div>
@@ -287,11 +287,11 @@ export function AgentDrawer({
                         <strong className="text-xs font-semibold text-content">
                           {item.name}
                         </strong>
-                        <span className="text-[10px] font-mono uppercase px-1.5 py-0.2 rounded bg-surface-elevated text-content-muted">
+                        <span className="text-2xs font-mono uppercase px-1.5 py-0.2 rounded bg-surface-elevated text-content-muted">
                           {item.provider}
                         </span>
                       </div>
-                      <p className="text-[11px] text-content-muted mt-0.5">
+                      <p className="text-2xs text-content-muted mt-0.5">
                         {item.desc}
                       </p>
                     </div>
@@ -311,9 +311,9 @@ export function AgentDrawer({
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-content flex items-center gap-1.5">
                 <Sliders size={13} />
-                Temperatura: <span className="font-mono text-brand">{temperature.toFixed(2)}</span>
+                Temperatura: <span className="font-mono text-brand-fg">{temperature.toFixed(2)}</span>
               </label>
-              <span className="text-[10px] text-content-muted">
+              <span className="text-2xs text-content-muted">
                 {temperature < 0.4
                   ? 'Mais Preciso & Direto'
                   : temperature < 0.8
@@ -330,7 +330,7 @@ export function AgentDrawer({
               onChange={(e) => setTemperature(parseFloat(e.target.value))}
               className="w-full accent-brand cursor-pointer"
             />
-            <div className="flex justify-between text-[10px] text-content-muted font-mono">
+            <div className="flex justify-between text-2xs text-content-muted font-mono">
               <span>0.0 (Fiel às regras)</span>
               <span>1.0 (Livre e expressivo)</span>
             </div>
@@ -342,7 +342,7 @@ export function AgentDrawer({
               <Smartphone size={13} className="text-[#2ee86b]" />
               Vincular a uma Instância WhatsApp
             </label>
-            <p className="text-[11px] text-content-muted leading-relaxed">
+            <p className="text-2xs text-content-muted leading-relaxed">
               As mensagens recebidas por esta instância serão respondidas pelas diretrizes deste agente.
             </p>
             <select
@@ -368,7 +368,7 @@ export function AgentDrawer({
             <label className="text-xs font-semibold text-content block mb-1">
               Variáveis Dinâmicas Disponíveis
             </label>
-            <p className="text-[11px] text-content-muted mb-2">
+            <p className="text-2xs text-content-muted mb-2">
               Clique em uma variável abaixo para inseri-la no texto do prompt no ponto do cursor:
             </p>
             <div className="flex flex-wrap gap-1.5">
@@ -377,7 +377,7 @@ export function AgentDrawer({
                   key={v.token}
                   type="button"
                   onClick={() => insertVariable(v.token)}
-                  className="px-2 py-1 rounded-md bg-brand/10 hover:bg-brand/15 border border-brand/30 text-brand text-[11px] font-mono transition-colors cursor-pointer"
+                  className="px-2 py-1 rounded-md bg-brand/10 hover:bg-brand/15 border border-brand/30 text-brand-fg text-2xs font-mono transition-colors cursor-pointer"
                   title={`Inserir ${v.label}`}
                 >
                   + {v.token}
@@ -391,7 +391,7 @@ export function AgentDrawer({
               <label className="text-xs font-semibold text-content">
                 Instruções do Sistema (System Prompt)
               </label>
-              <span className="text-[10px] font-mono text-content-muted">
+              <span className="text-2xs font-mono text-content-muted">
                 {systemPrompt.length} caracteres
               </span>
             </div>
@@ -405,7 +405,7 @@ export function AgentDrawer({
             />
           </div>
 
-          <div className="p-3 rounded-xl bg-surface-elevated/40 border border-border/60 text-[11px] text-content-secondary leading-relaxed">
+          <div className="p-3 rounded-xl bg-surface-elevated/40 border border-border/60 text-2xs text-content-secondary leading-relaxed">
             💡 <strong>Dica de Engenharia de Prompt:</strong> Oriente seu agente a não enviar blocos de texto gigantes no WhatsApp. Defina respostas curtas, em tom humano e sempre finalizadas com uma pergunta direcionada para manter o engajamento.
           </div>
         </div>
@@ -428,7 +428,7 @@ export function AgentDrawer({
                 <strong className="text-xs font-semibold text-content block">
                   Base de Conhecimento RAG
                 </strong>
-                <p className="text-[11px] text-content-muted mt-0.5 leading-relaxed">
+                <p className="text-2xs text-content-muted mt-0.5 leading-relaxed">
                   Permite consultar automaticamente documentos e tabelas de preços cadastrados na aba Conhecimento para responder dúvidas com precisão.
                 </p>
               </div>
@@ -451,7 +451,7 @@ export function AgentDrawer({
                 <strong className="text-xs font-semibold text-content block">
                   Agendamento no Google Calendar
                 </strong>
-                <p className="text-[11px] text-content-muted mt-0.5 leading-relaxed">
+                <p className="text-2xs text-content-muted mt-0.5 leading-relaxed">
                   Permite checar horários livres e marcar reuniões/consultas diretamente na agenda do vendedor ao qualificar o lead.
                 </p>
               </div>
@@ -474,7 +474,7 @@ export function AgentDrawer({
                 <strong className="text-xs font-semibold text-content block">
                   Transbordo para Humano (Handoff)
                 </strong>
-                <p className="text-[11px] text-content-muted mt-0.5 leading-relaxed">
+                <p className="text-2xs text-content-muted mt-0.5 leading-relaxed">
                   Transfere o atendimento para um atendente humano na Caixa de Entrada caso o lead solicite explicitamente ou atinja os critérios finais.
                 </p>
               </div>
@@ -495,7 +495,7 @@ export function AgentDrawer({
           <div className="p-4 rounded-xl bg-surface-elevated/40 border border-border space-y-3">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-content flex items-center gap-1.5">
-                <KeyRound size={14} className="text-brand" />
+                <KeyRound size={14} className="text-brand-fg" />
                 Chave Privada da OpenAI deste Agente
               </label>
               <Badge variant={agent.hasOpenaiKey ? 'success' : 'danger'} size="sm">
@@ -503,7 +503,7 @@ export function AgentDrawer({
               </Badge>
             </div>
 
-            <p className="text-[11px] text-content-muted leading-relaxed">
+            <p className="text-2xs text-content-muted leading-relaxed">
               Cada agente utiliza sua própria credencial com isolamento criptográfico por organização.
               {agent.hasOpenaiKey
                 ? ' Uma chave já está configurada. Digite uma nova se desejar substituí-la.'
@@ -542,7 +542,7 @@ export function AgentDrawer({
             </div>
 
             {keySavedMessage && (
-              <p className="text-[11px] text-success flex items-center gap-1 mt-1 font-medium">
+              <p className="text-2xs text-success flex items-center gap-1 mt-1 font-medium">
                 <Check size={12} /> Chave criptografada salva com sucesso!
               </p>
             )}

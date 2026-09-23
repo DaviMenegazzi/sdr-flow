@@ -339,7 +339,7 @@ export function KnowledgePage() {
         {/* Header Banner */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand mb-1">
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand-fg mb-1">
               <BookOpen className="w-3.5 h-3.5" /> BASE DE CONHECIMENTO VETORIAL (RAG)
             </div>
             <h1 className="text-2xl font-bold text-content tracking-tight">
@@ -374,7 +374,7 @@ export function KnowledgePage() {
           </Card>
 
           <Card className="p-4 flex items-center gap-4">
-            <div className="w-10 h-10 rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-lg bg-brand/10 text-brand-fg flex items-center justify-center shrink-0">
               <Layers className="w-5 h-5" />
             </div>
             <div>
@@ -398,7 +398,7 @@ export function KnowledgePage() {
         <Card className="p-5">
           <div className="flex items-center justify-between gap-2 mb-3">
             <div className="flex items-center gap-2">
-              <Search className="w-4 h-4 text-brand" />
+              <Search className="w-4 h-4 text-brand-fg" />
               <h2 className="text-sm font-semibold text-content">
                 Testador de Busca Semântica da IA
               </h2>
@@ -488,7 +488,7 @@ export function KnowledgePage() {
                             <meta.icon className="w-3.5 h-3.5" style={{ color: meta.tagColor }} />
                             <strong className="text-xs text-content">{hit.title}</strong>
                             <span
-                              className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded"
+                              className="text-2xs uppercase font-bold px-1.5 py-0.5 rounded"
                               style={{ background: meta.badgeBg, color: meta.tagColor }}
                             >
                               {meta.name}
@@ -523,7 +523,7 @@ export function KnowledgePage() {
           >
             <Folder className="w-3.5 h-3.5" />
             <span>Todas as Coleções</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedCollection === 'all' ? 'bg-black/20 text-black font-bold' : 'bg-surface-secondary text-content-muted'}`}>
+            <span className={`text-2xs px-1.5 py-0.5 rounded-full ${selectedCollection === 'all' ? 'bg-black/20 text-black font-bold' : 'bg-surface-secondary text-content-muted'}`}>
               {documents.length}
             </span>
           </button>
@@ -545,7 +545,7 @@ export function KnowledgePage() {
               >
                 <ColIcon className="w-3.5 h-3.5" />
                 <span>{col.name}</span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-black/20 text-black font-bold' : 'bg-surface-secondary text-content-muted'}`}>
+                <span className={`text-2xs px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-black/20 text-black font-bold' : 'bg-surface-secondary text-content-muted'}`}>
                   {count}
                 </span>
               </button>
@@ -564,7 +564,7 @@ export function KnowledgePage() {
           <CardGridSkeleton />
         ) : documents.length === 0 ? (
           <Card className="py-14 px-6 text-center border-dashed">
-            <div className="w-12 h-12 rounded-full bg-brand/10 text-brand flex items-center justify-center mx-auto mb-3">
+            <div className="w-12 h-12 rounded-full bg-brand/10 text-brand-fg flex items-center justify-center mx-auto mb-3">
               <Database className="w-6 h-6" />
             </div>
             <h3 className="text-base font-semibold text-content mb-1.5">
@@ -589,7 +589,7 @@ export function KnowledgePage() {
                   <div>
                     <div className="flex items-center justify-between gap-2 mb-2.5">
                       <span
-                        className="text-[11px] font-semibold uppercase px-2 py-0.5 rounded flex items-center gap-1.5"
+                        className="text-2xs font-semibold uppercase px-2 py-0.5 rounded flex items-center gap-1.5"
                         style={{ background: meta.badgeBg, color: meta.tagColor }}
                       >
                         <meta.icon className="w-3 h-3" /> {meta.name}
@@ -609,7 +609,7 @@ export function KnowledgePage() {
                   </div>
 
                   <div className="flex items-center justify-between pt-3 mt-4 border-t border-border/60">
-                    <span className="text-[11px] text-content-muted">
+                    <span className="text-2xs text-content-muted">
                       {new Date(doc.created_at).toLocaleDateString('pt-BR')}
                     </span>
 
@@ -646,7 +646,7 @@ export function KnowledgePage() {
               {/* Modal Header */}
               <div className="flex items-start justify-between pb-4 border-b border-border mb-5">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0">
+                  <div className="w-10 h-10 rounded-lg bg-brand/10 text-brand-fg flex items-center justify-center shrink-0">
                     <BookOpen className="w-5 h-5" />
                   </div>
                   <div>
@@ -696,9 +696,9 @@ export function KnowledgePage() {
                           }`}
                         >
                           <div className="flex justify-between items-center">
-                            <col.icon className="w-5 h-5 text-brand" />
+                            <col.icon className="w-5 h-5 text-brand-fg" />
                             {isSelected && (
-                              <span className="w-4 h-4 rounded-full bg-brand text-black flex items-center justify-center text-[10px]">
+                              <span className="w-4 h-4 rounded-full bg-brand text-black flex items-center justify-center text-2xs">
                                 <Check className="w-3 h-3 stroke-[2.5]" />
                               </span>
                             )}
@@ -712,14 +712,14 @@ export function KnowledgePage() {
                   {/* Selected category tip */}
                   <div className="mt-2.5 p-2.5 bg-surface-secondary border border-border/60 rounded-lg text-xs text-content-secondary flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <span className="flex items-center gap-1.5">
-                      <Lightbulb className="w-3.5 h-3.5 text-brand shrink-0" />
+                      <Lightbulb className="w-3.5 h-3.5 text-brand-fg shrink-0" />
                       <span><strong className="text-content">{currentMeta.name}:</strong> {currentMeta.description}</span>
                     </span>
                     {!editingDocId && (
                       <button
                         type="button"
                         onClick={() => applyExampleTemplate(modalCollection)}
-                        className="text-xs font-semibold text-brand hover:underline flex items-center gap-1 shrink-0"
+                        className="text-xs font-semibold text-brand-fg hover:underline flex items-center gap-1 shrink-0"
                       >
                         <Sparkles className="w-3.5 h-3.5" /> Carregar Exemplo Pronto
                       </button>
@@ -731,7 +731,7 @@ export function KnowledgePage() {
                 <div>
                   <div className="flex justify-between items-center mb-1.5">
                     <label className="text-xs font-semibold text-content">Título do Documento ou Pergunta-Chave</label>
-                    <span className="text-[11px] text-content-muted">Exclusivo e descritivo</span>
+                    <span className="text-2xs text-content-muted">Exclusivo e descritivo</span>
                   </div>
                   <Input
                     type="text"
@@ -740,7 +740,7 @@ export function KnowledgePage() {
                     onChange={e => setModalTitle(e.target.value)}
                     placeholder={currentMeta.placeholderTitle}
                   />
-                  <p className="mt-1 text-[11px] text-content-muted">
+                  <p className="mt-1 text-2xs text-content-muted">
                     Dica: Títulos claros e contextuais ajudam o algoritmo a encontrar o documento correto durante a conversa.
                   </p>
                 </div>
@@ -751,7 +751,7 @@ export function KnowledgePage() {
                     <label className="text-xs font-semibold text-content">
                       Conteúdo Factual / Informações Oficiais
                     </label>
-                    <span className="text-xs text-brand font-medium">
+                    <span className="text-xs text-brand-fg font-medium">
                       ~{wordCount} palavras • ~{tokenEstimate} tokens estimados
                     </span>
                   </div>
@@ -763,7 +763,7 @@ export function KnowledgePage() {
                     placeholder="Escreva as informações em tópicos claros com valores em R$, prazos e condições exatas..."
                     className="w-full bg-surface border border-border rounded-lg text-content p-3 text-xs leading-relaxed focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand resize-y font-mono"
                   />
-                  <div className="mt-1.5 flex justify-between items-center text-[11px] text-content-muted">
+                  <div className="mt-1.5 flex justify-between items-center text-2xs text-content-muted">
                     <span>A IA usará este texto como fonte inquestionável de verdade (Grounding) para não alucinar valores.</span>
                     <span>Markdown suportado (•, -, #)</span>
                   </div>

@@ -72,7 +72,7 @@ export function AdminPage() {
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand mb-1">
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand-fg mb-1">
               <Shield className="w-3.5 h-3.5" /> PAINEL DE CONTROLE ADMINISTRATIVO
             </div>
             <h1 className="text-2xl font-bold text-content tracking-tight">
@@ -87,7 +87,7 @@ export function AdminPage() {
       {/* Invite Form Card */}
       <Card className="p-5 bg-surface border-border max-w-xl mb-6">
         <h2 className="text-sm font-semibold text-content m-0 mb-3 flex items-center gap-2">
-          <UserPlus className="w-4 h-4 text-brand" /> Convidar Novo Usuário
+          <UserPlus className="w-4 h-4 text-brand-fg" /> Convidar Novo Usuário
         </h2>
         <form onSubmit={invite} className="flex gap-2.5 items-center">
           <Input
@@ -105,7 +105,7 @@ export function AdminPage() {
       </Card>
 
       {message && (
-        <div className="p-3.5 mb-6 max-w-xl rounded-lg bg-brand/10 border border-brand/20 text-brand text-xs flex items-center gap-2" role="status">
+        <div className="p-3.5 mb-6 max-w-xl rounded-lg bg-brand/10 border border-brand/20 text-brand-fg text-xs flex items-center gap-2" role="status">
           <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
           <span>{message}</span>
         </div>
@@ -133,7 +133,7 @@ export function AdminPage() {
                 <tr key={a.user_id} className="hover:bg-surface-muted/40 transition-colors">
                   <td className="py-3 px-4">
                     <strong className="text-content block">{a.display_name || a.email}</strong>
-                    <span className="text-[11px] text-content-muted font-mono">{a.email}</span>
+                    <span className="text-2xs text-content-muted font-mono">{a.email}</span>
                   </td>
                   <td className="py-3 px-4 text-content">{a.instances} instância(s)</td>
                   <td className="py-3 px-4 text-content">

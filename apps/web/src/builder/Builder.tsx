@@ -493,7 +493,7 @@ function Editor() {
                   </Badge>
                 )}
               </div>
-              <p className="text-[11px] text-content-muted truncate mt-0.5">
+              <p className="text-2xs text-content-muted truncate mt-0.5">
                 Desenhe o caminho de cada conversa e conecte ao WhatsApp.
               </p>
             </div>
@@ -560,7 +560,7 @@ function Editor() {
           onClick={() => setActiveTab('canvas')}
           className={`builder-tab flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-all duration-150 -mb-[1px] ${
             activeTab === 'canvas'
-              ? 'border-brand text-brand font-semibold'
+              ? 'border-brand text-brand-fg font-semibold'
               : 'border-transparent text-content-secondary hover:text-content-primary hover:border-border'
           }`}
         >
@@ -573,13 +573,13 @@ function Editor() {
           onClick={() => setActiveTab('prompts')}
           className={`builder-tab flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-all duration-150 -mb-[1px] ${
             activeTab === 'prompts'
-              ? 'border-brand text-brand font-semibold'
+              ? 'border-brand text-brand-fg font-semibold'
               : 'border-transparent text-content-secondary hover:text-content-primary hover:border-border'
           }`}
         >
           <Bot size={14} />
           <span>Prompts & Conhecimento</span>
-          <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-brand/10 text-brand">
+          <span className="text-2xs px-1.5 py-0.2 rounded-full font-bold bg-brand/10 text-brand-fg">
             {graph.nodes.filter(n => typeof n.config.prompt === 'string' || typeof n.config.system === 'string' || n.type === 'context.knowledge' || n.type === 'output.send_text').length}
           </span>
         </button>
@@ -589,7 +589,7 @@ function Editor() {
           onClick={() => setActiveTab('variables')}
           className={`builder-tab flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-all duration-150 -mb-[1px] ${
             activeTab === 'variables'
-              ? 'border-brand text-brand font-semibold'
+              ? 'border-brand text-brand-fg font-semibold'
               : 'border-transparent text-content-secondary hover:text-content-primary hover:border-border'
           }`}
         >
@@ -641,13 +641,13 @@ function Editor() {
                 className="builder-mode-strip builder-mode-strip-test bg-amber-950/25 border-b border-amber-500/30 px-6 py-2 flex items-center justify-between gap-3 text-xs flex-shrink-0"
             >
               <div className="flex items-center flex-wrap gap-2.5">
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-semibold text-[11px]">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-semibold text-2xs">
                   <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
                   Trava de Teste Ativa
                 </span>
                 <span className="h-4 w-px bg-amber-500/30" />
                 <div className="flex items-center gap-2">
-                  <label htmlFor="flow-test-phone" className="text-[11px] font-semibold text-amber-200">
+                  <label htmlFor="flow-test-phone" className="text-2xs font-semibold text-amber-200">
                     Número autorizado:
                   </label>
                   <input
@@ -662,7 +662,7 @@ function Editor() {
                     className="w-48 py-1 px-2.5 rounded-lg border border-amber-500/40 bg-black/60 text-amber-100 text-xs font-mono outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 placeholder:text-amber-500/40"
                   />
                 </div>
-                <span className="text-[11px] text-amber-300/80 hidden md:inline">
+                <span className="text-2xs text-amber-300/80 hidden md:inline">
                   Responde <strong>exclusivamente</strong> a este contato. Demais são ignorados.
                 </span>
               </div>
@@ -683,11 +683,11 @@ function Editor() {
                 className="builder-mode-strip builder-mode-strip-normal bg-surface-elevated/30 border-b border-border px-6 py-2 flex items-center justify-between gap-4 text-xs flex-shrink-0"
             >
               <div className="flex items-center gap-2.5">
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-semibold text-[11px]">
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-semibold text-2xs">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                   Produção Livre
                 </span>
-                <span className="text-[11px] text-content-muted hidden sm:inline">
+                <span className="text-2xs text-content-muted hidden sm:inline">
                   O fluxo responderá a qualquer contato que enviar mensagem no WhatsApp.
                 </span>
               </div>
@@ -810,7 +810,7 @@ function Editor() {
             title="Configurar o agente e o modelo desta instância"
           >
             <Bot size={14} className="text-[#2ee86b] flex-shrink-0 mt-0.5" />
-            <span className="text-[10.5px] leading-snug">
+            <span className="text-2xs leading-snug">
               Os nós de <strong className="font-semibold text-content-secondary">Inteligência</strong> usam sempre o modelo e a chave do agente vinculado a esta instância — configure na aba <strong className="font-semibold text-content-secondary">Agentes</strong>.
             </span>
           </Link>
@@ -819,11 +819,11 @@ function Editor() {
               <span className="library-kicker">BLOCOS</span>
               <h2 className="text-xs font-bold uppercase tracking-wider text-content-primary">Biblioteca de nós</h2>
             </div>
-            <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-surface-elevated text-[#2ee86b]">
+            <span className="text-2xs font-mono font-semibold px-2 py-0.5 rounded-full bg-surface-elevated text-[#2ee86b]">
               {Object.keys(catalog).length}
             </span>
           </div>
-          <p className="text-[11px] text-content-muted mb-3">Arraste para o canvas ou clique para adicionar.</p>
+          <p className="text-2xs text-content-muted mb-3">Arraste para o canvas ou clique para adicionar.</p>
 
           <div className="relative mb-3">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-content-muted" />
@@ -844,7 +844,7 @@ function Editor() {
               return (
                 entries.length > 0 && (
                   <section key={category} className="space-y-1.5">
-                    <h3 className="text-[10px] font-bold tracking-wider uppercase text-content-muted px-1">
+                    <h3 className="text-2xs font-bold tracking-wider uppercase text-content-muted px-1">
                       {label}
                     </h3>
                     <div className="space-y-1">
@@ -875,7 +875,7 @@ function Editor() {
                             />
                             <span className="truncate">{node.label}</span>
                           </span>
-                          <Plus size={13} className="text-content-muted group-hover:text-brand transition-colors flex-shrink-0 ml-1" />
+                          <Plus size={13} className="text-content-muted group-hover:text-brand-fg transition-colors flex-shrink-0 ml-1" />
                         </button>
                       ))}
                     </div>
@@ -888,7 +888,7 @@ function Editor() {
           <div className="library-footer pt-3 mt-2 border-t border-border space-y-1.5 flex-shrink-0">
             <button
               onClick={() => newGraph('sdr')}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold text-brand bg-brand/10 hover:bg-brand/15 border border-brand/30 transition-colors cursor-pointer"
+              className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold text-brand-fg bg-brand/10 hover:bg-brand/15 border border-brand/30 transition-colors cursor-pointer"
             >
               <span>Usar Modelo SDR</span>
               <ChevronRight size={14} />
@@ -902,7 +902,7 @@ function Editor() {
             </button>
             <button
               onClick={restoreLocal}
-              className="w-full text-center px-3 py-1.5 rounded-lg text-[11px] text-content-muted hover:text-content-secondary transition-colors cursor-pointer"
+              className="w-full text-center px-3 py-1.5 rounded-lg text-2xs text-content-muted hover:text-content-secondary transition-colors cursor-pointer"
             >
               Recuperar rascunho local
             </button>
@@ -1039,7 +1039,7 @@ function Editor() {
           {selected ? (
             <div className="space-y-4">
               <div className="inspector-heading flex items-center justify-between pb-3 border-b border-border">
-                <span className="inspector-kicker text-[10px] font-bold uppercase tracking-wider text-brand">
+                <span className="inspector-kicker text-2xs font-bold uppercase tracking-wider text-brand-fg">
                   Configuração do Nó
                 </span>
                 <button
@@ -1055,7 +1055,7 @@ function Editor() {
                 <h2 className="text-base font-bold text-content-primary tracking-tight">
                   {catalog[selected.type].label}
                 </h2>
-                <code className="text-[10px] font-mono text-content-muted bg-surface-elevated px-2 py-0.5 rounded mt-1 inline-block">
+                <code className="text-2xs font-mono text-content-muted bg-surface-elevated px-2 py-0.5 rounded mt-1 inline-block">
                   {selected.type}
                 </code>
               </div>
@@ -1078,13 +1078,13 @@ function Editor() {
             <div className="space-y-5">
               <div className="inspector-heading pb-3 border-b border-border">
                 <div>
-                <span className="inspector-kicker text-[10px] font-bold uppercase tracking-wider text-content-muted">
+                <span className="inspector-kicker text-2xs font-bold uppercase tracking-wider text-content-muted">
                   Visão Geral do Fluxo
                 </span>
                 <h2 className="text-sm font-bold text-content-primary mt-1">
                   Editor de Conversas
                 </h2>
-                <p className="text-[11px] text-content-muted mt-0.5">
+                <p className="text-2xs text-content-muted mt-0.5">
                   Selecione um bloco no canvas para configurar suas instruções e regras.
                 </p>
                 </div>
@@ -1093,29 +1093,29 @@ function Editor() {
               <div className="flow-stats grid grid-cols-2 gap-2">
                 <div className="flow-stat-card p-3 rounded-xl bg-surface-elevated/60 border border-border/50 text-center">
                   <strong className="block text-xl font-bold text-content-primary">{graph.nodes.length}</strong>
-                  <span className="text-[10px] text-content-muted uppercase tracking-wider">Nós</span>
+                  <span className="text-2xs text-content-muted uppercase tracking-wider">Nós</span>
                 </div>
                 <div className="flow-stat-card p-3 rounded-xl bg-surface-elevated/60 border border-border/50 text-center">
-                  <strong className="block text-xl font-bold text-brand">{graph.edges.length}</strong>
-                  <span className="text-[10px] text-content-muted uppercase tracking-wider">Conexões</span>
+                  <strong className="block text-xl font-bold text-brand-fg">{graph.edges.length}</strong>
+                  <span className="text-2xs text-content-muted uppercase tracking-wider">Conexões</span>
                 </div>
               </div>
 
               <div className="p-3.5 rounded-xl bg-surface-elevated/40 border border-border/40 space-y-2">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-semibold text-content-secondary">Instância WhatsApp:</span>
-                  <span className={`font-mono text-[11px] font-bold ${targetInstance ? 'text-[#2ee86b]' : 'text-amber-400'}`}>
+                  <span className={`font-mono text-2xs font-bold ${targetInstance ? 'text-[#2ee86b]' : 'text-amber-400'}`}>
                     {targetInstance || 'Não vinculada'}
                   </span>
                 </div>
-                <p className="text-[11px] text-content-muted leading-relaxed">
+                <p className="text-2xs text-content-muted leading-relaxed">
                   {targetInstance
                     ? `Este fluxo responderá mensagens recebidas pela instância "${targetInstance}".`
                     : 'Selecione uma instância na barra superior para vincular e publicar.'}
                 </p>
                 <button
                   onClick={() => newGraph('sdr')}
-                  className="w-full mt-2 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold text-brand bg-brand/10 hover:bg-brand/20 border border-brand/20 transition-colors cursor-pointer"
+                  className="w-full mt-2 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold text-brand-fg bg-brand/10 hover:bg-brand/20 border border-brand/20 transition-colors cursor-pointer"
                 >
                   <span>Carregar Modelo SDR</span>
                   <ChevronRight size={13} />
@@ -1130,9 +1130,9 @@ function Editor() {
                 {validation.valid ? 'Tudo certo com o grafo' : 'Pontos de Atenção'}
               </h3>
               {validation.valid ? (
-                <p className="text-[11px] text-brand">Gatilho conectado e todos os caminhos possuem término válido.</p>
+                <p className="text-2xs text-brand-fg">Gatilho conectado e todos os caminhos possuem término válido.</p>
               ) : (
-                <ul className="space-y-1.5 text-[11px]">
+                <ul className="space-y-1.5 text-2xs">
                   {validation.issues.map((issue, index) => (
                     <li key={index}>
                       <button

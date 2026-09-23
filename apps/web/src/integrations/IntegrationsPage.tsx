@@ -228,7 +228,7 @@ export function IntegrationsPage() {
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-6 sm:p-10">
       <header>
-        <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-brand/20 bg-brand/10 px-3 py-1 text-xs font-semibold text-brand">
+        <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-brand/20 bg-brand/10 px-3 py-1 text-xs font-semibold text-brand-fg">
           <ShieldCheck size={15} />
           Conexões Multi-inquilino Seguras
         </div>
@@ -256,7 +256,7 @@ export function IntegrationsPage() {
       <Card className="p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand-fg">
               <CalendarDays size={24} />
             </div>
             <div>
@@ -370,7 +370,7 @@ export function IntegrationsPage() {
         ) : showCalendars && calendars.length > 0 && (
           <div className="mt-6 pt-5 border-t border-border">
             <h3 className="text-sm font-bold text-content mb-1 flex items-center gap-2">
-              <Calendar size={16} className="text-brand" /> Agendas Disponíveis nesta Conta
+              <Calendar size={16} className="text-brand-fg" /> Agendas Disponíveis nesta Conta
             </h3>
             <p className="text-xs text-content-secondary mb-4">
               Copie o ID da agenda desejada e utilize no campo <code className="text-content font-mono">calendarId</code> dos nós do seu fluxo.
@@ -386,12 +386,12 @@ export function IntegrationsPage() {
                     <div className="flex items-center gap-1.5">
                       <strong className="text-xs text-content font-semibold truncate block">{cal.summary}</strong>
                       {cal.primary && (
-                        <span className="shrink-0 rounded bg-brand/10 text-brand px-1.5 py-0.2 text-[10px] font-bold">
+                        <span className="shrink-0 rounded bg-brand/10 text-brand-fg px-1.5 py-0.2 text-2xs font-bold">
                           Principal
                         </span>
                       )}
                     </div>
-                    <span className="text-[11px] font-mono text-content-muted block truncate mt-0.5" title={cal.id}>
+                    <span className="text-2xs font-mono text-content-muted block truncate mt-0.5" title={cal.id}>
                       {cal.id}
                     </span>
                   </div>
@@ -399,7 +399,7 @@ export function IntegrationsPage() {
                   <button
                     type="button"
                     onClick={() => copyCalendarId(cal.id)}
-                    className="inline-flex shrink-0 items-center gap-1 rounded border border-border bg-surface px-2 py-1 text-[11px] font-medium text-content transition-colors hover:bg-surface-hover"
+                    className="inline-flex shrink-0 items-center gap-1 rounded border border-border bg-surface px-2 py-1 text-2xs font-medium text-content transition-colors hover:bg-surface-hover"
                     title="Copiar ID da Agenda"
                   >
                     {copiedId === cal.id ? (
@@ -421,11 +421,11 @@ export function IntegrationsPage() {
         {/* Informação sobre Fallback do Servidor */}
         <div className="mt-5 rounded-xl border border-border bg-surface-elevated/40 p-4 text-xs text-content-secondary">
           <div className="flex items-center gap-2 font-semibold text-content-primary">
-            <ServerCog size={15} className="text-brand" />
+            <ServerCog size={15} className="text-brand-fg" />
             Isolamento e Fallback Seguro
           </div>
           <p className="mt-1.5 leading-relaxed">
-            Quando você conecta uma conta Google nesta tela, ela se torna exclusiva para a organização ativa. Se nenhuma conta estiver conectada, o motor de execução do servidor recorrerá de forma transparente ao <code className="rounded bg-surface px-1 py-0.5 font-mono text-[11px]">GOOGLE_CALENDAR_CREDENTIALS_JSON</code> configurado no ambiente da VPS.
+            Quando você conecta uma conta Google nesta tela, ela se torna exclusiva para a organização ativa. Se nenhuma conta estiver conectada, o motor de execução do servidor recorrerá de forma transparente ao <code className="rounded bg-surface px-1 py-0.5 font-mono text-2xs">GOOGLE_CALENDAR_CREDENTIALS_JSON</code> configurado no ambiente da VPS.
           </p>
         </div>
       </Card>
@@ -441,11 +441,11 @@ export function IntegrationsPage() {
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-bold text-content-primary">Gates de Pagamento</h2>
                 {can('payment_gates:manage') ? (
-                  <Badge variant="success" className="text-[10px]">
+                  <Badge variant="success" className="text-2xs">
                     Vendedor Sênior Ativo
                   </Badge>
                 ) : (
-                  <Badge variant="warning" className="text-[10px] flex items-center gap-1">
+                  <Badge variant="warning" className="text-2xs flex items-center gap-1">
                     <Lock size={10} /> Exclusivo Vendedor Sênior
                   </Badge>
                 )}
@@ -469,18 +469,18 @@ export function IntegrationsPage() {
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs font-bold text-content-primary">{gate.name}</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 font-medium border border-emerald-500/20">
+                      <span className="text-2xs px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 font-medium border border-emerald-500/20">
                         {gate.status}
                       </span>
                     </div>
-                    <p className="text-[11px] text-content-secondary leading-relaxed">
+                    <p className="text-2xs text-content-secondary leading-relaxed">
                       {gate.desc}
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => alert(`Configuração do gateway ${gate.name} pronta para ser vinculada ao motor SDR.`)}
-                    className="mt-4 w-full py-1.5 px-2 rounded-lg text-xs font-semibold bg-surface border border-border hover:border-brand text-content-primary hover:text-brand transition-colors cursor-pointer"
+                    className="mt-4 w-full py-1.5 px-2 rounded-lg text-xs font-semibold bg-surface border border-border hover:border-brand text-content-primary hover:text-brand-fg transition-colors cursor-pointer"
                   >
                     Configurar Credenciais
                   </button>

@@ -176,7 +176,7 @@ export function ExecutionLogPage() {
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand mb-1">
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand-fg mb-1">
               <ScrollText className="w-3.5 h-3.5" /> INTELIGÊNCIA & DADOS
             </div>
             <h1 className="text-2xl font-bold text-content tracking-tight">Logs de Execução</h1>
@@ -199,7 +199,7 @@ export function ExecutionLogPage() {
             <Card className="p-4 bg-surface border-border">
               <div className="flex flex-wrap items-end gap-3">
                 <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold text-content-secondary">Status</label>
+                  <label className="text-2xs font-semibold text-content-secondary">Status</label>
                   <select
                     value={status}
                     onChange={e => setStatus(e.target.value as ExecutionStatus | '')}
@@ -213,7 +213,7 @@ export function ExecutionLogPage() {
                   </select>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold text-content-secondary">De</label>
+                  <label className="text-2xs font-semibold text-content-secondary">De</label>
                   <input
                     type="date"
                     value={startDate}
@@ -222,7 +222,7 @@ export function ExecutionLogPage() {
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold text-content-secondary">Até</label>
+                  <label className="text-2xs font-semibold text-content-secondary">Até</label>
                   <input
                     type="date"
                     value={endDate}

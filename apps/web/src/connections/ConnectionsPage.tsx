@@ -386,7 +386,7 @@ export function ConnectionsPage() {
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand mb-1">
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand-fg mb-1">
               <Radio className="w-3.5 h-3.5" /> TRANSPORTE & MENSAGERIA
             </div>
             <h1 className="text-2xl font-bold text-content tracking-tight">
@@ -404,7 +404,7 @@ export function ConnectionsPage() {
         </div>
 
       {message && (
-        <div className="p-3.5 mb-6 rounded-lg bg-brand/10 border border-brand/20 text-brand text-xs flex items-center gap-2">
+        <div className="p-3.5 mb-6 rounded-lg bg-brand/10 border border-brand/20 text-brand-fg text-xs flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
           <span>{message}</span>
         </div>
@@ -458,9 +458,9 @@ export function ConnectionsPage() {
                     }`}
                   >
                     <div className="flex items-center gap-2 font-semibold text-xs text-content mb-1.5">
-                      <QrCode className="w-4 h-4 text-brand" /> Evolution API
+                      <QrCode className="w-4 h-4 text-brand-fg" /> Evolution API
                     </div>
-                    <p className="text-[11px] text-content-muted m-0">
+                    <p className="text-2xs text-content-muted m-0">
                       Conexão via QR Code ao vivo (Baileys). Ideal para números de teste e operações flexíveis.
                     </p>
                   </div>
@@ -476,7 +476,7 @@ export function ConnectionsPage() {
                     <div className="flex items-center gap-2 font-semibold text-xs text-content mb-1.5">
                       <ShieldCheck className="w-4 h-4 text-emerald-500" /> Meta Cloud API
                     </div>
-                    <p className="text-[11px] text-content-muted m-0">
+                    <p className="text-2xs text-content-muted m-0">
                       API Oficial do WhatsApp Business, com autenticação e templates aprovados pela Meta.
                     </p>
                   </div>
@@ -648,7 +648,7 @@ export function ConnectionsPage() {
 
               {phone && (
                 <Card className="p-3.5 bg-surface-muted/50 border-border text-left w-full max-w-xs mt-2">
-                  <span className="text-[11px] text-content-muted block">Número Vinculado:</span>
+                  <span className="text-2xs text-content-muted block">Número Vinculado:</span>
                   <div className="text-sm font-semibold text-content mt-0.5">
                     +{phone}
                   </div>
@@ -857,7 +857,7 @@ export function ConnectionsPage() {
                     </div>
 
                     <h3 className="text-sm font-bold text-content mt-1 mb-1">{flow.name}</h3>
-                    <div className="text-[11px] text-content-muted mb-3">
+                    <div className="text-2xs text-content-muted mb-3">
                       Versão: <strong className="text-content">v{flow.version}</strong> · Publicado em: {publishedAtText}
                     </div>
 
@@ -866,9 +866,9 @@ export function ConnectionsPage() {
                         <div className="font-semibold flex items-center gap-1.5">
                           <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" /> Proteção de Teste Ativa
                         </div>
-                        <div className="text-[11px]">Responde <strong>APENAS</strong> ao número autorizado:</div>
+                        <div className="text-2xs">Responde <strong>APENAS</strong> ao número autorizado:</div>
                         <div className="font-mono font-bold text-xs">{testPhone || '(não configurado)'}</div>
-                        <div className="text-[10px] opacity-80">
+                        <div className="text-2xs opacity-80">
                           Nenhum outro contato receberá mensagens da IA.
                         </div>
                       </div>
@@ -877,7 +877,7 @@ export function ConnectionsPage() {
                         <div className="font-semibold flex items-center gap-1.5">
                           <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" /> Atendimento Público Liberado
                         </div>
-                        <div className="text-[11px]">A IA responderá a todos os contatos que enviarem mensagens nesta instância.</div>
+                        <div className="text-2xs">A IA responderá a todos os contatos que enviarem mensagens nesta instância.</div>
                       </div>
                     )}
                   </div>

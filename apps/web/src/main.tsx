@@ -70,7 +70,7 @@ class RouteErrorBoundary extends React.Component<{ children: ReactNode }, { fail
           <p className="text-sm m-0">Não foi possível carregar esta página.</p>
           <button
             onClick={() => window.location.reload()}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand bg-transparent border-0 cursor-pointer underline hover:no-underline"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-fg bg-transparent border-0 cursor-pointer underline hover:no-underline"
           >
             <RefreshCw className="w-3.5 h-3.5" /> Recarregar
           </button>
@@ -131,7 +131,7 @@ function ProtectedApp() {
                 path="/templates"
                 element={
                   <RequireCapability capability="flows:read"><div className="p-8 max-w-4xl mx-auto w-full">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-brand">
+                    <span className="text-2xs font-bold uppercase tracking-wider text-brand-fg">
                       BIBLIOTECA DE MODELOS
                     </span>
                     <h1 className="text-2xl font-bold tracking-tight text-content-primary mt-2">
@@ -146,17 +146,17 @@ function ProtectedApp() {
                         className="group p-6 rounded-xl bg-surface border border-border hover:border-brand transition-all duration-200 shadow-subtle hover:shadow-elevated flex flex-col justify-between"
                       >
                         <div>
-                          <div className="w-10 h-10 rounded-lg bg-brand/10 text-brand flex items-center justify-center mb-4 transition-transform group-hover:scale-110">
+                          <div className="w-10 h-10 rounded-lg bg-brand/10 text-brand-fg flex items-center justify-center mb-4 transition-transform group-hover:scale-110">
                             <Workflow size={22} />
                           </div>
-                          <h2 className="text-base font-semibold text-content-primary group-hover:text-brand transition-colors">
+                          <h2 className="text-base font-semibold text-content-primary group-hover:text-brand-fg transition-colors">
                             Qualificação SDR Vida Card
                           </h2>
                           <p className="text-xs text-content-secondary mt-2 leading-relaxed">
                             Modo teste, guardas de segurança comercial, qualificação progressiva, memória de lead e encaminhamento para vendedor humano.
                           </p>
                         </div>
-                        <div className="flex items-center gap-1.5 text-xs font-semibold text-brand mt-6">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-brand-fg mt-6">
                           <span>Abrir e editar modelo</span>
                           <ArrowUpRight size={14} />
                         </div>

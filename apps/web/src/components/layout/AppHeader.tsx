@@ -132,7 +132,7 @@ export function AppHeader() {
           </div>
           <Link
             to="/connections"
-            className="app-header-connection-action text-content-muted hover:text-brand transition-colors ml-1 p-1"
+            className="app-header-connection-action text-content-muted hover:text-brand-fg transition-colors ml-1 p-1"
             title="Gerenciar Conexões WhatsApp"
           >
             <Radio size={12} />

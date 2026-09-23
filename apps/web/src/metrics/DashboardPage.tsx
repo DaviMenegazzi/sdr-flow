@@ -175,7 +175,7 @@ export function DashboardPage() {
         {/* Top Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand mb-1">
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand-fg mb-1">
               <BarChart3 className="w-3.5 h-3.5" /> INDICADORES DE DESEMPENHO
             </div>
             <h1 className="text-2xl font-bold text-content tracking-tight">
@@ -250,7 +250,7 @@ export function DashboardPage() {
             <div className="text-2xl font-bold text-content tracking-tight">
               {metrics?.totalConversations ?? 0}
             </div>
-            <span className="block text-[10px] text-content-muted mt-1">
+            <span className="block text-2xs text-content-muted mt-1">
               {metrics?.handoffConversations ?? 0} assumidas por humanos
             </span>
           </div>
@@ -266,7 +266,7 @@ export function DashboardPage() {
             <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight">
               {metrics?.qualifiedConversations ?? 0}
             </div>
-            <span className="block text-[10px] text-content-muted mt-1">
+            <span className="block text-2xs text-content-muted mt-1">
               Leads com critérios atingidos
             </span>
           </div>
@@ -274,15 +274,15 @@ export function DashboardPage() {
 
         {/* Taxa de Qualificação */}
         <Card className="p-4 bg-surface border-border flex flex-col justify-between">
-          <div className="flex items-center justify-between text-brand mb-2">
+          <div className="flex items-center justify-between text-brand-fg mb-2">
             <span className="text-xs font-medium text-content-muted">Taxa de Qualificação</span>
             <TrendingUp className="w-4 h-4" />
           </div>
           <div>
-            <div className="text-2xl font-bold text-brand tracking-tight">
+            <div className="text-2xl font-bold text-brand-fg tracking-tight">
               {metrics?.qualificationRate ?? 0}%
             </div>
-            <span className="block text-[10px] text-content-muted mt-1">
+            <span className="block text-2xs text-content-muted mt-1">
               Percentual sobre o total
             </span>
           </div>
@@ -298,7 +298,7 @@ export function DashboardPage() {
             <div className="text-2xl font-bold text-content tracking-tight">
               {metrics?.avgFirstResponseTimeSec ?? 0}s
             </div>
-            <span className="block text-[10px] text-content-muted mt-1">
+            <span className="block text-2xs text-content-muted mt-1">
               Tempo até primeiro retorno
             </span>
           </div>
@@ -314,7 +314,7 @@ export function DashboardPage() {
             <div className="text-2xl font-bold text-content tracking-tight">
               ${metrics?.totalEstimatedCost?.toFixed(3) ?? '0.000'}
             </div>
-            <span className="block text-[10px] text-content-muted mt-1">
+            <span className="block text-2xs text-content-muted mt-1">
               {((metrics?.totalTokens ?? 0) / 1000).toFixed(1)}k tokens consumidos
             </span>
           </div>
@@ -330,7 +330,7 @@ export function DashboardPage() {
             <div className="text-2xl font-bold text-content tracking-tight">
               ${metrics?.costPerQualifiedLead?.toFixed(3) ?? '0.000'}
             </div>
-            <span className="block text-[10px] text-content-muted mt-1">
+            <span className="block text-2xs text-content-muted mt-1">
               Eficiência de custo da IA
             </span>
           </div>
@@ -438,7 +438,7 @@ export function DashboardPage() {
       <Card className="p-6 bg-surface border-border">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-content m-0 flex items-center gap-2">
-            <Workflow className="w-4 h-4 text-brand" />
+            <Workflow className="w-4 h-4 text-brand-fg" />
             Comparativo de Eficiência por Versão de Fluxo
           </h2>
           <span className="text-xs text-content-muted">

@@ -86,7 +86,7 @@ function ChipListInput({
           {values.map(val => (
             <span
               key={val}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border break-all"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-2xs font-semibold border break-all"
               style={{
                 background: badgeBg,
                 color: badgeColor,
@@ -270,7 +270,7 @@ function InstanceTargetPicker({
               <>
                 {filteredGroups.length > 0 && (
                   <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-content-muted block px-1 py-1">
+                    <span className="text-2xs font-bold uppercase tracking-wider text-content-muted block px-1 py-1">
                       Grupos ({filteredGroups.length})
                     </span>
                     {filteredGroups.map(g => (
@@ -288,7 +288,7 @@ function InstanceTargetPicker({
                           {g.name}
                         </span>
                         {typeof g.size === 'number' && (
-                          <span className="text-[10px] text-content-muted">{g.size} membros</span>
+                          <span className="text-2xs text-content-muted">{g.size} membros</span>
                         )}
                       </button>
                     ))}
@@ -297,7 +297,7 @@ function InstanceTargetPicker({
 
                 {filteredContacts.length > 0 && (
                   <div className={filteredGroups.length > 0 ? 'mt-1.5' : ''}>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-content-muted block px-1 py-1">
+                    <span className="text-2xs font-bold uppercase tracking-wider text-content-muted block px-1 py-1">
                       Contatos ({filteredContacts.length})
                     </span>
                     {filteredContacts.map(c => (
@@ -314,7 +314,7 @@ function InstanceTargetPicker({
                         <span className="font-medium flex-1 truncate">
                           {c.name}
                         </span>
-                        <span className="text-[10px] font-mono text-content-muted">{c.id}</span>
+                        <span className="text-2xs font-mono text-content-muted">{c.id}</span>
                       </button>
                     ))}
                   </div>
@@ -398,7 +398,7 @@ export function SchemaForm({ node }: { node: FlowNode }) {
             />
             {isEnabled ? 'Filtro de Teste Ativo' : 'Filtro Desativado (Livre)'}
           </label>
-          <p className="text-[11px] text-content-muted mt-1.5 leading-relaxed">
+          <p className="text-2xs text-content-muted mt-1.5 leading-relaxed">
             {isEnabled
               ? 'Apenas remetentes presentes nas listas abaixo avançam no fluxo. Qualquer outro contato ou grupo terá a mensagem interrompida aqui.'
               : 'Qualquer remetente que enviar mensagem avançará normalmente para os próximos blocos.'}
@@ -504,7 +504,7 @@ export function SchemaForm({ node }: { node: FlowNode }) {
               key={tag}
               type="button"
               onClick={() => field('text', textVal ? `${textVal} ${tag}` : tag)}
-              style={{ fontSize: 10, padding: '2px 6px', minHeight: 'auto', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
+              style={{ fontSize: 11, padding: '2px 6px', minHeight: 'auto', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)' }}
             >
               + {tag}
             </button>

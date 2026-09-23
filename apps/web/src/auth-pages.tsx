@@ -130,11 +130,11 @@ export function LoginPage() {
         </Button>
       </form>
       <div className="flex items-center justify-center gap-3 text-xs text-content-muted pt-2 border-t border-border/60">
-        <Link to="/forgot-password" className="text-brand hover:underline">
+        <Link to="/forgot-password" className="text-brand-fg hover:underline">
           Esqueci minha senha
         </Link>
         <span>•</span>
-        <Link to="/register" className="text-brand hover:underline">
+        <Link to="/register" className="text-brand-fg hover:underline">
           Criar conta
         </Link>
       </div>
@@ -205,7 +205,7 @@ export function RegisterPage() {
           placeholder="Repita a senha"
         />
         {message && (
-          <div className="p-3 bg-brand/10 border border-brand/20 text-brand text-xs rounded-lg" role="status">
+          <div className="p-3 bg-brand/10 border border-brand/20 text-brand-fg text-xs rounded-lg" role="status">
             {message}
           </div>
         )}
@@ -214,7 +214,7 @@ export function RegisterPage() {
         </Button>
       </form>
       <div className="text-center text-xs text-content-muted pt-2 border-t border-border/60">
-        <Link to="/login" className="text-brand hover:underline">
+        <Link to="/login" className="text-brand-fg hover:underline">
           Voltar ao login
         </Link>
       </div>
@@ -241,7 +241,7 @@ export function ForgotPasswordPage() {
       {done ? (
         <div className="flex flex-col gap-4 text-center">
           <p className="text-xs text-content-muted m-0">Se a conta existir, enviaremos as instruções por e-mail.</p>
-          <Link to="/login" className="text-xs text-brand hover:underline">
+          <Link to="/login" className="text-xs text-brand-fg hover:underline">
             Voltar ao login
           </Link>
         </div>
@@ -259,7 +259,7 @@ export function ForgotPasswordPage() {
             Enviar instruções
           </Button>
           <div className="text-center text-xs text-content-muted pt-2 border-t border-border/60">
-            <Link to="/login" className="text-brand hover:underline">
+            <Link to="/login" className="text-brand-fg hover:underline">
               Voltar ao login
             </Link>
           </div>
@@ -296,7 +296,7 @@ export function ResetPasswordPage() {
           placeholder="No mínimo 8 caracteres"
         />
         {message && (
-          <div className="p-3 bg-brand/10 border border-brand/20 text-brand text-xs rounded-lg" role="status">
+          <div className="p-3 bg-brand/10 border border-brand/20 text-brand-fg text-xs rounded-lg" role="status">
             {message}
           </div>
         )}
@@ -327,11 +327,11 @@ export function NotFoundPage() {
       <div className="flex flex-col items-center text-center gap-4">
         <p className="text-xs text-content-muted m-0">A conta ou o recurso solicitado não está disponível.</p>
         <div className="flex items-center gap-3 text-xs">
-          <Link to="/dashboard" className="text-brand hover:underline font-medium">
+          <Link to="/dashboard" className="text-brand-fg hover:underline font-medium">
             Ir para o painel
           </Link>
           <span className="text-content-muted">•</span>
-          <Link to="/login" className="text-brand hover:underline font-medium">
+          <Link to="/login" className="text-brand-fg hover:underline font-medium">
             Voltar ao login
           </Link>
         </div>

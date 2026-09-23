@@ -54,7 +54,7 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
   const navItemClass = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 ${
       isActive
-        ? 'bg-brand/10 text-brand font-semibold shadow-xs'
+        ? 'bg-brand/10 text-brand-fg font-semibold shadow-xs'
         : 'text-content-secondary hover:text-content-primary hover:bg-surface-elevated'
     }`;
 
@@ -84,7 +84,7 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
         {/* Operação */}
         <div>
-          <span className="px-3 text-[10px] font-bold uppercase tracking-wider text-content-muted">
+          <span className="px-3 text-2xs font-bold uppercase tracking-wider text-content-muted">
             Operação
           </span>
           <div className="mt-1 space-y-0.5">
@@ -105,7 +105,7 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
 
         {/* Automação & IA */}
         <div>
-          <span className="px-3 text-[10px] font-bold uppercase tracking-wider text-content-muted">
+          <span className="px-3 text-2xs font-bold uppercase tracking-wider text-content-muted">
             Automação & IA
           </span>
           <div className="mt-1 space-y-0.5">
@@ -135,7 +135,7 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
 
         {/* Inteligência & Dados */}
         <div>
-          <span className="px-3 text-[10px] font-bold uppercase tracking-wider text-content-muted">
+          <span className="px-3 text-2xs font-bold uppercase tracking-wider text-content-muted">
             Inteligência & Dados
           </span>
           <div className="mt-1 space-y-0.5">
@@ -162,7 +162,7 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
 
         {/* Sistema */}
         <div>
-          <span className="px-3 text-[10px] font-bold uppercase tracking-wider text-content-muted">
+          <span className="px-3 text-2xs font-bold uppercase tracking-wider text-content-muted">
             Sistema
           </span>
           <div className="mt-1 space-y-0.5">
@@ -192,7 +192,7 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
             {dark ? <Sun size={15} className="text-warning" /> : <Moon size={15} className="text-content-secondary" />}
             <span>{dark ? 'Modo Claro' : 'Modo Escuro'}</span>
           </span>
-          <span className="text-[10px] px-1.5 py-0.5 bg-surface-elevated border border-border rounded text-content-muted font-mono">
+          <span className="text-2xs px-1.5 py-0.5 bg-surface-elevated border border-border rounded text-content-muted font-mono">
             {dark ? 'Dark' : 'Light'}
           </span>
         </button>
@@ -200,14 +200,14 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
         {/* User Card */}
         <div className="flex items-center justify-between p-2 rounded-lg bg-surface border border-border">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-7 h-7 rounded-full bg-brand/10 border border-brand/20 text-brand font-bold text-xs flex items-center justify-center flex-shrink-0">
+            <div className="w-7 h-7 rounded-full bg-brand/10 border border-brand/20 text-brand-fg font-bold text-xs flex items-center justify-center flex-shrink-0">
               {getInitials(displayName)}
             </div>
             <div className="flex flex-col min-w-0">
               <span className="text-xs font-semibold text-content-primary truncate">
                 {displayName}
               </span>
-              <span className="text-[10px] text-content-muted truncate">
+              <span className="text-2xs text-content-muted truncate">
                 {profile?.role || 'membro'}
               </span>
             </div>

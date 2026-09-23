@@ -40,6 +40,7 @@ module.exports = {
           DEFAULT: withAlpha('--accent-primary-rgb'),
           hover: withAlpha('--accent-hover-rgb'),
           subtle: 'var(--accent-subtle)',
+          fg: withAlpha('--accent-text-rgb'),
         },
         success: {
           DEFAULT: withAlpha('--color-success-rgb'),
@@ -68,6 +69,10 @@ module.exports = {
       // Bare `border`/`divide` utilities default to the theme border instead of Tailwind's gray-200.
       borderColor: {
         DEFAULT: withAlpha('--border-default-rgb'),
+      },
+      // Type floor: 11px. Replaces the ad-hoc text-[8px]..text-[11px] sizes.
+      fontSize: {
+        '2xs': ['11px', { lineHeight: '1.45' }],
       },
       fontFamily: {
         sans: ['Inter Variable', 'Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],

@@ -42,9 +42,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           )}
         </div>
         {error ? (
-          <span className="text-[11px] text-danger font-medium">{error}</span>
+          <span className="text-2xs text-danger font-medium">{error}</span>
         ) : helperText ? (
-          <span className="text-[11px] text-content-muted">{helperText}</span>
+          <span className="text-2xs text-content-muted">{helperText}</span>
         ) : null}
       </div>
     );

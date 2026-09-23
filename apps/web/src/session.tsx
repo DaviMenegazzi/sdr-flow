@@ -647,7 +647,7 @@ export function Settings() {
     <div className="h-full overflow-y-auto p-6 md:p-8 bg-canvas text-content">
       <div className="max-w-6xl mx-auto space-y-6">
         <div>
-          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand mb-1">
+          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand-fg mb-1">
             <Sliders size={14} /> ADMINISTRAÇÃO & AJUSTES
           </div>
           <h1 className="text-2xl font-bold text-content tracking-tight">
@@ -1156,7 +1156,7 @@ export function Settings() {
                           <td style={{ padding: '10px 14px' }}><span className="badge">{k.role}</span></td>
                           <td style={{ padding: '10px 14px' }}>
                             {k.scopes?.map((s) => (
-                              <span key={s} style={{ fontSize: 10, background: 'var(--color-bg-secondary)', padding: '2px 6px', borderRadius: 4, marginRight: 4 }}>
+                              <span key={s} style={{ fontSize: 11, background: 'var(--color-bg-secondary)', padding: '2px 6px', borderRadius: 4, marginRight: 4 }}>
                                 {s}
                               </span>
                             ))}
@@ -1290,7 +1290,7 @@ export function Settings() {
               <option value="vendedor">Vendedor</option>
               <option value="vendedor-senior">Vendedor sênior</option>
             </select>
-            <span className="text-[11px] font-normal text-content-muted">
+            <span className="text-2xs font-normal text-content-muted">
               O plano é da organização e será aplicado a todos os logins vinculados a ela.
             </span>
           </label>

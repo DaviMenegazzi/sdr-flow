@@ -90,11 +90,11 @@ export function PromptsView({ onSelectNodeInCanvas }: PromptsViewProps) {
         {/* Global Summary Badges */}
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <div style={{ padding: '8px 14px', borderRadius: '8px', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', fontSize: '12px' }}>
-            <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '10px', textTransform: 'uppercase', fontWeight: 600 }}>Nós de Inteligência</span>
+            <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '11px', textTransform: 'uppercase', fontWeight: 600 }}>Nós de Inteligência</span>
             <strong style={{ fontSize: '15px' }}>{promptNodes.length} blocos ativos</strong>
           </div>
           <div style={{ padding: '8px 14px', borderRadius: '8px', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', fontSize: '12px' }}>
-            <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '10px', textTransform: 'uppercase', fontWeight: 600 }}>RAG Conectado</span>
+            <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '11px', textTransform: 'uppercase', fontWeight: 600 }}>RAG Conectado</span>
             <strong style={{ fontSize: '15px', color: knowledgeNodes.length > 0 ? '#10b981' : '#f59e0b' }}>
               {knowledgeNodes.length} {knowledgeNodes.length === 1 ? 'coleção' : 'coleções'}
             </strong>
@@ -216,7 +216,7 @@ export function PromptsView({ onSelectNodeInCanvas }: PromptsViewProps) {
                           {def?.label || node.type}
                         </span>
                       </div>
-                      <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
                         ID: {node.id.substring(0, 18)}...
                       </span>
                     </div>
@@ -289,7 +289,7 @@ export function PromptsView({ onSelectNodeInCanvas }: PromptsViewProps) {
 
                       <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '12px', background: 'var(--color-bg-secondary)', borderRadius: '8px', fontSize: '12px' }}>
                         <div>
-                          <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '10px', textTransform: 'uppercase' }}>Trechos Máximos (Top K)</span>
+                          <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '11px', textTransform: 'uppercase' }}>Trechos Máximos (Top K)</span>
                           <input
                             type="number"
                             min={1}
@@ -300,7 +300,7 @@ export function PromptsView({ onSelectNodeInCanvas }: PromptsViewProps) {
                           />
                         </div>
                         <div>
-                          <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '10px', textTransform: 'uppercase' }}>Similaridade Mínima (Threshold)</span>
+                          <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '11px', textTransform: 'uppercase' }}>Similaridade Mínima (Threshold)</span>
                           <input
                             type="number"
                             step="0.05"

@@ -161,11 +161,11 @@ export function VariablesView({ onSelectNodeInCanvas }: VariablesViewProps) {
         {/* Global Summary */}
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <div style={{ padding: '8px 14px', borderRadius: '8px', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', fontSize: '12px' }}>
-            <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '10px', textTransform: 'uppercase', fontWeight: 600 }}>Variáveis em Uso</span>
+            <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '11px', textTransform: 'uppercase', fontWeight: 600 }}>Variáveis em Uso</span>
             <strong style={{ fontSize: '15px' }}>{Object.keys(consumers).length} ativas</strong>
           </div>
           <div style={{ padding: '8px 14px', borderRadius: '8px', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', fontSize: '12px' }}>
-            <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '10px', textTransform: 'uppercase', fontWeight: 600 }}>Produtores Detectados</span>
+            <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '11px', textTransform: 'uppercase', fontWeight: 600 }}>Produtores Detectados</span>
             <strong style={{ fontSize: '15px', color: '#10b981' }}>{Object.keys(producers).length} geradores</strong>
           </div>
         </div>
@@ -323,7 +323,7 @@ export function VariablesView({ onSelectNodeInCanvas }: VariablesViewProps) {
               </div>
 
               {/* Status footer */}
-              <div style={{ marginTop: '12px', paddingTop: '8px', borderTop: '1px solid var(--color-border-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '10px' }}>
+              <div style={{ marginTop: '12px', paddingTop: '8px', borderTop: '1px solid var(--color-border-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px' }}>
                 <span style={{ color: 'var(--color-text-secondary)', textTransform: 'uppercase', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
                   {item.category === 'agent' ? (
                     <><Bot size={11} /> Inteligência</>

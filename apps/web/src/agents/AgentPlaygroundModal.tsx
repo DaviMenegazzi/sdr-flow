@@ -71,7 +71,7 @@ export function AgentPlaygroundModal({
       maxWidth="lg"
       title={
         <div className="flex items-center gap-2">
-          <Bot className="w-5 h-5 text-brand" />
+          <Bot className="w-5 h-5 text-brand-fg" />
           <span>Simulação de Conversa: {agent.name}</span>
         </div>
       }
@@ -80,7 +80,7 @@ export function AgentPlaygroundModal({
           <Badge variant="outline" size="sm">
             {agent.model}
           </Badge>
-          <span className="text-[11px] text-content-muted">
+          <span className="text-2xs text-content-muted">
             Ambiente de teste para validação de tom de voz e respostas
           </span>
         </div>
@@ -102,7 +102,7 @@ export function AgentPlaygroundModal({
                   className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-xs ${
                     isUser
                       ? 'bg-brand text-canvas font-bold'
-                      : 'bg-surface-elevated text-brand border border-border'
+                      : 'bg-surface-elevated text-brand-fg border border-border'
                   }`}
                 >
                   {isUser ? <User size={13} /> : <Bot size={13} />}
@@ -116,7 +116,7 @@ export function AgentPlaygroundModal({
                 >
                   <p className="m-0 whitespace-pre-wrap">{m.content}</p>
                   <span
-                    className={`text-[9px] mt-1 block text-right opacity-70 ${
+                    className={`text-2xs mt-1 block text-right opacity-70 ${
                       isUser ? 'text-canvas' : 'text-content-muted'
                     }`}
                   >
@@ -129,7 +129,7 @@ export function AgentPlaygroundModal({
 
           {simulating && (
             <div className="flex items-center gap-2 text-xs text-content-muted">
-              <Bot size={14} className="text-brand animate-pulse" />
+              <Bot size={14} className="text-brand-fg animate-pulse" />
               <span className="italic">O agente está digitando…</span>
             </div>
           )}

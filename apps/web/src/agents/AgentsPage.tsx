@@ -194,7 +194,7 @@ export function AgentsPage() {
         {/* Header Superior */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand mb-1">
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand-fg mb-1">
               <Bot className="w-3.5 h-3.5" /> AGENTES DE ATENDIMENTO & MODELOS
             </div>
             <h1 className="text-2xl font-bold text-content tracking-tight">
@@ -273,7 +273,7 @@ export function AgentsPage() {
           <div className="flex items-center gap-2 text-xs text-content-secondary px-1">
             <span>Slots de Agente:</span>
             <div className="flex items-center gap-1.5 font-semibold text-content">
-              <span className="font-mono text-brand">{quotaUsed}</span>
+              <span className="font-mono text-brand-fg">{quotaUsed}</span>
               <span className="text-content-muted">/</span>
               <span className="font-mono">{quotaMax}</span>
             </div>
@@ -312,7 +312,7 @@ export function AgentsPage() {
         ) : (
           /* Empty State */
           <Card className="p-12 text-center bg-surface border-border flex flex-col items-center justify-center">
-            <div className="w-12 h-12 rounded-2xl bg-brand/10 border border-brand/20 flex items-center justify-center text-brand mb-3">
+            <div className="w-12 h-12 rounded-2xl bg-brand/10 border border-brand/20 flex items-center justify-center text-brand-fg mb-3">
               <Bot className="w-6 h-6" />
             </div>
             <h3 className="text-base font-semibold text-content mb-1">
