@@ -203,7 +203,7 @@ export function ExecutionLogPage() {
                   <select
                     value={status}
                     onChange={e => setStatus(e.target.value as ExecutionStatus | '')}
-                    className="text-xs py-1.5 px-2.5 rounded-lg bg-surface-elevated border border-border text-content-primary outline-none focus:border-brand"
+                    className="w-auto shrink-0 text-xs py-1.5 px-2.5 rounded-lg bg-surface-elevated border border-border text-content-primary outline-none focus:border-brand"
                   >
                     {STATUS_OPTIONS.map(opt => (
                       <option key={opt.value} value={opt.value}>

@@ -260,7 +260,7 @@ export function AgentsPage() {
             <select
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
-              className="text-xs bg-surface-elevated text-content border border-border rounded-lg py-1.5 px-2.5 outline-none focus:ring-1 focus:ring-brand"
+              className="w-auto shrink-0 text-xs bg-surface-elevated text-content border border-border rounded-lg py-1.5 px-2.5 outline-none focus:ring-1 focus:ring-brand"
             >
               <option value="all">Todos os status</option>
               <option value="with-key">Chave OK (Ativos)</option>

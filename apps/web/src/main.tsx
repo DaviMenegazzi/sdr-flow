@@ -9,6 +9,7 @@ import { AuthCallback, AuthGate, ForgotPasswordPage, LoginPage, NotFoundPage, Re
 import { AppSidebar } from './components/layout/AppSidebar';
 import { AppHeader } from './components/layout/AppHeader';
 import { Skeleton } from './components/ui';
+import '@fontsource-variable/inter';
 import '@fontsource/sora/700.css';
 import './styles.css';
 
