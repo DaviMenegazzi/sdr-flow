@@ -86,15 +86,19 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
       // rename the moment Evolution starts including it), then the name already persisted from a
       // prior turn (the cache: once resolved, later messages for the same group never hit
       // Evolution again), and only fall back to a live Evolution lookup — never the participant's
-      // pushName — when neither is available yet.
+      // pushName — when neither is available yet. A persisted name only counts when it was
+      // confirmed (group_subject_synced_at): the "Grupo • <id>" placeholder written after a failed
+      // lookup must be retried on the next message, not cached forever.
       const payloadName = lastEvent.groupName?.trim() || null;
-      const persistedName = lead.group_subject?.trim() || null;
+      const persistedName = lead.group_subject_synced_at ? lead.group_subject?.trim() || null : null;
       let resolvedName = payloadName || persistedName;
       let isRealName = Boolean(resolvedName);
       if (!resolvedName) {
         resolvedName = await resolveGroupSubject(db, input.organizationId, input.connectionId, lastEvent.remoteJid);
         isRealName = Boolean(resolvedName);
-        if (!resolvedName) resolvedName = `Grupo • ${lastEvent.phone}`;
+        // Lookup failed again: keep whatever was already stored (an unconfirmed name from before
+        // group_subject_synced_at existed, or the placeholder itself) rather than downgrading it.
+        if (!resolvedName) resolvedName = lead.group_subject?.trim() || `Grupo • ${lastEvent.phone}`;
       }
       await convRepo.syncGroupIdentity(input.organizationId, lead.id, resolvedName, { synced: isRealName });
     }

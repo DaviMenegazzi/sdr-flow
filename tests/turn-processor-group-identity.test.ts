@@ -1,7 +1,7 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { createBlankFlow } from '../packages/flow/src/index.js';
-import { encryptCredentials } from '../packages/db/src/index.js';
+import { ConnectionRepository, encryptCredentials } from '../packages/db/src/index.js';
 import { processTurn } from '../packages/runtime/src/turns/turn-processor.js';
 import { InMemoryExecutionEventBus } from '../packages/runtime/src/events/event-publisher.js';
 import { InMemoryDebugRegistry } from '../packages/runtime/src/debug/debug-registry.js';
@@ -31,7 +31,7 @@ function chain(result: any) {
   return obj;
 }
 
-function buildMockDb(opts: { organizationId: string; connectionId: string; flowVersionId: string; flowId: string; persistedGroupSubject?: string | null }) {
+function buildMockDb(opts: { organizationId: string; connectionId: string; flowVersionId: string; flowId: string; persistedGroupSubject?: string | null; persistedGroupSubjectSyncedAt?: string | null }) {
   const inboundEventsById = new Map<string, any>();
   const messagesByProviderId = new Map<string, { id: string; created_at: string }>();
   let conversationRow: any = null;
@@ -92,7 +92,7 @@ function buildMockDb(opts: { organizationId: string; connectionId: string; flowV
     rpc: (name: string, args: any) => {
       if (name === 'find_or_create_lead') {
         return Promise.resolve({
-          data: [{ id: randomUUID(), phone: args.p_phone, name: args.p_name, memory: {}, group_subject: opts.persistedGroupSubject ?? null }],
+          data: [{ id: randomUUID(), phone: args.p_phone, name: args.p_name, memory: {}, group_subject: opts.persistedGroupSubject ?? null, group_subject_synced_at: opts.persistedGroupSubjectSyncedAt ?? null }],
           error: null,
         });
       }
@@ -143,6 +143,58 @@ function buildMockDb(opts: { organizationId: string; connectionId: string; flowV
 
 describe('processTurn — identidade de grupo e message_type no realtime', () => {
   beforeAll(() => { vi.stubEnv('ENCRYPTION_KEY', 'test-only-credential-encryption-key'); });
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+  // Points resolveGroupSubject at a fake Evolution whose fetchAllGroups returns `groups`
+  // (or fails when `groups` is null), and returns the fetch spy to assert whether it was hit.
+  function stubEvolutionGroups(groups: Array<{ id: string; subject: string }> | null) {
+    vi.spyOn(ConnectionRepository.prototype, 'resolveMessagingConnection').mockResolvedValue({
+      provider: 'evolution',
+      status: 'connected',
+      credentials: { serverUrl: 'https://evo.example', apiKey: 'test', instanceName: 'inst' },
+    } as any);
+    const fetchMock = vi.fn(async () => groups
+      ? new Response(JSON.stringify(groups), { status: 200 })
+      : new Response('boom', { status: 500 }));
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  async function runGroupTurn(opts: { persistedGroupSubject?: string | null; persistedGroupSubjectSyncedAt?: string | null; remoteJid: string }) {
+    const organizationId = randomUUID();
+    const connectionId = randomUUID();
+    const flowVersionId = randomUUID();
+    const { db, addInboundEvent, leadUpdates } = buildMockDb({ organizationId, connectionId, flowVersionId, flowId: randomUUID(), ...opts });
+    const eventId = addInboundEvent({ providerMessageId: randomUUID(), remoteJid: opts.remoteJid, isGroup: true, senderName: 'Davi', senderJid: '5511922222222@s.whatsapp.net' });
+    const result = await processTurn(
+      { db, runtimeConfig: {}, eventPublisher: new InMemoryExecutionEventBus(), debugRegistry: new InMemoryDebugRegistry(), traceSink: new InMemoryTraceSink() },
+      { organizationId, connectionId, flowVersionId, agentId: randomUUID(), inboundEventIds: [eventId], isCurrent: async () => true }
+    );
+    expect(result.status).toBe('executed');
+    return leadUpdates;
+  }
+
+  it('retries Evolution when only the unconfirmed "Grupo • <id>" placeholder is persisted', async () => {
+    const fetchMock = stubEvolutionGroups([{ id: '120363202896190098@g.us', subject: 'Equipe Comercial' }]);
+    const leadUpdates = await runGroupTurn({ remoteJid: '120363202896190098@g.us', persistedGroupSubject: 'Grupo • 120363202896190098', persistedGroupSubjectSyncedAt: null });
+    expect(fetchMock).toHaveBeenCalled();
+    expect(leadUpdates[0]).toMatchObject({ group_subject: 'Equipe Comercial', name: 'Equipe Comercial' });
+    expect(leadUpdates[0]!.group_subject_synced_at).toBeTruthy();
+  });
+
+  it('reuses a confirmed persisted group name without calling Evolution', async () => {
+    const fetchMock = stubEvolutionGroups([]);
+    const leadUpdates = await runGroupTurn({ remoteJid: '120363202896190099@g.us', persistedGroupSubject: 'Lobos do Varejo', persistedGroupSubjectSyncedAt: new Date().toISOString() });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(leadUpdates[0]).toMatchObject({ group_subject: 'Lobos do Varejo' });
+  });
+
+  it('keeps an unconfirmed persisted name instead of downgrading it to the placeholder when Evolution fails', async () => {
+    stubEvolutionGroups(null);
+    const leadUpdates = await runGroupTurn({ remoteJid: '120363202896190100@g.us', persistedGroupSubject: 'Clientes Vida Card', persistedGroupSubjectSyncedAt: null });
+    expect(leadUpdates[0]).toMatchObject({ group_subject: 'Clientes Vida Card', name: 'Clientes Vida Card' });
+    expect(leadUpdates[0]!.group_subject_synced_at).toBeUndefined();
+  });
 
   it('never uses the sending participant\'s pushName as the group title', async () => {
     const organizationId = randomUUID();

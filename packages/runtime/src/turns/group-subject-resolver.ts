@@ -93,8 +93,10 @@ export async function resolveGroupSubject(
     const groups = await groupsForConnection(db, organizationId, connectionId);
     const match = groups.find(g => g.id === groupJid);
     const subject = match?.subject?.trim();
+    if (!subject) console.warn(`[group-subject-resolver] Grupo ${groupJid} sem nome no catálogo da Evolution (${groups.length} grupo(s) retornado(s)).`);
     return subject || null;
-  } catch {
+  } catch (err) {
+    console.warn(`[group-subject-resolver] Falha ao buscar nome do grupo ${groupJid} na Evolution:`, err instanceof Error ? err.message : err);
     return null;
   }
 }
