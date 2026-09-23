@@ -379,3 +379,12 @@ button,a,[role="button"]{touch-action:manipulation}
 .date-input{color-scheme:light dark;font-size:12px}
 .dark .date-input{color-scheme:dark}
 @media (prefers-reduced-motion:reduce){.motion-popover,.tooltip-animate,.toast{animation-name:overlay-in}.press:active:not(:disabled){transform:none}}
+
+/* Themed range: thin track, brand fill via accent, round thumb with a ring on focus. */
+.range-input{-webkit-appearance:none;appearance:none;height:20px;background:transparent;cursor:pointer;accent-color:rgb(var(--accent-primary-rgb))}
+.range-input::-webkit-slider-runnable-track{height:4px;border-radius:999px;background:rgb(var(--border-strong-rgb))}
+.range-input::-moz-range-track{height:4px;border-radius:999px;background:rgb(var(--border-strong-rgb))}
+.range-input::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;margin-top:-6px;border-radius:999px;background:#fff;border:1px solid rgb(0 0 0 / .15);box-shadow:0 1px 3px rgb(0 0 0 / .2)}
+.range-input::-moz-range-thumb{width:16px;height:16px;border-radius:999px;background:#fff;border:1px solid rgb(0 0 0 / .15);box-shadow:0 1px 3px rgb(0 0 0 / .2)}
+.range-input:focus-visible{outline:none}
+.range-input:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 3px rgb(var(--accent-primary-rgb) / .35)}

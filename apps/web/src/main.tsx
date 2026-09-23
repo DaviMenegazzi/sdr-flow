@@ -21,6 +21,7 @@ import './styles.css';
 const Builder = lazy(() => import('./builder/Builder').then(m => ({ default: m.Builder })));
 const ConnectionsPage = lazy(() => import('./connections/ConnectionsPage').then(m => ({ default: m.ConnectionsPage })));
 const AgentsPage = lazy(() => import('./agents/AgentsPage').then(m => ({ default: m.AgentsPage })));
+const AgentEditorPage = lazy(() => import('./agents/AgentEditorPage').then(m => ({ default: m.AgentEditorPage })));
 const AdminPage = lazy(() => import('./admin/AdminPage').then(m => ({ default: m.AdminPage })));
 const IntegrationsPage = lazy(() => import('./integrations/IntegrationsPage').then(m => ({ default: m.IntegrationsPage })));
 const KnowledgePage = lazy(() => import('./knowledge/KnowledgePage').then(m => ({ default: m.KnowledgePage })));
@@ -140,6 +141,7 @@ function ProtectedApp() {
               <Route path="/flows" element={<RequireCapability capability="flows:read"><Builder /></RequireCapability>} />
               <Route path="/connections" element={<RequireCapability capability="instances:manage"><ConnectionsPage /></RequireCapability>} />
               <Route path="/agents" element={<AgentsPage />} />
+              <Route path="/agents/:agentId" element={<AgentEditorPage />} />
               <Route path="/admin" element={<AdminPage />} />
               <Route path="/integrations" element={<RequireCapability capability="integrations:manage"><IntegrationsPage /></RequireCapability>} />
               <Route path="/knowledge" element={<KnowledgePage />} />
