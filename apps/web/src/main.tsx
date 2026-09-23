@@ -23,6 +23,7 @@ const AgentEditorPage = lazy(() => import('./agents/AgentEditorPage').then(m => 
 const AdminPage = lazy(() => import('./admin/AdminPage').then(m => ({ default: m.AdminPage })));
 const IntegrationsPage = lazy(() => import('./integrations/IntegrationsPage').then(m => ({ default: m.IntegrationsPage })));
 const KnowledgePage = lazy(() => import('./knowledge/KnowledgePage').then(m => ({ default: m.KnowledgePage })));
+const TrainingPage = lazy(() => import('./training/TrainingPage').then(m => ({ default: m.TrainingPage })));
 const InboxPage = lazy(() => import('./inbox/InboxPage').then(m => ({ default: m.InboxPage })));
 const DashboardPage = lazy(() => import('./metrics/DashboardPage').then(m => ({ default: m.DashboardPage })));
 const ExecutionLogPage = lazy(() => import('./logs/ExecutionLogPage').then(m => ({ default: m.ExecutionLogPage })));
@@ -148,6 +149,7 @@ function ProtectedApp() {
               <Route path="/admin" element={<AdminPage />} />
               <Route path="/integrations" element={<RequireCapability capability="integrations:manage"><IntegrationsPage /></RequireCapability>} />
               <Route path="/knowledge" element={<KnowledgePage />} />
+              <Route path="/training" element={<TrainingPage />} />
               <Route path="/inbox" element={<InboxPage />} />
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/logs" element={<RequireCapability capability="flows:read"><ExecutionLogPage /></RequireCapability>} />

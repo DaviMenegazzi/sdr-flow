@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { ConnectionRepository, ConversationRepository, ExecutionRepository, FunnelRepository, getAgentOpenAIKey, CalendarRepository, KnowledgeRepository } from '@sdr/db';
-import type { FlowContext, FlowExecutionEvent } from '@sdr/shared';
+import { formatTrainingProfile, trainingProfileSchema, type FlowContext, type FlowExecutionEvent } from '@sdr/shared';
 import { executeFlow, HandoffService, type FlowServices, GoogleCalendarClient, type GoogleCalendarCredentials } from '@sdr/flow';
 import { createRuntimeProviders, type RuntimeConfig } from '@sdr/flow/server';
 import { fetchInboundEventsByIds, markInboundEventStatus, type ServiceDb } from '../inbound/inbound-event-repository.js';
@@ -253,7 +253,7 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
     // which keeps cost accounting tied to the agent's own key.
     const [openaiApiKey, agentRow] = await Promise.all([
       getAgentOpenAIKey(db, input.agentId),
-      db.from('ai_agents').select('model').eq('organization_id', input.organizationId).eq('id', input.agentId).maybeSingle(),
+      db.from('ai_agents').select('model,system_prompt,tool_policy').eq('organization_id', input.organizationId).eq('id', input.agentId).maybeSingle(),
     ]);
     if (!openaiApiKey) {
       await debugRegistry.failArmed(input.organizationId, conversation.id, {
@@ -265,6 +265,10 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
       return { status: 'error', reason: 'missing_openai_key', conversationId: conversation.id };
     }
     const openaiModel = agentRow.data?.model || deps.runtimeConfig.openaiModel;
+    const { data: trainingProfile } = await db.from('organization_training_profiles')
+      .select('company,sales,revision').eq('organization_id', input.organizationId).eq('status', 'approved').maybeSingle();
+    const parsedTraining = trainingProfileSchema.safeParse({ company: trainingProfile?.company, sales: trainingProfile?.sales });
+    const trainingInstructions = parsedTraining.success ? formatTrainingProfile(parsedTraining.data) : '';
 
     const { data: flowVersion } = await db
       .from('flow_versions')
@@ -343,6 +347,9 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
         mediaUrl: incoming.mediaUrl ?? undefined,
       })),
       variables: {
+        agentSystemPrompt: [agentRow.data?.system_prompt || '', trainingInstructions].filter(Boolean).join('\n\n'),
+        trainingProfileRevision: trainingProfile?.revision ?? null,
+        agentRagEnabled: (agentRow.data?.tool_policy as Record<string, unknown> | null)?.rag !== false,
         remoteJid: lastEvent.remoteJid,
         isGroup: Boolean(lastEvent.remoteJid?.endsWith('@g.us')),
         groupId: lastEvent.remoteJid?.endsWith('@g.us') ? lastEvent.remoteJid : undefined,

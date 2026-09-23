@@ -5,6 +5,7 @@ export * from './contracts.js';
 export * from './message-types.js';
 export * from './capabilities.js';
 export * from './billing.js';
+export * from './training.js';
 
 export const nodeTypes = [
   'trigger.message_received', 'trigger.schedule', 'trigger.manual',

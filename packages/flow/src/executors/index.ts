@@ -342,6 +342,13 @@ export const executors: Record<NodeType, NodeExecutor> = {
   },
 
   'context.knowledge': async (ctx, config, services) => {
+    if (ctx.variables.agentRagEnabled === false) {
+      return {
+        port: 'next',
+        output: { snippetsCount: 0, snippets: [], search: { emptyReason: 'disabled_by_agent' } },
+        variables: { knowledgeSnippets: [], knowledgeSearch: { emptyReason: 'disabled_by_agent' }, 'context.knowledge': '', knowledge: '' },
+      };
+    }
     let snippets: string[] = [];
     let matches: Array<{ text: string; collection?: string; title?: string; similarity?: number }> = [];
     const latestLeadMessage = String(ctx.variables.latestLeadMessage || '')
@@ -462,7 +469,7 @@ export const executors: Record<NodeType, NodeExecutor> = {
     const res = await services.llm.decide({
       provider: config.provider,
       prompt: interpolatedPrompt,
-      system: interpolate(config.system || '', ctx) || undefined,
+      system: [String(ctx.variables.agentSystemPrompt || '').trim(), interpolate(config.system || '', ctx).trim()].filter(Boolean).join('\n\n') || undefined,
       commercialMemory: ctx.variables.commercialMemory as Record<string, unknown>,
       recentMessages: ctx.variables.recentMessages as string,
       latestUserMessage: latestMsg,
@@ -563,6 +570,7 @@ export const executors: Record<NodeType, NodeExecutor> = {
     const res = await services.llm.structured({
       provider: config.provider,
       prompt: enrichedPrompt,
+      system: String(ctx.variables.agentSystemPrompt || '').trim() || undefined,
       commercialMemory: ctx.variables.commercialMemory as Record<string, unknown>,
       recentMessages: ctx.variables.recentMessages as string,
       latestUserMessage: latestMsg,
@@ -622,7 +630,7 @@ export const executors: Record<NodeType, NodeExecutor> = {
     const res = await services.llm.structured({
       provider: config.provider,
       prompt: actionPrompt,
-      system: flowInstructions || undefined,
+      system: [String(ctx.variables.agentSystemPrompt || '').trim(), flowInstructions].filter(Boolean).join('\n\n') || undefined,
       commercialMemory: ctx.variables.commercialMemory as Record<string, unknown>,
       recentMessages: ctx.variables.recentMessages as string,
       latestUserMessage: latestMsg,

@@ -1107,6 +1107,48 @@ export type Database = {
       };
       Relationships: [];
     };
+    organization_training_profiles: {
+      Row: {
+        id: string;
+        organization_id: string;
+        company: Json;
+        sales: Json;
+        revision: number;
+        status: string;
+        created_by: string | null;
+        approved_by: string | null;
+        approved_at: string | null;
+        created_at: string;
+        updated_at: string;
+      };
+      Insert: {
+        id?: string;
+        organization_id: string;
+        company?: Json;
+        sales?: Json;
+        revision?: number;
+        status?: string;
+        created_by?: string | null;
+        approved_by?: string | null;
+        approved_at?: string | null;
+        created_at?: string;
+        updated_at?: string;
+      };
+      Update: {
+        id?: string;
+        organization_id?: string;
+        company?: Json;
+        sales?: Json;
+        revision?: number;
+        status?: string;
+        created_by?: string | null;
+        approved_by?: string | null;
+        approved_at?: string | null;
+        created_at?: string;
+        updated_at?: string;
+      };
+      Relationships: [];
+    };
     organization_plan_grants: {
       Row: {
         id: string;
@@ -1251,6 +1293,60 @@ export type Database = {
         name?: string;
         created_at?: string;
         tier?: Database['public']['Enums']['org_tier'];
+      };
+      Relationships: [];
+    };
+    training_facts: {
+      Row: {
+        id: string;
+        organization_id: string;
+        profile_id: string;
+        category: string;
+        question: string;
+        answer: string;
+        source_type: string;
+        status: string;
+        revision: number;
+        knowledge_document_id: string | null;
+        created_by: string | null;
+        approved_by: string | null;
+        approved_at: string | null;
+        created_at: string;
+        updated_at: string;
+      };
+      Insert: {
+        id?: string;
+        organization_id: string;
+        profile_id: string;
+        category: string;
+        question: string;
+        answer: string;
+        source_type?: string;
+        status?: string;
+        revision?: number;
+        knowledge_document_id?: string | null;
+        created_by?: string | null;
+        approved_by?: string | null;
+        approved_at?: string | null;
+        created_at?: string;
+        updated_at?: string;
+      };
+      Update: {
+        id?: string;
+        organization_id?: string;
+        profile_id?: string;
+        category?: string;
+        question?: string;
+        answer?: string;
+        source_type?: string;
+        status?: string;
+        revision?: number;
+        knowledge_document_id?: string | null;
+        created_by?: string | null;
+        approved_by?: string | null;
+        approved_at?: string | null;
+        created_at?: string;
+        updated_at?: string;
       };
       Relationships: [];
     };

@@ -15,6 +15,7 @@ import {
   userDatabase,
   serviceDatabase,
   setAgentOpenAIKey,
+  getAgentOpenAIKey,
   agentHasOpenAIKey,
   type AnyDbClient,
   type EvolutionCredentials,
@@ -36,6 +37,9 @@ import {
   getAccountCapabilities,
   accountRoleSchema,
   type BillingOffer,
+  trainingProfileSchema,
+  trainingFactSchema,
+  formatTrainingProfile,
 } from '@sdr/shared';
 import { catalog, validateGraph, replayFlow, runPlayground, GoogleCalendarClient, type GoogleCalendarCredentials } from '@sdr/flow';
 import { parseEvolutionWebhook, parseMetaWebhook, processInboundWebhook } from './webhook.js';
@@ -290,6 +294,97 @@ export function createApp(config: ApiConfig = {}): Express {
     const serviceDb = getServiceDb();
     const hasOpenaiKey = serviceDb ? await agentHasOpenAIKey(serviceDb, data.id) : false;
     res.json({ ...data, hasOpenaiKey });
+  });
+  app.post('/api/me/agents/:agentId/test', async (req, res) => {
+    const auth = res.locals.auth!;
+    const agentId = uuidParam.safeParse(req.params.agentId);
+    const body = z.object({ message: z.string().trim().min(1).max(2000) }).strict().safeParse(req.body);
+    if (!agentId.success || !body.success) { res.status(400).json({ error: 'Mensagem ou agente inválido.' }); return; }
+    const { data: agent } = await auth.db.from('ai_agents').select('id,model,system_prompt,tool_policy,active_flow_version_id').eq('organization_id', auth.organizationId).eq('id', agentId.data).eq('status', 'active').maybeSingle();
+    if (!agent) { res.status(404).json({ error: 'Agente não encontrado.' }); return; }
+    if (!agent.active_flow_version_id) { res.status(409).json({ error: 'Publique e associe um fluxo a este agente antes de testar.' }); return; }
+    const serviceDb = config.serviceRoleKey && config.supabaseUrl ? serviceDatabase(config.supabaseUrl, config.serviceRoleKey) : null;
+    if (!serviceDb) { res.status(503).json({ error: 'Serviço de credenciais indisponível.' }); return; }
+    const apiKey = await getAgentOpenAIKey(serviceDb, agent.id);
+    if (!apiKey) { res.status(409).json({ error: 'Configure a chave OpenAI deste agente antes de testar.' }); return; }
+    const { data: version } = await auth.db.from('flow_versions').select('graph').eq('organization_id', auth.organizationId).eq('id', agent.active_flow_version_id).maybeSingle();
+    if (!version?.graph) { res.status(409).json({ error: 'A versão publicada do fluxo não está disponível.' }); return; }
+    const knowledge = new KnowledgeRepository(auth.db);
+    const { data: trainingProfile } = await auth.db.from('organization_training_profiles').select('company,sales').eq('organization_id', auth.organizationId).eq('status', 'approved').maybeSingle();
+    const parsedTraining = trainingProfileSchema.safeParse({ company: trainingProfile?.company, sales: trainingProfile?.sales });
+    const result = await runPlayground({
+      graph: version.graph as FlowGraph,
+      organizationId: auth.organizationId,
+      message: body.data.message,
+      variables: {
+        agentSystemPrompt: [agent.system_prompt || '', parsedTraining.success ? formatTrainingProfile(parsedTraining.data) : ''].filter(Boolean).join('\n\n'),
+        agentRagEnabled: (agent.tool_policy as Record<string, unknown> | null)?.rag !== false,
+      },
+      services: {
+        llm: new OpenAIProvider({ apiKey, model: agent.model, timeoutMs: config.openaiTimeoutMs }),
+        db: {
+          async updateLead() {}, async updateConversation() {},
+          async saveMessage() { return { id: crypto.randomUUID() }; },
+          async syncDeal() { return { id: crypto.randomUUID() }; },
+          async searchKnowledge(_org, collection, query, limit, threshold) {
+            const hits = await knowledge.search(auth.organizationId, KnowledgeRepository.generateFallbackEmbedding(query), {
+              collection: collection === 'default' ? undefined : collection, limit, threshold,
+            });
+            return hits.map(hit => ({ text: `[${hit.collection.toUpperCase()}] ${hit.title}: ${hit.content}`, collection: hit.collection, title: hit.title, similarity: hit.similarity }));
+          },
+        },
+      },
+    });
+    res.json(result);
+  });
+  app.get('/api/me/agents/:agentId/training-readiness', async (req, res) => {
+    const auth = res.locals.auth!;
+    const agentId = uuidParam.safeParse(req.params.agentId);
+    if (!agentId.success) { res.status(400).json({ error: 'Agente inválido.' }); return; }
+    const { data: agent } = await auth.db.from('ai_agents').select('id,tool_policy,active_flow_version_id').eq('organization_id', auth.organizationId).eq('id', agentId.data).eq('status', 'active').maybeSingle();
+    if (!agent) { res.status(404).json({ error: 'Agente não encontrado.' }); return; }
+    const [{ data: profile }, { count: approvedFacts }] = await Promise.all([
+      auth.db.from('organization_training_profiles').select('status').eq('organization_id', auth.organizationId).maybeSingle(),
+      auth.db.from('training_facts').select('id', { count: 'exact', head: true }).eq('organization_id', auth.organizationId).eq('status', 'approved'),
+    ]);
+    let hasKnowledgeNode = false;
+    if (agent.active_flow_version_id) {
+      const { data: version } = await auth.db.from('flow_versions').select('graph').eq('organization_id', auth.organizationId).eq('id', agent.active_flow_version_id).maybeSingle();
+      const graph = version?.graph as FlowGraph | null;
+      if (graph) {
+        const nodes = new Map(graph.nodes.map(node => [node.id, node]));
+        const starts = graph.nodes.filter(node => node.type.startsWith('trigger.')).map(node => node.id);
+        const queue = starts.map(id => ({ id, seenKnowledge: false }));
+        const visited = new Set<string>();
+        let reachedWithKnowledge = false;
+        let reachedWithoutKnowledge = false;
+        while (queue.length) {
+          const current = queue.shift()!;
+          const key = `${current.id}:${current.seenKnowledge}`;
+          if (visited.has(key)) continue;
+          visited.add(key);
+          const node = nodes.get(current.id);
+          if (!node) continue;
+          const seenKnowledge = current.seenKnowledge || node.type === 'context.knowledge';
+          if (node.type.startsWith('agent.')) {
+            if (seenKnowledge) reachedWithKnowledge = true;
+            else reachedWithoutKnowledge = true;
+          }
+          for (const edge of graph.edges.filter(edge => edge.source === current.id)) queue.push({ id: edge.target, seenKnowledge });
+        }
+        hasKnowledgeNode = reachedWithKnowledge && !reachedWithoutKnowledge;
+      }
+    }
+    const serviceDb = config.serviceRoleKey && config.supabaseUrl ? serviceDatabase(config.supabaseUrl, config.serviceRoleKey) : null;
+    const checks = {
+      profileApproved: profile?.status === 'approved',
+      factsApproved: (approvedFacts || 0) > 0,
+      openaiKey: serviceDb ? await agentHasOpenAIKey(serviceDb, agent.id) : false,
+      publishedFlow: Boolean(agent.active_flow_version_id),
+      knowledgeNode: hasKnowledgeNode,
+      ragEnabled: (agent.tool_policy as Record<string, unknown> | null)?.rag !== false,
+    };
+    res.json({ ready: Object.values(checks).every(Boolean), checks });
   });
   app.post('/api/me/agents/:agentId/openai-key', async (req, res) => {
     const auth = res.locals.auth!; const agentId = uuidParam.safeParse(req.params.agentId);
@@ -1671,6 +1766,97 @@ export function createApp(config: ApiConfig = {}): Express {
   });
 
   // --- KNOWLEDGE BASE MANAGEMENT ---
+  orgRoutes.get('/training/profile', checkScope('knowledge:read'), async (_req, res) => {
+    const { data, error } = await res.locals.db.from('organization_training_profiles').select('*').eq('organization_id', res.locals.organizationId).maybeSingle();
+    if (error) throw error;
+    res.json(data);
+  });
+  orgRoutes.put('/training/profile', requireAdmin, checkScope('knowledge:write'), async (req, res) => {
+    const body = trainingProfileSchema.parse(req.body);
+    const orgId = res.locals.organizationId as string;
+    const db = res.locals.db;
+    const { data: existing } = await db.from('organization_training_profiles').select('revision').eq('organization_id', orgId).maybeSingle();
+    const { data, error } = await db.from('organization_training_profiles').upsert({
+      organization_id: orgId, company: body.company, sales: body.sales,
+      revision: (existing?.revision || 0) + 1, status: 'draft', created_by: res.locals.userId,
+      approved_by: null, approved_at: null, updated_at: new Date().toISOString(),
+    }, { onConflict: 'organization_id' }).select().single();
+    if (error) throw error;
+    res.json(data);
+  });
+  orgRoutes.post('/training/profile/approve', requireAdmin, checkScope('knowledge:write'), async (_req, res) => {
+    const { data, error } = await res.locals.db.rpc('approve_training_profile', { p_org: res.locals.organizationId });
+    if (error) throw error;
+    res.json(data);
+  });
+  orgRoutes.post('/training/suggestions', requireAdmin, checkScope('knowledge:write'), async (req, res) => {
+    const body = z.strictObject({ agentId: z.uuid() }).parse(req.body);
+    const orgId = res.locals.organizationId as string;
+    const { data: profile } = await res.locals.db.from('organization_training_profiles').select('company,sales').eq('organization_id', orgId).maybeSingle();
+    const parsed = trainingProfileSchema.safeParse({ company: profile?.company, sales: profile?.sales });
+    if (!parsed.success) { res.status(409).json({ error: 'Preencha o perfil da empresa antes de pedir sugestões.' }); return; }
+    const { data: agent } = await res.locals.db.from('ai_agents').select('id,model').eq('organization_id', orgId).eq('id', body.agentId).eq('status', 'active').maybeSingle();
+    if (!agent) { res.status(404).json({ error: 'Agente não encontrado.' }); return; }
+    const serviceDb = config.serviceRoleKey && config.supabaseUrl ? serviceDatabase(config.supabaseUrl, config.serviceRoleKey) : null;
+    if (!serviceDb) { res.status(503).json({ error: 'Serviço de credenciais indisponível.' }); return; }
+    const apiKey = await getAgentOpenAIKey(serviceDb, agent.id);
+    if (!apiKey) { res.status(409).json({ error: 'Configure a chave OpenAI do agente antes de gerar sugestões.' }); return; }
+    const provider = new OpenAIProvider({ apiKey, model: agent.model, timeoutMs: config.openaiTimeoutMs });
+    const suggestion = await provider.structured({
+      prompt: `Dados fornecidos pela empresa:\n${formatTrainingProfile(parsed.data)}\n\nProponha cinco perguntas curtas que um cliente real faria antes de comprar. Não invente respostas, preços ou condições. Cada campo deve conter somente uma pergunta.`,
+      system: 'Você ajuda a identificar lacunas de conhecimento de um SDR. Gere apenas perguntas; nenhum fato sugerido está aprovado para atendimento.',
+    }, ['q1', 'q2', 'q3', 'q4', 'q5']);
+    const questions = ['q1', 'q2', 'q3', 'q4', 'q5'].map(key => String(suggestion.data[key] || '').trim()).filter(question => question.length > 0 && question.length <= 200);
+    res.json({ questions, tokens: { input: suggestion.inputTokens, output: suggestion.outputTokens } });
+  });
+  orgRoutes.get('/training/facts', checkScope('knowledge:read'), async (_req, res) => {
+    const { data, error } = await res.locals.db.from('training_facts').select('*').eq('organization_id', res.locals.organizationId).neq('status', 'archived').order('created_at');
+    if (error) throw error;
+    res.json(data || []);
+  });
+  orgRoutes.post('/training/facts', requireAdmin, checkScope('knowledge:write'), async (req, res) => {
+    const body = trainingFactSchema.parse(req.body);
+    const orgId = res.locals.organizationId as string;
+    const db = res.locals.db;
+    const { data: profile } = await db.from('organization_training_profiles').select('id').eq('organization_id', orgId).maybeSingle();
+    if (!profile) { res.status(409).json({ error: 'Salve o perfil da empresa antes de adicionar fatos.' }); return; }
+    const { data, error } = await db.from('training_facts').insert({
+      organization_id: orgId, profile_id: profile.id, category: body.category,
+      question: body.question, answer: body.answer, source_type: body.sourceType,
+      created_by: res.locals.userId,
+    }).select().single();
+    if (error) throw error;
+    res.status(201).json(data);
+  });
+  orgRoutes.patch('/training/facts/:id', requireAdmin, checkScope('knowledge:write'), async (req, res) => {
+    const id = z.uuid().parse(req.params.id);
+    const body = trainingFactSchema.parse(req.body);
+    const { data, error } = await res.locals.db.rpc('revise_training_fact', {
+      p_org: res.locals.organizationId, p_fact: id, p_category: body.category,
+      p_question: body.question, p_answer: body.answer,
+    });
+    if (error) throw error;
+    res.json(data);
+  });
+  orgRoutes.post('/training/facts/:id/approve', requireAdmin, checkScope('knowledge:write'), async (req, res) => {
+    const id = z.uuid().parse(req.params.id);
+    const db = res.locals.db;
+    const { data: fact } = await db.from('training_facts').select('answer').eq('organization_id', res.locals.organizationId).eq('id', id).maybeSingle();
+    if (!fact) { res.status(404).json({ error: 'Fato não encontrado.' }); return; }
+    const { data, error } = await db.rpc('approve_training_fact', {
+      p_org: res.locals.organizationId, p_fact: id,
+      p_embedding: KnowledgeRepository.generateFallbackEmbedding(fact.answer),
+    });
+    if (error) throw error;
+    res.json(data);
+  });
+  orgRoutes.post('/training/facts/:id/archive', requireAdmin, checkScope('knowledge:write'), async (req, res) => {
+    const id = z.uuid().parse(req.params.id);
+    const { data, error } = await res.locals.db.rpc('archive_training_fact', { p_org: res.locals.organizationId, p_fact: id });
+    if (error) throw error;
+    res.json(data);
+  });
+
   const createDocumentSchema = z.object({
     collection: z.string().trim().min(1).max(50).default('default'),
     title: z.string().trim().min(1).max(200),
@@ -1720,6 +1906,8 @@ export function createApp(config: ApiConfig = {}): Express {
     const id = z.uuid().parse(req.params.id);
     const body = updateDocumentSchema.parse(req.body);
     const repo = res.locals.knowledge as KnowledgeRepository;
+    const existing = await repo.getDocument(res.locals.organizationId as string, id);
+    if (existing?.metadata?.training_fact_id) { res.status(409).json({ error: 'Corrija este conteúdo na tela Treinar meu SDR.' }); return; }
     const doc = await repo.updateDocument(res.locals.organizationId as string, id, body);
     res.json(doc);
   });
@@ -1727,6 +1915,8 @@ export function createApp(config: ApiConfig = {}): Express {
   orgRoutes.delete('/knowledge/:id', checkScope('knowledge:write'), async (req, res) => {
     const id = z.uuid().parse(req.params.id);
     const repo = res.locals.knowledge as KnowledgeRepository;
+    const existing = await repo.getDocument(res.locals.organizationId as string, id);
+    if (existing?.metadata?.training_fact_id) { res.status(409).json({ error: 'Arquive este conteúdo na tela Treinar meu SDR.' }); return; }
     await repo.deleteDocument(res.locals.organizationId as string, id);
     res.json({ success: true });
   });

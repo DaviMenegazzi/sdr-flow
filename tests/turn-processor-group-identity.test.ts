@@ -84,6 +84,9 @@ function buildMockDb(opts: { organizationId: string; connectionId: string; flowV
       if (table === 'ai_agents') {
         return { select: () => chain({ data: { model: 'gpt-4.1-mini' }, error: null }) };
       }
+      if (table === 'organization_training_profiles') {
+        return { select: () => chain({ data: null, error: null }) };
+      }
       // 'connections' is deliberately unmocked: resolveGroupSubject's ConnectionRepository call
       // throws, exercising "Evolution unreachable" without extra mock surface — it's caught
       // internally and must never fail the turn.
