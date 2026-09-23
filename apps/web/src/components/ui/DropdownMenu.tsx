@@ -24,11 +24,13 @@ export interface DropdownMenuProps {
   side?: Side;
   align?: Align;
   width?: number;
+  /** Let the trigger fill its container (full-width triggers). */
+  block?: boolean;
   'aria-label'?: string;
 }
 
 /** The "⋯" menu: occasional and destructive actions live here instead of as buttons on the row. */
-export function DropdownMenu({ trigger, items, side = 'bottom', align = 'end', width = 220, ...aria }: DropdownMenuProps) {
+export function DropdownMenu({ trigger, items, side = 'bottom', align = 'end', width = 220, block, ...aria }: DropdownMenuProps) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
@@ -68,6 +70,7 @@ export function DropdownMenu({ trigger, items, side = 'bottom', align = 'end', w
       aria-label={aria['aria-label']}
       onKeyDown={onKeyDown}
       panelRef={panelRef}
+      block={block}
       className="p-1"
     >
       {close =>
