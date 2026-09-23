@@ -23,6 +23,9 @@ export interface ConversationWithLead {
     interest: string | null;
     urgency: string | null;
     memory: Record<string, unknown>;
+    funnel_stage?: Database['public']['Enums']['conversation_stage'];
+    lead_score?: number | null;
+    temperature?: 'HOT' | 'WARM' | 'COLD' | null;
   };
   connection?: {
     id: string;
@@ -127,6 +130,9 @@ export class InboxRepository {
           l.interest as lead_interest,
           l.urgency as lead_urgency,
           l.memory as lead_memory,
+          l.funnel_stage as lead_funnel_stage,
+          l.lead_score as lead_lead_score,
+          l.temperature as lead_temperature,
           conn.name as connection_name,
           conn.provider as connection_provider,
           conn.phone as connection_phone_number,
@@ -181,6 +187,9 @@ export class InboxRepository {
           interest: row.lead_interest,
           urgency: row.lead_urgency,
           memory: typeof row.lead_memory === 'string' ? JSON.parse(row.lead_memory) : row.lead_memory || {},
+          funnel_stage: row.lead_funnel_stage,
+          lead_score: row.lead_lead_score,
+          temperature: row.lead_temperature,
         },
         connection: row.connection_name ? {
           id: row.connection_id,
@@ -298,6 +307,9 @@ export class InboxRepository {
           l.interest as lead_interest,
           l.urgency as lead_urgency,
           l.memory as lead_memory,
+          l.funnel_stage as lead_funnel_stage,
+          l.lead_score as lead_lead_score,
+          l.temperature as lead_temperature,
           conn.name as connection_name,
           conn.provider as connection_provider,
           conn.phone as connection_phone_number,
@@ -341,6 +353,9 @@ export class InboxRepository {
           interest: row.lead_interest,
           urgency: row.lead_urgency,
           memory: typeof row.lead_memory === 'string' ? JSON.parse(row.lead_memory) : row.lead_memory || {},
+          funnel_stage: row.lead_funnel_stage,
+          lead_score: row.lead_lead_score,
+          temperature: row.lead_temperature,
         },
         connection: row.connection_name ? {
           id: row.connection_id,

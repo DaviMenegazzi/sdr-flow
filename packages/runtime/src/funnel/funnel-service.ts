@@ -80,6 +80,9 @@ export async function classifyLeadWithLaya(
   const lead = await funnelRepo.getLeadFunnel(job.organizationId, job.leadId);
   if (!lead) return { status: 'skipped', reason: 'lead_not_found' };
   if (lead.is_group) return { status: 'skipped', reason: 'group' };
+  if (!(await funnelRepo.leadHasSdrReplies(job.organizationId, job.leadId))) {
+    return { status: 'skipped', reason: 'sdr_never_replied' };
+  }
 
   const messages = (await new ConversationRepository(deps.db).getLeadRecentMessages(job.organizationId, job.leadId, MAX_MESSAGES * 2))
     .filter(message => typeof message.content === 'string' && message.content.trim())

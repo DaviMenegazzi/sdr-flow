@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { ConnectionRepository, ConversationRepository, ExecutionRepository, getAgentOpenAIKey, CalendarRepository, KnowledgeRepository } from '@sdr/db';
+import { ConnectionRepository, ConversationRepository, ExecutionRepository, FunnelRepository, getAgentOpenAIKey, CalendarRepository, KnowledgeRepository } from '@sdr/db';
 import type { FlowContext, FlowExecutionEvent } from '@sdr/shared';
 import { executeFlow, HandoffService, type FlowServices, GoogleCalendarClient, type GoogleCalendarCredentials } from '@sdr/flow';
 import { createRuntimeProviders, type RuntimeConfig } from '@sdr/flow/server';
@@ -213,9 +213,14 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
         code: 'bot_paused',
         message: 'A mensagem chegou, mas a IA está pausada nesta conversa.',
       });
-      // A lead handed off by the SDR keeps being classified while a human sells. Other paused
-      // chats (personal ones, paused by hand) stay out of the funnel.
-      if (!lastEvent.isGroup && conversation.stage === 'HUMAN_HANDOFF') {
+      // A lead the SDR already answered keeps being classified while a human sells. HUMAN_HANDOFF
+      // alone is not enough: the webhook also sets it when the owner replies from the phone, so
+      // personal and supplier chats would otherwise enter the funnel.
+      if (
+        !lastEvent.isGroup
+        && conversation.stage === 'HUMAN_HANDOFF'
+        && await new FunnelRepository(db).leadHasSdrReplies(input.organizationId, lead.id).catch(() => false)
+      ) {
         await updateLeadFunnel(deps, {
           organizationId: input.organizationId,
           leadId: lead.id,
