@@ -33,9 +33,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       ghost:
         'bg-transparent text-content-secondary hover:text-content-primary hover:bg-surface-elevated',
       danger:
-        'bg-danger text-white hover:opacity-90 shadow-sm border border-transparent',
+        'bg-danger text-canvas hover:opacity-90 shadow-sm border border-transparent',
       success:
-        'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm border border-transparent',
+        'bg-success text-canvas hover:bg-success/90 shadow-sm border border-transparent',
       accent:
         'bg-purple-600 text-white hover:bg-purple-700 shadow-sm border border-transparent',
     };

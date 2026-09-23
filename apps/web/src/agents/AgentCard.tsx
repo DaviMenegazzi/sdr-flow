@@ -92,8 +92,8 @@ export function AgentCard({
                   <span
                     className={`w-1.5 h-1.5 rounded-full ${
                       inst.status === 'connected'
-                        ? 'bg-[#2ee86b] animate-pulse'
-                        : 'bg-amber-400'
+                        ? 'bg-brand animate-pulse'
+                        : 'bg-warning'
                     }`}
                   />
                   {inst.name}
@@ -115,7 +115,7 @@ export function AgentCard({
             </p>
           </div>
         ) : (
-          <div className="p-2.5 rounded-lg bg-amber-500/5 border border-amber-500/15 mb-4 text-2xs text-amber-300/80 flex items-center gap-1.5">
+          <div className="p-2.5 rounded-lg bg-warning/5 border border-warning/15 mb-4 text-2xs text-warning/80 flex items-center gap-1.5">
             <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
             <span>Sem instruções de prompt definidas.</span>
           </div>
@@ -135,7 +135,7 @@ export function AgentCard({
             <span className="block text-2xs uppercase font-bold text-content-muted tracking-wider">
               Qualificação
             </span>
-            <strong className="text-xs font-semibold text-[#2ee86b] mt-0.5 block">
+            <strong className="text-xs font-semibold text-brand-fg mt-0.5 block">
               IA Ativa
             </strong>
           </div>

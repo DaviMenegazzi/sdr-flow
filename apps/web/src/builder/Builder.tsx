@@ -600,7 +600,7 @@ function Editor() {
         {activeTab === 'canvas' && !graph.testMode?.enabled && (
           <div className="builder-inline-mode ml-auto" role="status" aria-label="Modo de operação">
             <span className="builder-inline-mode-badge">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              <span className="w-1.5 h-1.5 rounded-full bg-success" />
               Produção Livre
             </span>
             <span className="builder-inline-mode-copy hidden lg:inline">
@@ -638,14 +638,14 @@ function Editor() {
             <div
               role="region"
               aria-label="Configuração do Modo Teste"
-                className="builder-mode-strip builder-mode-strip-test bg-amber-950/25 border-b border-amber-500/30 px-6 py-2 flex items-center justify-between gap-3 text-xs flex-shrink-0"
+                className="builder-mode-strip builder-mode-strip-test bg-amber-950/25 border-b border-warning/30 px-6 py-2 flex items-center justify-between gap-3 text-xs flex-shrink-0"
             >
               <div className="flex items-center flex-wrap gap-2.5">
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-semibold text-2xs">
-                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-warning/20 border border-warning/40 text-warning font-semibold text-2xs">
+                  <span className="w-2 h-2 rounded-full bg-warning animate-pulse" />
                   Trava de Teste Ativa
                 </span>
-                <span className="h-4 w-px bg-amber-500/30" />
+                <span className="h-4 w-px bg-warning/30" />
                 <div className="flex items-center gap-2">
                   <label htmlFor="flow-test-phone" className="text-2xs font-semibold text-amber-200">
                     Número autorizado:
@@ -659,17 +659,17 @@ function Editor() {
                     value={graph.testMode.phone}
                     aria-invalid={!flowTestModeSchema.safeParse(graph.testMode).success}
                     onChange={event => state.replace({ ...graph, testMode: { enabled: true, phone: event.target.value } })}
-                    className="w-48 py-1 px-2.5 rounded-lg border border-amber-500/40 bg-black/60 text-amber-100 text-xs font-mono outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/50 placeholder:text-amber-500/40"
+                    className="w-48 py-1 px-2.5 rounded-lg border border-warning/40 bg-black/60 text-amber-100 text-xs font-mono outline-none focus:border-warning focus:ring-1 focus:ring-warning/50 placeholder:text-warning/40"
                   />
                 </div>
-                <span className="text-2xs text-amber-300/80 hidden md:inline">
+                <span className="text-2xs text-warning/80 hidden md:inline">
                   Responde <strong>exclusivamente</strong> a este contato. Demais são ignorados.
                 </span>
               </div>
               <button
                 type="button"
                 onClick={() => state.replace({ ...graph, testMode: { enabled: false, phone: graph.testMode?.phone || '' } })}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-amber-300 hover:text-white hover:bg-amber-500/20 border border-amber-500/30 transition-colors"
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-warning hover:text-white hover:bg-warning/20 border border-warning/30 transition-colors"
                 title="Desativar trava de teste e voltar ao modo produção"
               >
                 <X size={13} />
@@ -683,8 +683,8 @@ function Editor() {
                 className="builder-mode-strip builder-mode-strip-normal bg-surface-elevated/30 border-b border-border px-6 py-2 flex items-center justify-between gap-4 text-xs flex-shrink-0"
             >
               <div className="flex items-center gap-2.5">
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-semibold text-2xs">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-success/10 border border-success/20 text-success font-semibold text-2xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-success" />
                   Produção Livre
                 </span>
                 <span className="text-2xs text-content-muted hidden sm:inline">
@@ -697,7 +697,7 @@ function Editor() {
                 className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold text-content-secondary bg-surface-elevated hover:bg-surface border border-border hover:border-brand/40 hover:text-content-primary transition-all cursor-pointer"
                 title="Ativar trava de segurança para restringir respostas a um único número"
               >
-                <ShieldAlert size={13} className="text-amber-400" />
+                <ShieldAlert size={13} className="text-warning" />
                 <span>Ativar Trava de Teste</span>
               </button>
             </div>
@@ -809,7 +809,7 @@ function Editor() {
             className="flex items-start gap-2 mb-3 px-2.5 py-2 rounded-lg bg-surface-elevated/60 border border-border/40 text-content-muted hover:border-brand/40 hover:text-content-secondary transition-colors"
             title="Configurar o agente e o modelo desta instância"
           >
-            <Bot size={14} className="text-[#2ee86b] flex-shrink-0 mt-0.5" />
+            <Bot size={14} className="text-brand-fg flex-shrink-0 mt-0.5" />
             <span className="text-2xs leading-snug">
               Os nós de <strong className="font-semibold text-content-secondary">Inteligência</strong> usam sempre o modelo e a chave do agente vinculado a esta instância — configure na aba <strong className="font-semibold text-content-secondary">Agentes</strong>.
             </span>
@@ -819,7 +819,7 @@ function Editor() {
               <span className="library-kicker">BLOCOS</span>
               <h2 className="text-xs font-bold uppercase tracking-wider text-content-primary">Biblioteca de nós</h2>
             </div>
-            <span className="text-2xs font-mono font-semibold px-2 py-0.5 rounded-full bg-surface-elevated text-[#2ee86b]">
+            <span className="text-2xs font-mono font-semibold px-2 py-0.5 rounded-full bg-surface-elevated text-brand-fg">
               {Object.keys(catalog).length}
             </span>
           </div>
@@ -991,17 +991,17 @@ function Editor() {
               }
             }}
           >
-            <Background gap={24} size={1.2} color="rgba(255, 255, 255, 0.08)" />
+            <Background gap={24} size={1.2} color="var(--border-default)" />
             <Controls showInteractive={false} />
             <MiniMap
               style={{
                 width: 140,
                 height: 96,
-                backgroundColor: '#141414',
-                border: '1px solid #242424',
+                backgroundColor: 'var(--bg-surface)',
+                border: '1px solid var(--border-default)',
                 borderRadius: 8,
               }}
-              maskColor="rgba(10, 10, 10, 0.75)"
+              maskColor="color-mix(in srgb, var(--bg-canvas) 75%, transparent)"
               pannable
               zoomable
               nodeColor={node => {
@@ -1067,7 +1067,7 @@ function Editor() {
               <div className="pt-4 border-t border-border">
                 <button
                   onClick={() => state.remove([selected.id])}
-                  className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold text-red-400 bg-red-500/10 hover:bg-red-500/15 border border-red-500/20 transition-colors cursor-pointer"
+                  className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold text-danger bg-danger/10 hover:bg-danger/15 border border-danger/20 transition-colors cursor-pointer"
                 >
                   <Trash2 size={14} />
                   <span>Excluir Nó</span>
@@ -1104,7 +1104,7 @@ function Editor() {
               <div className="p-3.5 rounded-xl bg-surface-elevated/40 border border-border/40 space-y-2">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-semibold text-content-secondary">Instância WhatsApp:</span>
-                  <span className={`font-mono text-2xs font-bold ${targetInstance ? 'text-[#2ee86b]' : 'text-amber-400'}`}>
+                  <span className={`font-mono text-2xs font-bold ${targetInstance ? 'text-brand-fg' : 'text-warning'}`}>
                     {targetInstance || 'Não vinculada'}
                   </span>
                 </div>
@@ -1137,7 +1137,7 @@ function Editor() {
                     <li key={index}>
                       <button
                         onClick={() => state.select(issue.nodeId ?? null)}
-                        className="text-left text-red-400 hover:underline hover:text-red-300"
+                        className="text-left text-danger hover:underline hover:text-danger"
                       >
                         • {issue.message}
                       </button>

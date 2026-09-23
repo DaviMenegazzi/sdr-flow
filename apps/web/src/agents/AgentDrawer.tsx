@@ -339,7 +339,7 @@ export function AgentDrawer({
           {/* Vinculação de Instância WhatsApp */}
           <div className="p-4 rounded-xl bg-surface-elevated/40 border border-border space-y-2">
             <label className="text-xs font-semibold text-content flex items-center gap-1.5">
-              <Smartphone size={13} className="text-[#2ee86b]" />
+              <Smartphone size={13} className="text-brand-fg" />
               Vincular a uma Instância WhatsApp
             </label>
             <p className="text-2xs text-content-muted leading-relaxed">
@@ -421,7 +421,7 @@ export function AgentDrawer({
           {/* RAG */}
           <div className="flex items-start justify-between p-4 rounded-xl bg-surface-elevated/40 border border-border">
             <div className="flex gap-3 min-w-0 pr-4">
-              <div className="p-2 rounded-lg bg-emerald-500/10 text-[#2ee86b] flex-shrink-0 mt-0.5">
+              <div className="p-2 rounded-lg bg-success/10 text-brand-fg flex-shrink-0 mt-0.5">
                 <BookOpen size={16} />
               </div>
               <div>
@@ -444,7 +444,7 @@ export function AgentDrawer({
           {/* Google Calendar */}
           <div className="flex items-start justify-between p-4 rounded-xl bg-surface-elevated/40 border border-border">
             <div className="flex gap-3 min-w-0 pr-4">
-              <div className="p-2 rounded-lg bg-sky-500/10 text-sky-400 flex-shrink-0 mt-0.5">
+              <div className="p-2 rounded-lg bg-info/10 text-info flex-shrink-0 mt-0.5">
                 <Calendar size={16} />
               </div>
               <div>
@@ -467,7 +467,7 @@ export function AgentDrawer({
           {/* Handoff */}
           <div className="flex items-start justify-between p-4 rounded-xl bg-surface-elevated/40 border border-border">
             <div className="flex gap-3 min-w-0 pr-4">
-              <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400 flex-shrink-0 mt-0.5">
+              <div className="p-2 rounded-lg bg-warning/10 text-warning flex-shrink-0 mt-0.5">
                 <UserCheck size={16} />
               </div>
               <div>

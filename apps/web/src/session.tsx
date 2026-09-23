@@ -1065,7 +1065,7 @@ export function Settings() {
 
               {newlyCreatedKey && (
                 <div className="info-card" style={{ border: '1px solid #16a34a', background: '#16a34a11' }}>
-                  <h2 style={{ color: '#16a34a', margin: '0 0 8px' }}>Chave Gerada com Sucesso!</h2>
+                  <h2 style={{ color: 'var(--color-success)', margin: '0 0 8px' }}>Chave Gerada com Sucesso!</h2>
                   <p style={{ margin: '0 0 12px' }}>
                     Esta chave não será exibida novamente. Copie e guarde em local seguro agora:
                   </p>

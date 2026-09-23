@@ -228,7 +228,7 @@ export function AgentsPage() {
 
         {/* Notificação de Sucesso */}
         {successNotice && (
-          <div className="p-3.5 rounded-xl bg-[#2ee86b]/10 border border-[#2ee86b]/30 text-[#2ee86b] text-xs flex items-center gap-2 animate-in fade-in duration-150">
+          <div className="p-3.5 rounded-xl bg-brand/10 border border-brand/30 text-brand-fg text-xs flex items-center gap-2 animate-in fade-in duration-150">
             <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
             <span>{successNotice}</span>
           </div>

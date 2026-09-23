@@ -219,7 +219,7 @@ export function DashboardPage() {
       </div>
 
       {notice && (
-        <div className="p-3.5 mb-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs flex items-center gap-2">
+        <div className="p-3.5 mb-6 rounded-lg bg-success/10 border border-success/20 text-success dark:text-success text-xs flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
           <span>{notice}</span>
         </div>
@@ -258,12 +258,12 @@ export function DashboardPage() {
 
         {/* Leads Qualificados */}
         <Card className="p-4 bg-surface border-border flex flex-col justify-between">
-          <div className="flex items-center justify-between text-emerald-500 mb-2">
+          <div className="flex items-center justify-between text-success mb-2">
             <span className="text-xs font-medium text-content-muted">Qualificados</span>
             <CheckCircle2 className="w-4 h-4" />
           </div>
           <div>
-            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight">
+            <div className="text-2xl font-bold text-success dark:text-success tracking-tight">
               {metrics?.qualifiedConversations ?? 0}
             </div>
             <span className="block text-2xs text-content-muted mt-1">
@@ -290,7 +290,7 @@ export function DashboardPage() {
 
         {/* Tempo de Resposta */}
         <Card className="p-4 bg-surface border-border flex flex-col justify-between">
-          <div className="flex items-center justify-between text-amber-500 mb-2">
+          <div className="flex items-center justify-between text-warning mb-2">
             <span className="text-xs font-medium text-content-muted">1ª Resposta Média</span>
             <Clock className="w-4 h-4" />
           </div>
@@ -470,7 +470,7 @@ export function DashboardPage() {
                       <Badge variant="outline" size="sm">v{f.version}</Badge>
                     </td>
                     <td className="py-3 px-3 text-content">{f.conversationsCount}</td>
-                    <td className="py-3 px-3 text-emerald-600 dark:text-emerald-400 font-semibold">{f.qualifiedCount}</td>
+                    <td className="py-3 px-3 text-success dark:text-success font-semibold">{f.qualifiedCount}</td>
                     <td className="py-3 px-3 font-semibold text-content">{f.qualificationRate}%</td>
                     <td className="py-3 px-3 text-content-muted">{f.totalTokens.toLocaleString()}</td>
                     <td className="py-3 px-3 text-content-muted">${f.totalCost.toFixed(4)}</td>

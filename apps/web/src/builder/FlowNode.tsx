@@ -52,7 +52,7 @@ export const FlowNode = memo(({ data, selected }: NodeProps<CanvasNode>) => {
     <div
       className={`flow-node-card relative w-[244px] bg-surface rounded-2xl border transition-all duration-150 select-none shadow-elevated ${
         selected
-          ? 'border-[#2ee86b] ring-1 ring-[#2ee86b]/40 shadow-[0_0_24px_-4px_rgba(46,232,107,0.35)]'
+          ? 'border-brand ring-1 ring-brand/40 shadow-[0_0_24px_-4px_rgba(46,232,107,0.35)]'
           : invalid
           ? 'border-danger ring-1 ring-danger/30'
           : liveError
@@ -74,7 +74,7 @@ export const FlowNode = memo(({ data, selected }: NodeProps<CanvasNode>) => {
 
       {/* Runtime Error Badge */}
       {liveError && (
-        <div className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-danger text-white flex items-center justify-center shadow-md z-10 animate-bounce">
+        <div className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-danger text-canvas flex items-center justify-center shadow-md z-10 animate-bounce">
           <AlertTriangle size={11} />
         </div>
       )}
@@ -98,7 +98,7 @@ export const FlowNode = memo(({ data, selected }: NodeProps<CanvasNode>) => {
             className="flow-node-category inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-2xs font-semibold tracking-wide"
             style={{
               backgroundColor: `${categoryColor}18`,
-              color: categoryColor,
+              color: 'var(--node-text)',
             }}
           >
             <Icon size={12} />
@@ -106,8 +106,8 @@ export const FlowNode = memo(({ data, selected }: NodeProps<CanvasNode>) => {
           </div>
 
           {isTrigger && (
-            <span className="inline-flex items-center gap-1 text-2xs font-semibold text-[#2ee86b] bg-[#2ee86b]/10 px-1.5 py-0.5 rounded">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#2ee86b] animate-pulse" />
+            <span className="inline-flex items-center gap-1 text-2xs font-semibold text-brand-fg bg-brand/10 px-1.5 py-0.5 rounded">
+              <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
               Início
             </span>
           )}
@@ -152,7 +152,7 @@ export const FlowNode = memo(({ data, selected }: NodeProps<CanvasNode>) => {
                     ? 'Falso'
                     : port}
                 </span>
-                <span className="flex items-center gap-1 text-content-muted group-hover:text-[#2ee86b] transition-colors text-2xs font-mono">
+                <span className="flex items-center gap-1 text-content-muted group-hover:text-brand-fg transition-colors text-2xs font-mono">
                   {port}
                   <ArrowRight size={10} />
                 </span>

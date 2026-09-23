@@ -78,7 +78,11 @@ module.exports = {
         sans: ['Inter Variable', 'Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'Consolas', 'monospace'],
       },
+      // Tailwind v4 names already used across components.
+      borderRadius: { xs: '2px' },
+      backdropBlur: { xs: '2px' },
       boxShadow: {
+        xs: '0 1px 2px 0 rgb(0 0 0 / 0.05)',
         subtle: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
         elevated: 'var(--shadow-elevated)',
         modal: 'var(--shadow-modal)',

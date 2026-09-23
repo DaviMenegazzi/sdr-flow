@@ -239,14 +239,14 @@ export function IntegrationsPage() {
       </header>
 
       {actionSuccess && (
-        <div className="flex items-center gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-400">
+        <div className="flex items-center gap-2.5 rounded-xl border border-success/30 bg-success/10 p-4 text-sm text-success">
           <CheckCircle2 size={18} className="shrink-0" />
           <span>{actionSuccess}</span>
         </div>
       )}
 
       {actionError && (
-        <div className="flex items-center gap-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-400">
+        <div className="flex items-center gap-2.5 rounded-xl border border-danger/30 bg-danger/10 p-4 text-sm text-danger">
           <AlertCircle size={18} className="shrink-0" />
           <span>{actionError}</span>
         </div>
@@ -404,7 +404,7 @@ export function IntegrationsPage() {
                   >
                     {copiedId === cal.id ? (
                       <>
-                        <Check size={12} className="text-emerald-400" /> Copiado
+                        <Check size={12} className="text-success" /> Copiado
                       </>
                     ) : (
                       <>
@@ -434,7 +434,7 @@ export function IntegrationsPage() {
       <Card className="p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-border">
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-success/10 border border-success/20 text-success flex items-center justify-center shrink-0">
               <CreditCard size={20} />
             </div>
             <div>
@@ -469,7 +469,7 @@ export function IntegrationsPage() {
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs font-bold text-content-primary">{gate.name}</span>
-                      <span className="text-2xs px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 font-medium border border-emerald-500/20">
+                      <span className="text-2xs px-1.5 py-0.5 rounded bg-success/10 text-success font-medium border border-success/20">
                         {gate.status}
                       </span>
                     </div>
@@ -488,7 +488,7 @@ export function IntegrationsPage() {
               ))}
             </div>
             <div className="rounded-xl border border-border bg-surface-elevated/20 p-4 text-xs text-content-secondary flex items-start gap-2.5">
-              <ShieldCheck size={16} className="text-emerald-500 shrink-0 mt-0.5" />
+              <ShieldCheck size={16} className="text-success shrink-0 mt-0.5" />
               <p className="leading-relaxed">
                 No plano <strong>Vendedor Sênior</strong>, os nós de pagamento no construtor de fluxos geram cobranças e registram a confirmação automaticamente no deal do CRM e na memória comercial do lead.
               </p>

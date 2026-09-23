@@ -1143,8 +1143,8 @@ export function InboxPage() {
                           </>
                         ) : (
                           <>
-                            <User className="w-2.5 h-2.5 text-emerald-500" />
-                            <span className="text-emerald-500 font-semibold">Atendente Humano</span>
+                            <User className="w-2.5 h-2.5 text-success" />
+                            <span className="text-success font-semibold">Atendente Humano</span>
                           </>
                         )}
                         <span>•</span>
@@ -1155,10 +1155,10 @@ export function InboxPage() {
                       <div
                         className={`px-3.5 py-2.5 text-[13px] leading-relaxed break-words shadow-xs ${
                           isLead
-                            ? 'rounded-2xl rounded-tl-xs bg-surface text-content border border-border'
+                            ? 'rounded-2xl rounded-tl-sm bg-surface text-content border border-border'
                             : isHuman
-                            ? 'rounded-2xl rounded-tr-xs bg-emerald-600 text-white'
-                            : 'rounded-2xl rounded-tr-xs bg-brand text-white'
+                            ? 'rounded-2xl rounded-tr-sm bg-info/15 text-content border border-info/30'
+                            : 'rounded-2xl rounded-tr-sm bg-brand/15 text-content border border-brand/30'
                         }`}
                       >
                         {messagePreview(m.message_type, m.content)}

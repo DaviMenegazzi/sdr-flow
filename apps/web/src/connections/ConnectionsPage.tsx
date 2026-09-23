@@ -474,7 +474,7 @@ export function ConnectionsPage() {
                     }`}
                   >
                     <div className="flex items-center gap-2 font-semibold text-xs text-content mb-1.5">
-                      <ShieldCheck className="w-4 h-4 text-emerald-500" /> Meta Cloud API
+                      <ShieldCheck className="w-4 h-4 text-success" /> Meta Cloud API
                     </div>
                     <p className="text-2xs text-content-muted m-0">
                       API Oficial do WhatsApp Business, com autenticação e templates aprovados pela Meta.
@@ -640,7 +640,7 @@ export function ConnectionsPage() {
           {/* Wizard Step 4: Completion */}
           {wizardStep === 4 && (
             <div className="flex flex-col items-center text-center gap-3 py-4">
-              <CheckCircle2 className="w-12 h-12 text-emerald-500" />
+              <CheckCircle2 className="w-12 h-12 text-success" />
               <h2 className="text-base font-semibold text-content m-0">Conexão Estabelecida com Sucesso!</h2>
               <p className="text-xs text-content-muted max-w-sm m-0">
                 O canal de WhatsApp está ativo, autenticado e pronto para receber e enviar mensagens pelo fluxo.
@@ -710,17 +710,17 @@ export function ConnectionsPage() {
                     <td className="py-3 px-4">
                       {conn.status === 'connected' ? (
                         <Badge variant="success" size="sm" className="gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-success" />
                           Conectado
                         </Badge>
                       ) : conn.status === 'connecting' ? (
                         <Badge variant="warning" size="sm" className="gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-warning" />
                           Aguardando QR
                         </Badge>
                       ) : conn.status === 'error' ? (
                         <Badge variant="danger" size="sm" className="gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-danger" />
                           Erro
                         </Badge>
                       ) : (
@@ -737,7 +737,7 @@ export function ConnectionsPage() {
                         onClick={() => copyWebhook(conn.webhook_url || '', conn.id)}
                         title="Copiar URL de webhook"
                       >
-                        {copiedId === conn.id ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                        {copiedId === conn.id ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
                         <span>{copiedId === conn.id ? 'Copiado!' : 'Copiar URL'}</span>
                       </Button>
                     </td>
@@ -783,7 +783,7 @@ export function ConnectionsPage() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
           <div>
             <h2 className="text-base font-semibold text-content m-0 flex items-center gap-2">
-              <Radio className="w-4 h-4 text-emerald-500" /> Fluxos Ativos & Automações do WhatsApp
+              <Radio className="w-4 h-4 text-success" /> Fluxos Ativos & Automações do WhatsApp
             </h2>
             <p className="text-xs text-content-muted mt-1 mb-0">
               Veja qual fluxo da inteligência artificial está vinculado e operando em cada número.
@@ -831,7 +831,7 @@ export function ConnectionsPage() {
                 <Card
                   key={connection.id}
                   className={`p-4 bg-surface flex flex-col justify-between border ${
-                    isTest ? 'border-amber-500/40 bg-amber-500/5' : 'border-emerald-500/40 bg-emerald-500/5'
+                    isTest ? 'border-warning/40 bg-warning/5' : 'border-success/40 bg-success/5'
                   }`}
                 >
                   <div>
@@ -850,7 +850,7 @@ export function ConnectionsPage() {
                           </>
                         ) : (
                           <>
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> PRODUÇÃO
+                            <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" /> PRODUÇÃO
                           </>
                         )}
                       </Badge>
@@ -862,7 +862,7 @@ export function ConnectionsPage() {
                     </div>
 
                     {isTest ? (
-                      <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-700 dark:text-amber-300 mb-3 flex flex-col gap-1">
+                      <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg text-xs text-warning dark:text-warning mb-3 flex flex-col gap-1">
                         <div className="font-semibold flex items-center gap-1.5">
                           <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" /> Proteção de Teste Ativa
                         </div>
@@ -873,7 +873,7 @@ export function ConnectionsPage() {
                         </div>
                       </div>
                     ) : (
-                      <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-xs text-emerald-700 dark:text-emerald-300 mb-3 flex flex-col gap-1">
+                      <div className="p-3 bg-success/10 border border-success/30 rounded-lg text-xs text-success dark:text-emerald-300 mb-3 flex flex-col gap-1">
                         <div className="font-semibold flex items-center gap-1.5">
                           <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" /> Atendimento Público Liberado
                         </div>

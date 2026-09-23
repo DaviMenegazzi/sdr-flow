@@ -99,6 +99,8 @@ function ProtectedApp() {
       document.documentElement.classList.remove('dark');
       document.documentElement.classList.add('light');
     }
+    // Keep the browser chrome (status bar / tab strip) in step with the app theme.
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0a0a0a' : '#ffffff');
     try {
       localStorage.setItem('sdr-flow:theme', dark ? 'dark' : 'light');
     } catch {

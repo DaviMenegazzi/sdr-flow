@@ -78,7 +78,7 @@ export function PromptsView({ onSelectNodeInCanvas }: PromptsViewProps) {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
             <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'rgba(46, 232, 107, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Sparkles size={20} color="#2ee86b" />
+              <Sparkles size={20} className="text-brand-fg" />
             </div>
             <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0 }}>Central de Prompts & Conhecimento</h1>
           </div>
@@ -328,7 +328,7 @@ export function PromptsView({ onSelectNodeInCanvas }: PromptsViewProps) {
                             onClick={() => handleCopy(msgText, `${node.id}-msg`)}
                             style={{ border: 0, background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--color-text-secondary)' }}
                           >
-                            {copiedId === `${node.id}-msg` ? <Check size={13} color="#10b981" /> : <Copy size={13} />}
+                            {copiedId === `${node.id}-msg` ? <Check size={13} className="text-success" /> : <Copy size={13} />}
                             {copiedId === `${node.id}-msg` ? 'Copiado' : 'Copiar'}
                           </button>
                         </div>
@@ -375,7 +375,7 @@ export function PromptsView({ onSelectNodeInCanvas }: PromptsViewProps) {
                               onClick={() => handleCopy(promptText, `${node.id}-p`)}
                               style={{ border: 0, background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--color-text-secondary)' }}
                             >
-                              {copiedId === `${node.id}-p` ? <Check size={13} color="#10b981" /> : <Copy size={13} />}
+                              {copiedId === `${node.id}-p` ? <Check size={13} className="text-success" /> : <Copy size={13} />}
                               {copiedId === `${node.id}-p` ? 'Copiado' : 'Copiar'}
                             </button>
                           </div>
@@ -411,7 +411,7 @@ export function PromptsView({ onSelectNodeInCanvas }: PromptsViewProps) {
                                 onClick={() => handleCopy(systemText, `${node.id}-s`)}
                                 style={{ border: 0, background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--color-text-secondary)' }}
                               >
-                                {copiedId === `${node.id}-s` ? <Check size={13} color="#10b981" /> : <Copy size={13} />}
+                                {copiedId === `${node.id}-s` ? <Check size={13} className="text-success" /> : <Copy size={13} />}
                                 {copiedId === `${node.id}-s` ? 'Copiado' : 'Copiar'}
                               </button>
                             </div>

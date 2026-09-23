@@ -127,7 +127,7 @@ function ChipListInput({
               handleAdd();
             }
           }}
-          className="flex-1 py-1.5 px-2.5 rounded-lg bg-[#1a1a1a] border border-[#262626] text-xs text-white placeholder:text-content-muted outline-none focus:border-[#2ee86b]"
+          className="flex-1 py-1.5 px-2.5 rounded-lg bg-surface-elevated border border-border text-xs text-white placeholder:text-content-muted outline-none focus:border-brand"
         />
         <button
           type="button"
@@ -211,10 +211,10 @@ function InstanceTargetPicker({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full flex justify-between items-center text-xs p-2 rounded-lg bg-[#1a1a1a] border border-[#262626] text-content-secondary hover:text-content-primary hover:border-[#2ee86b]/40 transition-colors cursor-pointer"
+        className="w-full flex justify-between items-center text-xs p-2 rounded-lg bg-surface-elevated border border-border text-content-secondary hover:text-content-primary hover:border-brand/40 transition-colors cursor-pointer"
       >
         <span className="flex items-center gap-2">
-          {typeFilter === 'groups' ? <Users size={13} className="text-amber-400" /> : <Radio size={13} className="text-[#2ee86b]" />}
+          {typeFilter === 'groups' ? <Users size={13} className="text-warning" /> : <Radio size={13} className="text-brand-fg" />}
           <span>{open ? 'Fechar lista da instância' : `Selecionar da instância (${selectedInstance || 'conectada'})`}</span>
         </span>
         <ChevronDown size={13} className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
@@ -223,7 +223,7 @@ function InstanceTargetPicker({
       {open && (
         <div className="absolute top-full left-0 right-0 z-50 bg-[#161616] border border-[#2a2a2a] rounded-xl shadow-2xl p-2.5 mt-1 max-h-72 flex flex-col gap-2">
           <div className="flex gap-1.5 items-center">
-            <div className="flex flex-1 items-center gap-1.5 border border-[#262626] rounded-lg px-2 py-1 bg-[#1a1a1a]">
+            <div className="flex flex-1 items-center gap-1.5 border border-border rounded-lg px-2 py-1 bg-surface-elevated">
               <Search size={13} className="text-content-muted" />
               <input
                 type="text"
@@ -245,7 +245,7 @@ function InstanceTargetPicker({
               title="Atualizar lista de grupos e contatos"
               onClick={() => loadTargets(true)}
               disabled={loading}
-              className="p-1.5 rounded-lg text-xs bg-[#1a1a1a] border border-[#262626] hover:bg-[#222] text-content-secondary hover:text-white transition-colors cursor-pointer flex items-center gap-1"
+              className="p-1.5 rounded-lg text-xs bg-surface-elevated border border-border hover:bg-[#222] text-content-secondary hover:text-white transition-colors cursor-pointer flex items-center gap-1"
             >
               <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
             </button>
@@ -283,7 +283,7 @@ function InstanceTargetPicker({
                         }}
                         className="w-full text-left flex items-center gap-2 text-xs p-1.5 rounded-lg hover:bg-white/5 transition-colors cursor-pointer text-content-primary"
                       >
-                        <Users size={12} className="text-amber-400 flex-shrink-0" />
+                        <Users size={12} className="text-warning flex-shrink-0" />
                         <span className="font-medium flex-1 truncate">
                           {g.name}
                         </span>
@@ -310,7 +310,7 @@ function InstanceTargetPicker({
                         }}
                         className="w-full text-left flex items-center gap-2 text-xs p-1.5 rounded-lg hover:bg-white/5 transition-colors cursor-pointer text-content-primary"
                       >
-                        <Phone size={12} className="text-[#2ee86b] flex-shrink-0" />
+                        <Phone size={12} className="text-brand-fg flex-shrink-0" />
                         <span className="font-medium flex-1 truncate">
                           {c.name}
                         </span>
@@ -388,8 +388,8 @@ export function SchemaForm({ node }: { node: FlowNode }) {
           />
         </label>
 
-        <div className={`p-3 rounded-xl border ${isEnabled ? 'bg-amber-500/10 border-amber-500/30' : 'bg-surface-elevated border-border'}`}>
-          <label className={`flex items-center gap-2 m-0 font-bold text-xs ${isEnabled ? 'text-amber-300' : 'text-content-secondary'}`}>
+        <div className={`p-3 rounded-xl border ${isEnabled ? 'bg-warning/10 border-warning/30' : 'bg-surface-elevated border-border'}`}>
+          <label className={`flex items-center gap-2 m-0 font-bold text-xs ${isEnabled ? 'text-warning' : 'text-content-secondary'}`}>
             <input
               type="checkbox"
               checked={isEnabled}
@@ -409,7 +409,7 @@ export function SchemaForm({ node }: { node: FlowNode }) {
           <>
             <div>
               <label style={{ fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                <Phone size={13} color="#16a34a" /> Contatos Autorizados ({allowedPhones.length})
+                <Phone size={13} className="text-success" /> Contatos Autorizados ({allowedPhones.length})
               </label>
               <ChipListInput
                 values={allowedPhones}
@@ -432,7 +432,7 @@ export function SchemaForm({ node }: { node: FlowNode }) {
 
             <div>
               <label style={{ fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                <Users size={13} color="#d97706" /> Grupos Autorizados ({allowedGroups.length})
+                <Users size={13} className="text-warning" /> Grupos Autorizados ({allowedGroups.length})
               </label>
               <ChipListInput
                 values={allowedGroups}
@@ -541,7 +541,7 @@ export function SchemaForm({ node }: { node: FlowNode }) {
         {(targetMode === 'specific_targets' || targetMode === 'both') && (
           <div className="p-3 rounded-xl bg-surface-elevated border border-border space-y-2">
             <label className="text-xs font-semibold flex items-center gap-1.5 text-content-primary">
-              <Send size={13} className="text-[#2ee86b]" /> Destinos Notificados ({targets.length})
+              <Send size={13} className="text-brand-fg" /> Destinos Notificados ({targets.length})
             </label>
             <p style={{ fontSize: 11, color: 'var(--color-text-secondary)', margin: '0 0 8px' }}>
               Selecione contatos ou grupos da sua instância WhatsApp para receber este disparo:

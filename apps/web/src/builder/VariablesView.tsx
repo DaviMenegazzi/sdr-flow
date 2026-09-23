@@ -149,7 +149,7 @@ export function VariablesView({ onSelectNodeInCanvas }: VariablesViewProps) {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
             <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#0284c722', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Network size={20} color="#0284c7" />
+              <Network size={20} className="text-info" />
             </div>
             <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0 }}>Mapa de Variáveis & Dependências</h1>
           </div>
@@ -166,7 +166,7 @@ export function VariablesView({ onSelectNodeInCanvas }: VariablesViewProps) {
           </div>
           <div style={{ padding: '8px 14px', borderRadius: '8px', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', fontSize: '12px' }}>
             <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '11px', textTransform: 'uppercase', fontWeight: 600 }}>Produtores Detectados</span>
-            <strong style={{ fontSize: '15px', color: '#10b981' }}>{Object.keys(producers).length} geradores</strong>
+            <strong style={{ fontSize: '15px', color: 'var(--color-success)' }}>{Object.keys(producers).length} geradores</strong>
           </div>
         </div>
       </div>
@@ -238,7 +238,7 @@ export function VariablesView({ onSelectNodeInCanvas }: VariablesViewProps) {
                     }}
                     title="Copiar tag para usar em mensagens ou prompts"
                   >
-                    {copiedTag === item.tag ? <Check size={12} color="#10b981" /> : <Copy size={12} />}
+                    {copiedTag === item.tag ? <Check size={12} className="text-success" /> : <Copy size={12} />}
                     {copiedTag === item.tag ? 'Copiado!' : 'Copiar'}
                   </button>
                 </div>
@@ -258,7 +258,7 @@ export function VariablesView({ onSelectNodeInCanvas }: VariablesViewProps) {
                         style={{
                           border: '1px solid #10b98144',
                           background: '#10b98115',
-                          color: '#059669',
+                          color: 'var(--color-success)',
                           padding: '2px 8px',
                           borderRadius: '4px',
                           cursor: 'pointer',
@@ -277,7 +277,7 @@ export function VariablesView({ onSelectNodeInCanvas }: VariablesViewProps) {
                         Injetado pelo Sistema / WhatsApp
                       </span>
                     ) : (
-                      <span style={{ color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ color: 'var(--color-warning)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                         <AlertTriangle size={12} />
                         Nenhum bloco gerador no fluxo
                       </span>
@@ -336,7 +336,7 @@ export function VariablesView({ onSelectNodeInCanvas }: VariablesViewProps) {
                   )}
                 </span>
                 {isProduced && isConsumed && (
-                  <span style={{ color: '#10b981', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                  <span style={{ color: 'var(--color-success)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
                     <CheckCircle2 size={11} /> Conectada
                   </span>
                 )}
