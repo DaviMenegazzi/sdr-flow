@@ -1,5 +1,6 @@
 import React, { useEffect, type ReactNode } from 'react';
 import { X } from 'lucide-react';
+import { usePresence } from './usePresence';
 
 export interface ModalProps {
   isOpen: boolean;
@@ -28,7 +29,8 @@ export function Modal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  const { mounted, closing } = usePresence(isOpen);
+  if (!mounted) return null;
 
   const widths = {
     sm: 'max-w-sm',
@@ -40,9 +42,12 @@ export function Modal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm motion-overlay"
+      data-closing={closing || undefined}
+    >
       <div
-        className={`w-full ${widths[maxWidth]} bg-surface border border-border rounded-2xl shadow-modal flex flex-col max-h-[90vh] overflow-hidden`}
+        className={`w-full ${widths[maxWidth]} bg-surface border border-border rounded-2xl shadow-modal flex flex-col max-h-[90vh] overflow-hidden motion-modal`}
+        data-closing={closing || undefined}
         onClick={(e) => e.stopPropagation()}
       >
         {title && (

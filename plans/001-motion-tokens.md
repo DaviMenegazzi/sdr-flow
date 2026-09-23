@@ -1,6 +1,6 @@
 # 001 — Criar tokens de easing e duração do app
 
-- **Status**: TODO
+- **Status**: DONE (fase 4)
 - **Commit**: 8824ffe
 - **Severity**: MEDIUM
 - **Category**: Cohesion & tokens / Easing & duration

@@ -145,7 +145,7 @@ function ProtectedApp() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
                       <Link
                         to="/flows/new"
-                        className="group p-6 rounded-xl bg-surface border border-border hover:border-brand transition-all duration-200 shadow-subtle hover:shadow-elevated flex flex-col justify-between"
+                        className="group p-6 rounded-xl bg-surface border border-border hover:border-brand transition-[border-color,box-shadow] duration-200 ease-out shadow-subtle hover:shadow-elevated flex flex-col justify-between"
                       >
                         <div>
                           <div className="w-10 h-10 rounded-lg bg-brand/10 text-brand-fg flex items-center justify-center mb-4 transition-transform group-hover:scale-110">

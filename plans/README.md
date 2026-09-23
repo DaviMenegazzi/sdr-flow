@@ -5,11 +5,11 @@ Cada plano é autocontido e pode ser executado por qualquer agente.
 
 | # | Plano | Severidade | Status |
 | --- | --- | --- | --- |
-| 001 | [Tokens de easing e duração](001-motion-tokens.md) | MEDIUM | TODO |
-| 002 | [Animações mortas de Modal/Drawer + saída](002-modal-drawer-enter-exit.md) | HIGH | TODO |
-| 003 | [Nó com erro piscando no canvas](003-runtime-error-node-motion.md) | HIGH | TODO |
-| 004 | [`transition-all` → propriedades explícitas; hover-lift no canvas](004-replace-transition-all.md) | HIGH | TODO |
-| 005 | [Reduced motion + hover só com mouse](005-reduced-motion-and-hover-gating.md) | MEDIUM | TODO |
+| 001 | [Tokens de easing e duração](001-motion-tokens.md) | MEDIUM | DONE |
+| 002 | [Animações mortas de Modal/Drawer + saída](002-modal-drawer-enter-exit.md) | HIGH | DONE |
+| 003 | [Nó com erro piscando no canvas](003-runtime-error-node-motion.md) | HIGH | DONE |
+| 004 | [`transition-all` → propriedades explícitas; hover-lift no canvas](004-replace-transition-all.md) | HIGH | DONE |
+| 005 | [Reduced motion + hover só com mouse](005-reduced-motion-and-hover-gating.md) | MEDIUM | DONE |
 
 ## Ordem recomendada
 

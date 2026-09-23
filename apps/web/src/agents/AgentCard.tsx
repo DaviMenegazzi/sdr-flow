@@ -35,7 +35,7 @@ export function AgentCard({
   const hasKey = agent.hasOpenaiKey;
 
   return (
-    <Card className="group relative flex flex-col justify-between p-5 bg-surface border-border hover:border-border-strong hover:shadow-elevated transition-all duration-200">
+    <Card className="group relative flex flex-col justify-between p-5 bg-surface border-border hover:border-border-strong hover:shadow-elevated transition-[border-color,box-shadow] duration-200 ease-out">
       {/* Top Bar: Icon, Name, Badges */}
       <div>
         <div className="flex items-start justify-between gap-3 mb-3">

@@ -3,6 +3,8 @@
 const withAlpha = (name) => `rgb(var(${name}) / <alpha-value>)`;
 
 module.exports = {
+  // Hover styles only on devices that can hover (no sticky hover after a tap).
+  future: { hoverOnlyWhenSupported: true },
   darkMode: 'class',
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
@@ -71,6 +73,11 @@ module.exports = {
         DEFAULT: withAlpha('--border-default-rgb'),
       },
       // Type floor: 11px. Replaces the ad-hoc text-[8px]..text-[11px] sizes.
+      transitionTimingFunction: {
+        out: 'var(--ease-out)',
+        'in-out-strong': 'var(--ease-in-out)',
+        drawer: 'var(--ease-drawer)',
+      },
       fontSize: {
         '2xs': ['11px', { lineHeight: '1.45' }],
       },

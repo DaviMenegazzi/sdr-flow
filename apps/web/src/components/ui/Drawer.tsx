@@ -1,5 +1,6 @@
 import React, { useEffect, type ReactNode } from 'react';
 import { X } from 'lucide-react';
+import { usePresence } from './usePresence';
 
 export interface DrawerProps {
   isOpen: boolean;
@@ -34,7 +35,8 @@ export function Drawer({
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  const { mounted, closing } = usePresence(isOpen);
+  if (!mounted) return null;
 
   const widthClasses = {
     md: 'max-w-md',
@@ -51,14 +53,16 @@ export function Drawer({
     >
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs transition-opacity animate-in fade-in duration-200"
+        className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm motion-overlay"
+        data-closing={closing || undefined}
         onClick={onClose}
         aria-hidden="true"
       />
 
       {/* Drawer Panel */}
       <aside
-        className={`relative z-50 w-full ${widthClasses[width]} bg-surface border-l border-border shadow-modal flex flex-col h-full animate-in slide-in-from-right duration-250`}
+        className={`relative z-50 w-full ${widthClasses[width]} bg-surface border-l border-border shadow-modal flex flex-col h-full motion-drawer`}
+        data-closing={closing || undefined}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

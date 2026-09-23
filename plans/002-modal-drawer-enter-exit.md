@@ -1,6 +1,6 @@
 # 002 — Consertar animações mortas de Modal/Drawer e adicionar saída
 
-- **Status**: TODO
+- **Status**: DONE (fase 4)
 - **Commit**: 8824ffe
 - **Severity**: HIGH
 - **Category**: Missed opportunities / Physicality & origin

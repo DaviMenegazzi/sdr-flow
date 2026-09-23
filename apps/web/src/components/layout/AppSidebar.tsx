@@ -52,7 +52,7 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
   };
 
   const navItemClass = ({ isActive }: { isActive: boolean }) =>
-    `flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 ${
+    `flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors duration-150 ease-out ${
       isActive
         ? 'bg-brand/10 text-brand-fg font-semibold shadow-xs'
         : 'text-content-secondary hover:text-content-primary hover:bg-surface-elevated'

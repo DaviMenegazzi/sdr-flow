@@ -862,7 +862,7 @@ export function InboxPage() {
               <button
                 key={tab}
                 onClick={() => setAgentFilter(tab)}
-                className={`flex-1 text-xs py-1 rounded-md font-medium transition-all border-0 cursor-pointer ${
+                className={`flex-1 text-xs py-1 rounded-md font-medium transition-colors duration-150 ease-out border-0 cursor-pointer ${
                   agentFilter === tab
                     ? 'bg-surface text-content shadow-xs font-semibold'
                     : 'bg-transparent text-content-muted hover:text-content'

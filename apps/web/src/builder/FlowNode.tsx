@@ -50,13 +50,13 @@ export const FlowNode = memo(({ data, selected }: NodeProps<CanvasNode>) => {
 
   return (
     <div
-      className={`flow-node-card relative w-[244px] bg-surface rounded-2xl border transition-all duration-150 select-none shadow-elevated ${
+      className={`flow-node-card relative w-[244px] bg-surface rounded-2xl border transition-[border-color,box-shadow] duration-150 ease-out select-none shadow-elevated ${
         selected
           ? 'border-brand ring-1 ring-brand/40 shadow-[0_0_24px_-4px_rgba(46,232,107,0.35)]'
           : invalid
           ? 'border-danger ring-1 ring-danger/30'
           : liveError
-          ? 'border-danger ring-2 ring-danger/40 animate-pulse'
+          ? 'border-danger ring-2 ring-danger/40'
           : 'border-border hover:border-border-strong hover:shadow-[0_8px_24px_rgba(0,0,0,0.28)]'
       }`}
       style={{ '--node-color': categoryColor } as React.CSSProperties}
@@ -74,7 +74,7 @@ export const FlowNode = memo(({ data, selected }: NodeProps<CanvasNode>) => {
 
       {/* Runtime Error Badge */}
       {liveError && (
-        <div className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-danger text-canvas flex items-center justify-center shadow-md z-10 animate-bounce">
+        <div className="absolute -top-2 -right-2 w-5 h-5 node-error-badge rounded-full bg-danger text-canvas flex items-center justify-center shadow-md z-10">
           <AlertTriangle size={11} />
         </div>
       )}

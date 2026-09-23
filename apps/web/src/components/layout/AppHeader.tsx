@@ -75,7 +75,7 @@ export function AppHeader() {
         ) : (
         <div className="app-header-connection flex items-center gap-2 bg-surface-elevated border border-border px-2.5 py-1 rounded-xl text-xs transition-colors hover:border-border-strong">
           <span
-            className={`app-header-status w-2 h-2 rounded-full flex-shrink-0 transition-all ${
+            className={`app-header-status w-2 h-2 rounded-full flex-shrink-0 transition-[background-color,box-shadow] duration-150 ease-out ${
               isConnected
                 ? 'bg-success shadow-[0_0_8px_rgba(16,185,129,0.7)] animate-pulse'
                 : 'bg-content-muted'

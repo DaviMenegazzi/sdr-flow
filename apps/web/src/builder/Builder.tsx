@@ -558,7 +558,7 @@ function Editor() {
         <button
           type="button"
           onClick={() => setActiveTab('canvas')}
-          className={`builder-tab flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-all duration-150 -mb-[1px] ${
+          className={`builder-tab flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-colors duration-150 ease-out -mb-[1px] ${
             activeTab === 'canvas'
               ? 'border-brand text-brand-fg font-semibold'
               : 'border-transparent text-content-secondary hover:text-content-primary hover:border-border'
@@ -571,7 +571,7 @@ function Editor() {
         <button
           type="button"
           onClick={() => setActiveTab('prompts')}
-          className={`builder-tab flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-all duration-150 -mb-[1px] ${
+          className={`builder-tab flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-colors duration-150 ease-out -mb-[1px] ${
             activeTab === 'prompts'
               ? 'border-brand text-brand-fg font-semibold'
               : 'border-transparent text-content-secondary hover:text-content-primary hover:border-border'
@@ -587,7 +587,7 @@ function Editor() {
         <button
           type="button"
           onClick={() => setActiveTab('variables')}
-          className={`builder-tab flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-all duration-150 -mb-[1px] ${
+          className={`builder-tab flex items-center gap-2 py-2.5 px-3 text-xs font-medium border-b-2 transition-colors duration-150 ease-out -mb-[1px] ${
             activeTab === 'variables'
               ? 'border-brand text-brand-fg font-semibold'
               : 'border-transparent text-content-secondary hover:text-content-primary hover:border-border'
@@ -694,7 +694,7 @@ function Editor() {
               <button
                 type="button"
                 onClick={() => state.replace({ ...graph, testMode: { enabled: true, phone: graph.testMode?.phone || '' } })}
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold text-content-secondary bg-surface-elevated hover:bg-surface border border-border hover:border-brand/40 hover:text-content-primary transition-all cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold text-content-secondary bg-surface-elevated hover:bg-surface border border-border hover:border-brand/40 hover:text-content-primary transition-colors duration-150 ease-out cursor-pointer"
                 title="Ativar trava de segurança para restringir respostas a um único número"
               >
                 <ShieldAlert size={13} className="text-warning" />
@@ -851,7 +851,7 @@ function Editor() {
                       {entries.map(node => (
                         <button
                           key={node.type}
-                          className="w-full flex items-center justify-between p-2 rounded-lg bg-surface-elevated/60 hover:bg-surface-elevated border border-border/40 hover:border-brand/40 text-left text-xs font-medium text-content-primary transition-all cursor-grab active:cursor-grabbing group shadow-sm"
+                          className="w-full flex items-center justify-between p-2 rounded-lg bg-surface-elevated/60 hover:bg-surface-elevated border border-border/40 hover:border-brand/40 text-left text-xs font-medium text-content-primary transition-colors duration-150 ease-out cursor-grab active:cursor-grabbing group shadow-sm"
                           draggable
                           onDragStart={event => {
                             event.dataTransfer.setData('application/sdr-node', node.type);

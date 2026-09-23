@@ -1,6 +1,6 @@
 # 005 — Respeitar `prefers-reduced-motion` e restringir hover a dispositivos com mouse
 
-- **Status**: TODO
+- **Status**: DONE (fase 4)
 - **Commit**: 8824ffe
 - **Severity**: MEDIUM
 - **Category**: Accessibility

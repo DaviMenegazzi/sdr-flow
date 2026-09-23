@@ -1,6 +1,6 @@
 # 003 — Tirar o pisca-pisca do nó com erro no canvas
 
-- **Status**: TODO
+- **Status**: DONE (fase 4)
 - **Commit**: 8824ffe
 - **Severity**: HIGH
 - **Category**: Purpose & frequency / Accessibility

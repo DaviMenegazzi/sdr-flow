@@ -228,7 +228,7 @@ export function AgentsPage() {
 
         {/* Notificação de Sucesso */}
         {successNotice && (
-          <div className="p-3.5 rounded-xl bg-brand/10 border border-brand/30 text-brand-fg text-xs flex items-center gap-2 animate-in fade-in duration-150">
+          <div className="p-3.5 rounded-xl bg-brand/10 border border-brand/30 text-brand-fg text-xs flex items-center gap-2 motion-notice">
             <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
             <span>{successNotice}</span>
           </div>
@@ -279,8 +279,8 @@ export function AgentsPage() {
             </div>
             <div className="w-20 h-1.5 bg-surface-elevated rounded-full overflow-hidden ml-1 border border-border">
               <div
-                className="h-full bg-brand transition-all duration-300"
-                style={{ width: `${Math.min(100, (quotaUsed / quotaMax) * 100)}%` }}
+                className="h-full w-full origin-left bg-brand transition-transform duration-300 ease-out"
+                style={{ transform: `scaleX(${quotaMax > 0 ? Math.min(1, quotaUsed / quotaMax) : 0})` }}
               />
             </div>
           </div>

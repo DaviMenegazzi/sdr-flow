@@ -641,8 +641,8 @@ export function KnowledgePage() {
 
         {/* MODERN REDESIGNED ADD / EDIT MODAL */}
         {showAddModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-            <div className="bg-surface border border-border rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 flex flex-col">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm motion-overlay">
+            <div className="motion-modal bg-surface border border-border rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 flex flex-col">
               {/* Modal Header */}
               <div className="flex items-start justify-between pb-4 border-b border-border mb-5">
                 <div className="flex items-center gap-3">
@@ -689,7 +689,7 @@ export function KnowledgePage() {
                         <div
                           key={col.id}
                           onClick={() => setModalCollection(col.id)}
-                          className={`p-2.5 rounded-lg border cursor-pointer flex flex-col gap-1 transition-all ${
+                          className={`p-2.5 rounded-lg border cursor-pointer flex flex-col gap-1 transition-colors duration-150 ease-out ${
                             isSelected
                               ? 'border-brand ring-1 ring-brand bg-brand/5'
                               : 'border-border bg-surface hover:bg-surface-hover'

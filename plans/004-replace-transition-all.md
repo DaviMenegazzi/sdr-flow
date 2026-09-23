@@ -1,6 +1,6 @@
 # 004 — Trocar `transition-all` por propriedades explícitas e tirar o hover-lift do canvas
 
-- **Status**: TODO
+- **Status**: DONE (fase 4)
 - **Commit**: 8824ffe
 - **Severity**: HIGH
 - **Category**: Performance / Purpose & frequency

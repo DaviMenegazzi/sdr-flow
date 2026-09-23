@@ -451,7 +451,7 @@ export function ConnectionsPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div
                     onClick={() => setProvider('evolution')}
-                    className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${
+                    className={`border-2 rounded-xl p-4 cursor-pointer transition-colors duration-150 ease-out ${
                       provider === 'evolution'
                         ? 'border-brand bg-brand/5 shadow-xs'
                         : 'border-border bg-surface hover:border-border-hover'
@@ -467,7 +467,7 @@ export function ConnectionsPage() {
 
                   <div
                     onClick={() => setProvider('meta')}
-                    className={`border-2 rounded-xl p-4 cursor-pointer transition-all ${
+                    className={`border-2 rounded-xl p-4 cursor-pointer transition-colors duration-150 ease-out ${
                       provider === 'meta'
                         ? 'border-brand bg-brand/5 shadow-xs'
                         : 'border-border bg-surface hover:border-border-hover'
@@ -919,7 +919,7 @@ export function ConnectionsPage() {
 
       {/* QR Modal for existing connection */}
       {activeQrModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <Card className="p-6 bg-surface border-border max-w-sm w-full text-center flex flex-col items-center gap-4 shadow-xl">
             <div>
               <h2 className="text-base font-semibold text-content m-0">Escanear QR Code</h2>
