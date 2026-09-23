@@ -16,6 +16,7 @@ import {
   serviceDatabase,
   setAgentOpenAIKey,
   agentHasOpenAIKey,
+  type AnyDbClient,
   type EvolutionCredentials,
   type MetaCredentials,
   type ConversationWithLead,
@@ -1065,6 +1066,33 @@ export function createApp(config: ApiConfig = {}): Express {
     ]),
   });
 
+  // Provisions the provider side first (it yields the instance id), then persists. If
+  // persisting fails — e.g. account agent/instance limit — the Evolution instance this
+  // call just created is removed so failed attempts don't pile up orphans on the server.
+  async function provisionConnection(organizationId: string, body: z.infer<typeof createConnectionSchema>, db: AnyDbClient) {
+    const prepared = await ConnectionManager.prepareConnection(organizationId, body.name, body.provider, body.credentials as any, body.phone);
+    try {
+      const connection = await new ConnectionRepository(db).createConnection(organizationId, {
+        name: body.name,
+        provider: body.provider,
+        phone: prepared.phone,
+        provider_instance_id: prepared.providerInstanceId,
+        status: prepared.status,
+        credentials: prepared.preparedCredentials,
+      }, db);
+      return { connection, prepared };
+    } catch (error) {
+      const requested = body.credentials as Partial<EvolutionCredentials>;
+      if (body.provider === 'evolution' && !requested.instanceName) {
+        const evo = prepared.preparedCredentials as EvolutionCredentials;
+        await new EvolutionClient(evo.serverUrl, evo.apiKey).deleteInstance(prepared.providerInstanceId).catch(err => {
+          logger.warn({ err, instance: prepared.providerInstanceId }, 'Falha ao remover instância Evolution órfã');
+        });
+      }
+      throw error;
+    }
+  }
+
   app.post('/api/admin/users/:userId/instances', requireRole('admin'), async (req, res) => {
     const userId = uuidParam.safeParse(req.params.userId); const body = createConnectionSchema.safeParse(req.body);
     if (!userId.success || !body.success) { res.status(400).json({ error: 'Dados da instância inválidos.' }); return; }
@@ -1073,8 +1101,7 @@ export function createApp(config: ApiConfig = {}): Express {
     const { data: profile } = await db.from('profiles').select('default_organization_id,status').eq('user_id', userId.data).maybeSingle();
     if (!profile?.default_organization_id || profile.status !== 'active') { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
     const organizationId = profile.default_organization_id;
-    const prepared = await ConnectionManager.prepareConnection(organizationId, body.data.name, body.data.provider, body.data.credentials as any, body.data.phone);
-    const connection = await new ConnectionRepository(db).createConnection(organizationId, { name: body.data.name, provider: body.data.provider, phone: prepared.phone, provider_instance_id: prepared.providerInstanceId, status: prepared.status, credentials: prepared.preparedCredentials }, db);
+    const { connection } = await provisionConnection(organizationId, body.data, db);
     res.status(201).json({ id: connection.id, name: connection.name, provider: connection.provider, status: connection.status });
   });
 
@@ -1086,28 +1113,7 @@ export function createApp(config: ApiConfig = {}): Express {
   orgRoutes.post('/connections', requireAdmin, checkScope('connections:write'), async (req, res) => {
     const body = createConnectionSchema.parse(req.body);
     const serviceDb = getServiceDb() || res.locals.db;
-    const connRepo = new ConnectionRepository(serviceDb);
-
-    const prepared = await ConnectionManager.prepareConnection(
-      res.locals.organizationId as string,
-      body.name,
-      body.provider,
-      body.credentials as any,
-      body.phone
-    );
-
-    const connection = await connRepo.createConnection(
-      res.locals.organizationId as string,
-      {
-        name: body.name,
-        provider: body.provider,
-        phone: prepared.phone,
-        provider_instance_id: prepared.providerInstanceId,
-        status: prepared.status,
-        credentials: prepared.preparedCredentials,
-      },
-      serviceDb
-    );
+    const { connection, prepared } = await provisionConnection(res.locals.organizationId as string, body, serviceDb);
 
     if (body.provider === 'evolution') {
       const evo = prepared.preparedCredentials as EvolutionCredentials;
@@ -2108,6 +2114,10 @@ export function createApp(config: ApiConfig = {}): Express {
     if (code === 'PGRST116' || code === 'P0002') { res.status(404).json({ error: 'Fluxo não encontrado.' }); return; }
     if (error instanceof SyntaxError) { res.status(400).json({ error: 'JSON inválido.' }); return; }
     if (error && typeof error === 'object' && 'status' in error && error.status === 413) { res.status(413).json({ error: 'Arquivo excede o limite de 1 MB.' }); return; }
+    const message = error && typeof error === 'object' && 'message' in error ? String(error.message) : '';
+    if (code === 'P0001' && message === 'Agent limit reached') { res.status(409).json({ error: 'Limite de agentes da conta atingido. Arquive um agente ou aumente o limite da conta.' }); return; }
+    if (code === 'P0001' && message === 'Instance limit reached') { res.status(409).json({ error: 'Limite de instâncias da conta atingido.' }); return; }
+    logger.error({ err: error, method: req.method, path: req.path, organizationId: res.locals?.organizationId }, 'Erro não tratado na requisição');
     res.status(500).json({ error: 'Não foi possível concluir a operação.' });
   };
   app.use(errors);

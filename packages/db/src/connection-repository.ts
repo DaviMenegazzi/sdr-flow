@@ -150,7 +150,10 @@ export class ConnectionRepository {
       .select()
       .single();
 
-    if (connErr) throw connErr;
+    if (connErr) {
+      await this.archiveDedicatedAgent(client, organizationId, agent.id);
+      throw connErr;
+    }
 
     if (input.credentials) {
       const ciphertext = encryptCredentials(input.credentials as unknown as Record<string, unknown>);
@@ -159,6 +162,7 @@ export class ConnectionRepository {
       if (credErr) {
         // Rollback connection if credentials store fails
         await client.from('connections').delete().eq('id', conn.id);
+        await this.archiveDedicatedAgent(client, organizationId, agent.id);
         throw credErr;
       }
     }
@@ -211,14 +215,36 @@ export class ConnectionRepository {
 
   async deleteConnection(organizationId: string, connectionId: string, adminDb?: AnyDbClient): Promise<{ ok: boolean }> {
     const client = adminDb || this.db;
-    const { error } = await client
+    const { data: deleted, error } = await client
       .from('connections')
       .delete()
       .eq('organization_id', organizationId)
-      .eq('id', connectionId);
+      .eq('id', connectionId)
+      .select('agent_id')
+      .maybeSingle();
 
     if (error) throw error;
+    // The dedicated agent created with this connection would otherwise keep counting
+    // against account_limits.max_agents forever, blocking every new connection.
+    if (deleted?.agent_id) await this.archiveDedicatedAgent(client, organizationId, deleted.agent_id);
     return { ok: true };
+  }
+
+  /** Archives a per-connection agent once no connection points at it; default agents are kept. */
+  private async archiveDedicatedAgent(client: AnyDbClient, organizationId: string, agentId: string): Promise<void> {
+    const { count } = await client
+      .from('connections')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', organizationId)
+      .eq('agent_id', agentId);
+    if (count) return;
+
+    await client
+      .from('ai_agents')
+      .update({ status: 'archived', updated_at: new Date().toISOString() })
+      .eq('organization_id', organizationId)
+      .eq('id', agentId)
+      .eq('is_default', false);
   }
 
   async getConnectionCredentials<T = ConnectionCredentials>(
