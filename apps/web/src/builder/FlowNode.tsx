@@ -152,10 +152,7 @@ export const FlowNode = memo(({ data, selected }: NodeProps<CanvasNode>) => {
                     ? 'Falso'
                     : port}
                 </span>
-                <span className="flex items-center gap-1 text-content-muted group-hover:text-brand-fg transition-colors text-2xs font-mono">
-                  {port}
-                  <ArrowRight size={10} />
-                </span>
+                <ArrowRight size={10} className="text-content-muted group-hover:text-brand-fg transition-colors" />
                 <Handle
                   id={port}
                   type="source"

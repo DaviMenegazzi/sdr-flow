@@ -4,7 +4,7 @@ import type { FlowNode } from '@sdr/shared';
 import { useBuilder } from './store';
 import { useInstance } from '../context/InstanceContext';
 import { useSession } from '../session';
-import { Skeleton, SkeletonText } from '../components/ui';
+import { Select, Skeleton, SkeletonText, Switch } from '../components/ui';
 import {
   Users,
   Phone,
@@ -389,15 +389,10 @@ export function SchemaForm({ node }: { node: FlowNode }) {
         </label>
 
         <div className={`p-3 rounded-xl border ${isEnabled ? 'bg-warning/10 border-warning/30' : 'bg-surface-elevated border-border'}`}>
-          <label className={`flex items-center gap-2 m-0 font-bold text-xs ${isEnabled ? 'text-warning' : 'text-content-secondary'}`}>
-            <input
-              type="checkbox"
-              checked={isEnabled}
-              onChange={e => field('enabled', e.target.checked)}
-              className="w-auto accent-amber-500 cursor-pointer"
-            />
-            {isEnabled ? 'Filtro de Teste Ativo' : 'Filtro Desativado (Livre)'}
-          </label>
+          <div className={`flex items-center justify-between gap-2 text-xs font-semibold ${isEnabled ? 'text-warning' : 'text-content-secondary'}`}>
+            <span>{isEnabled ? 'Filtro de teste ativo' : 'Filtro desativado'}</span>
+            <Switch aria-label="Filtro de teste" checked={isEnabled} onChange={checked => field('enabled', checked)} />
+          </div>
           <p className="text-2xs text-content-muted mt-1.5 leading-relaxed">
             {isEnabled
               ? 'Apenas remetentes presentes nas listas abaixo avançam no fluxo. Qualquer outro contato ou grupo terá a mensagem interrompida aqui.'
@@ -511,31 +506,26 @@ export function SchemaForm({ node }: { node: FlowNode }) {
           ))}
         </div>
 
-        <label>
-          <span className="check-row">
-            <input
-              type="checkbox"
-              checked={node.config.typing !== false}
-              onChange={e => field('typing', e.target.checked)}
-            />
-            Mostrar digitando antes de enviar
-          </span>
-        </label>
+        <div className="flex items-center justify-between gap-3 text-xs text-content-secondary">
+          <span>Mostrar "digitando…" antes de enviar</span>
+          <Switch aria-label="Mostrar digitando antes de enviar" checked={node.config.typing !== false} onChange={checked => field('typing', checked)} />
+        </div>
 
         {/* Modo de Destinatário */}
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
             Destinatário da Mensagem
           </label>
-          <select
+          <Select
+            aria-label="Destinatário da mensagem"
             value={targetMode}
-            onChange={e => field('targetMode', e.target.value)}
-            style={{ fontSize: 12 }}
-          >
-            <option value="active_lead">Lead que enviou a mensagem (Padrão)</option>
-            <option value="specific_targets">Apenas Destinatários Específicos (Contatos / Grupos)</option>
-            <option value="both">Ambos (Lead ativo + Notificar Destinatários Específicos)</option>
-          </select>
+            onChange={value => field('targetMode', value)}
+            options={[
+              { value: 'active_lead', label: 'Quem enviou a mensagem', description: 'Padrão: responde ao lead da conversa' },
+              { value: 'specific_targets', label: 'Destinatários específicos', description: 'Só os contatos e grupos escolhidos abaixo' },
+              { value: 'both', label: 'Os dois', description: 'Responde ao lead e avisa os destinatários escolhidos' },
+            ]}
+          />
         </div>
 
         {(targetMode === 'specific_targets' || targetMode === 'both') && (
@@ -583,29 +573,22 @@ export function SchemaForm({ node }: { node: FlowNode }) {
         />
       </label>
 
-      {Object.entries(properties).map(([key, property]) => (
+      {Object.entries(properties).map(([key, property]) =>
+        property.type === 'boolean' ? (
+          <div key={`${node.id}-${key}`} className="flex items-center justify-between gap-3 text-xs font-medium text-content-secondary">
+            <span>{property.description ?? key}</span>
+            <Switch aria-label={property.description ?? key} checked={node.config[key] === true} onChange={checked => field(key, checked)} />
+          </div>
+        ) : (
         <label key={`${node.id}-${key}`}>
           {property.description ?? key}
           {property.enum ? (
-            <select
+            <Select
+              aria-label={property.description ?? key}
               value={String(node.config[key] ?? '')}
-              onChange={event => field(key, event.target.value)}
-            >
-              {property.enum.map(value => (
-                <option key={value} value={value}>
-                  {enumLabels[key]?.[value] ?? value}
-                </option>
-              ))}
-            </select>
-          ) : property.type === 'boolean' ? (
-            <span className="check-row">
-              <input
-                type="checkbox"
-                checked={node.config[key] === true}
-                onChange={event => field(key, event.target.checked)}
-              />
-              Ativado
-            </span>
+              onChange={value => field(key, value)}
+              options={property.enum.map(value => ({ value, label: enumLabels[key]?.[value] ?? value }))}
+            />
           ) : property.type === 'integer' || property.type === 'number' ? (
             <input
               type="number"
@@ -634,7 +617,8 @@ export function SchemaForm({ node }: { node: FlowNode }) {
             />
           )}
         </label>
-      ))}
+        )
+      )}
 
       {Object.keys(properties).length === 0 && (
         <p className="muted">Este nó usa o contexto da conversa e não precisa de configuração adicional.</p>

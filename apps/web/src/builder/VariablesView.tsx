@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Network, Search, Copy, Check, ArrowRight, CornerDownRight, AlertTriangle, CheckCircle2, Info, Sparkles, Bot, User, Cpu, Sliders } from 'lucide-react';
+import { Search, Copy, Check, AlertTriangle } from 'lucide-react';
+import { Input, SegmentedControl, toast } from '../components/ui';
 import { catalog, categoryColors } from '@sdr/flow';
 import type { FlowNode } from '@sdr/shared';
 import { useBuilder } from './store';
@@ -130,220 +131,123 @@ export function VariablesView({ onSelectNodeInCanvas }: VariablesViewProps) {
     };
   });
 
-  const filteredList = variablesList.filter(item => {
-    if (!search.trim()) return true;
-    const term = search.toLowerCase();
-    return item.name.toLowerCase().includes(term) || item.description.toLowerCase().includes(term);
-  });
+  // Lead fields are filled by the runtime itself; anything else used without a producer arrives empty.
+  const isBroken = (item: VariableInfo) => item.consumedBy.length > 0 && !item.producedBy && !item.name.startsWith('lead.');
+  const broken = variablesList.filter(isBroken);
+  const used = variablesList.filter(item => item.consumedBy.length > 0);
+  const [view, setView] = useState<'used' | 'broken' | 'all'>(() => (broken.length ? 'broken' : 'used'));
+
+  const filteredList = variablesList
+    .filter(item => (view === 'used' ? item.consumedBy.length > 0 : view === 'broken' ? isBroken(item) : true))
+    .filter(item => {
+      if (!search.trim()) return true;
+      const term = search.toLowerCase();
+      return item.name.toLowerCase().includes(term) || item.description.toLowerCase().includes(term);
+    })
+    .sort((a, b) => Number(isBroken(b)) - Number(isBroken(a)) || b.consumedBy.length - a.consumedBy.length || a.name.localeCompare(b.name));
 
   const handleCopyTag = (tag: string) => {
-    navigator.clipboard.writeText(tag);
+    void navigator.clipboard?.writeText(tag);
     setCopiedTag(tag);
+    toast.success('Variável copiada', { description: tag });
     setTimeout(() => setCopiedTag(null), 2000);
   };
 
+  const nodeChip = (ref: { nodeId: string; nodeLabel: string; nodeType: string }, key?: string) => (
+    <button
+      key={key ?? ref.nodeId}
+      type="button"
+      onClick={() => onSelectNodeInCanvas(ref.nodeId)}
+      className="inline-flex min-h-0 items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-1.5 py-0.5 text-2xs text-content hover:border-border-strong"
+    >
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: categoryColors[catalog[ref.nodeType as keyof typeof catalog]?.category ?? 'flow'] }} />
+      {ref.nodeLabel}
+    </button>
+  );
+
   return (
-    <div style={{ padding: '24px 32px', maxWidth: '1200px', margin: '0 auto', overflowY: 'auto', height: '100%' }}>
-      {/* Header */}
-      <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: '#0284c722', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Network size={20} className="text-info" />
-            </div>
-            <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0 }}>Mapa de Variáveis & Dependências</h1>
-          </div>
-          <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-            Rastreie onde cada dado é gerado e onde ele é consumido entre os blocos do seu fluxo. Copie as tags para usar em qualquer prompt ou mensagem.
-          </p>
-        </div>
-
-        {/* Global Summary */}
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          <div style={{ padding: '8px 14px', borderRadius: '8px', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', fontSize: '12px' }}>
-            <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '11px', textTransform: 'uppercase', fontWeight: 600 }}>Variáveis em Uso</span>
-            <strong style={{ fontSize: '15px' }}>{Object.keys(consumers).length} ativas</strong>
-          </div>
-          <div style={{ padding: '8px 14px', borderRadius: '8px', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', fontSize: '12px' }}>
-            <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '11px', textTransform: 'uppercase', fontWeight: 600 }}>Produtores Detectados</span>
-            <strong style={{ fontSize: '15px', color: 'var(--color-success)' }}>{Object.keys(producers).length} geradores</strong>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto flex max-w-5xl flex-col gap-4 px-6 py-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <SegmentedControl
+            aria-label="Mostrar variáveis"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: 'used', label: 'Em uso', count: used.length },
+              { value: 'broken', label: 'Com problema', count: broken.length },
+              { value: 'all', label: 'Todas', count: variablesList.length },
+            ]}
+          />
+          <div className="ml-auto w-full max-w-xs">
+            <Input aria-label="Buscar variável" placeholder="Buscar variável" value={search} onChange={e => setSearch(e.target.value)} leftIcon={<Search size={14} />} className="!h-8" />
           </div>
         </div>
-      </div>
 
-      {/* Search Input */}
-      <div style={{ marginBottom: '20px', position: 'relative' }}>
-        <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-secondary)' }} />
-        <input
-          type="text"
-          placeholder="Buscar variável por nome (ex: decision.reply, lead.name)..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ width: '100%', padding: '8px 12px 8px 36px', borderRadius: '8px', fontSize: '13px', border: '1px solid var(--color-border)', background: 'var(--color-bg-primary)' }}
-        />
-      </div>
+        {broken.length > 0 && view !== 'broken' && (
+          <button
+            type="button"
+            onClick={() => setView('broken')}
+            className="flex min-h-0 items-center justify-start gap-2 rounded-lg border border-warning-border bg-warning-bg px-3 py-2 text-left text-xs text-warning"
+          >
+            <AlertTriangle size={14} /> {broken.length} variável(is) usada(s) sem nenhum bloco que as gere — vão chegar vazias.
+          </button>
+        )}
 
-      {/* Variables Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '16px' }}>
-        {filteredList.map(item => {
-          const isProduced = Boolean(item.producedBy);
-          const isConsumed = item.consumedBy.length > 0;
-          const isSystem = item.category === 'lead' || item.category === 'system';
-
-          return (
-            <div
-              key={item.name}
-              style={{
-                background: 'var(--color-bg-primary)',
-                borderRadius: '10px',
-                border: '1px solid var(--color-border)',
-                padding: '16px',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.03)',
-              }}
-            >
-              <div>
-                {/* Header */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <span
-                    style={{
-                      fontFamily: 'monospace',
-                      fontSize: '13px',
-                      fontWeight: 700,
-                      color: 'var(--color-bg-accent)',
-                      background: 'var(--color-bg-secondary)',
-                      padding: '3px 8px',
-                      borderRadius: '5px',
-                      border: '1px solid var(--color-border)',
-                    }}
-                  >
-                    {item.tag}
-                  </span>
-
-                  <button
-                    onClick={() => handleCopyTag(item.tag)}
-                    style={{
-                      border: '1px solid var(--color-border)',
-                      background: 'var(--color-bg-primary)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      padding: '3px 8px',
-                      borderRadius: '5px',
-                      fontSize: '11px',
-                      color: 'var(--color-text-secondary)',
-                    }}
-                    title="Copiar tag para usar em mensagens ou prompts"
-                  >
-                    {copiedTag === item.tag ? <Check size={12} className="text-success" /> : <Copy size={12} />}
-                    {copiedTag === item.tag ? 'Copiado!' : 'Copiar'}
-                  </button>
-                </div>
-
-                <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>
-                  {item.description}
-                </p>
-
-                {/* Lineage Details */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '11px' }}>
-                  {/* Origin */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ color: 'var(--color-text-secondary)', width: '80px', flexShrink: 0 }}>Gerado em:</span>
+        <div className="overflow-hidden rounded-xl border border-border bg-surface">
+          <table className="w-full border-collapse text-left text-xs">
+            <thead>
+              <tr className="border-b border-border text-2xs text-content-muted">
+                <th className="px-4 py-2.5 font-medium">Variável</th>
+                <th className="px-4 py-2.5 font-medium">Gerada em</th>
+                <th className="px-4 py-2.5 font-medium">Usada em</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/60">
+              {filteredList.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="px-4 py-8 text-center text-content-muted">
+                    {view === 'broken' ? 'Nenhuma variável com problema. Tudo o que é usado tem origem.' : 'Nenhuma variável encontrada.'}
+                  </td>
+                </tr>
+              )}
+              {filteredList.map(item => (
+                <tr key={item.name} className="group align-top hover:bg-surface-elevated/50">
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => handleCopyTag(item.tag)}
+                      className="inline-flex min-h-0 items-center gap-1.5 rounded border-0 bg-transparent p-0 font-mono text-xs text-content hover:text-brand-fg"
+                      title="Copiar"
+                    >
+                      {item.tag}
+                      {copiedTag === item.tag ? <Check size={12} className="text-success" /> : <Copy size={12} className="opacity-0 group-hover:opacity-60" />}
+                    </button>
+                    <p className="m-0 mt-1 max-w-sm text-2xs text-content-muted">{item.description}</p>
+                  </td>
+                  <td className="px-4 py-3">
                     {item.producedBy ? (
-                      <button
-                        onClick={() => onSelectNodeInCanvas(item.producedBy!.nodeId)}
-                        style={{
-                          border: '1px solid #10b98144',
-                          background: '#10b98115',
-                          color: 'var(--color-success)',
-                          padding: '2px 8px',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          fontWeight: 600,
-                          fontSize: '11px',
-                        }}
-                      >
-                        <CheckCircle2 size={11} />
-                        {item.producedBy.nodeLabel}
-                      </button>
-                    ) : isSystem ? (
-                      <span style={{ color: '#0284c7', background: '#0284c715', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
-                        Injetado pelo Sistema / WhatsApp
-                      </span>
+                      nodeChip(item.producedBy)
+                    ) : item.name.startsWith('lead.') ? (
+                      <span className="text-2xs text-content-muted">Automática (contato)</span>
                     ) : (
-                      <span style={{ color: 'var(--color-warning)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <AlertTriangle size={12} />
-                        Nenhum bloco gerador no fluxo
+                      <span className={`text-2xs ${isBroken(item) ? 'font-medium text-warning' : 'text-content-muted'}`}>
+                        {isBroken(item) ? 'Nenhum bloco gera' : '—'}
                       </span>
                     )}
-                  </div>
-
-                  {/* Consumed By */}
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                    <span style={{ color: 'var(--color-text-secondary)', width: '80px', flexShrink: 0, marginTop: '2px' }}>
-                      Consumido em:
-                    </span>
-                    {item.consumedBy.length > 0 ? (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                        {item.consumedBy.map((consumer, idx) => (
-                          <button
-                            key={idx}
-                            onClick={() => onSelectNodeInCanvas(consumer.nodeId)}
-                            style={{
-                              border: '1px solid var(--color-border)',
-                              background: 'var(--color-bg-secondary)',
-                              color: 'var(--color-text-primary)',
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              fontSize: '11px',
-                            }}
-                          >
-                            <ArrowRight size={10} color="var(--color-bg-accent)" />
-                            {consumer.nodeLabel} ({consumer.field})
-                          </button>
-                        ))}
-                      </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    {item.consumedBy.length ? (
+                      <div className="flex flex-wrap gap-1">{item.consumedBy.map((ref, index) => nodeChip(ref, `${ref.nodeId}-${ref.field}-${index}`))}</div>
                     ) : (
-                      <span style={{ color: 'var(--color-text-secondary)', fontStyle: 'italic' }}>
-                        Não utilizado em nenhum bloco
-                      </span>
+                      <span className="text-2xs text-content-muted">Não usada</span>
                     )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Status footer */}
-              <div style={{ marginTop: '12px', paddingTop: '8px', borderTop: '1px solid var(--color-border-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px' }}>
-                <span style={{ color: 'var(--color-text-secondary)', textTransform: 'uppercase', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  {item.category === 'agent' ? (
-                    <><Bot size={11} /> Inteligência</>
-                  ) : item.category === 'lead' ? (
-                    <><User size={11} /> Cadastro Lead</>
-                  ) : item.category === 'context' ? (
-                    <><Cpu size={11} /> Memória / RAG</>
-                  ) : (
-                    <><Sliders size={11} /> Controle</>
-                  )}
-                </span>
-                {isProduced && isConsumed && (
-                  <span style={{ color: 'var(--color-success)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
-                    <CheckCircle2 size={11} /> Conectada
-                  </span>
-                )}
-              </div>
-            </div>
-          );
-        })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

@@ -17,6 +17,8 @@ import {
   FileText,
   type LucideIcon,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Input, SegmentedControl } from '../components/ui';
 import { catalog, categoryColors } from '@sdr/flow';
 import type { FlowNode } from '@sdr/shared';
 import { useBuilder } from './store';
@@ -72,88 +74,34 @@ export function PromptsView({ onSelectNodeInCanvas }: PromptsViewProps) {
   const estimateTokens = (text: string) => Math.ceil(text.length / 4);
 
   return (
-    <div style={{ padding: '24px 32px', maxWidth: '1200px', margin: '0 auto', overflowY: 'auto', height: '100%' }}>
-      {/* Header */}
-      <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-            <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'rgba(46, 232, 107, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Sparkles size={20} className="text-brand-fg" />
-            </div>
-            <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0 }}>Central de Prompts & Conhecimento</h1>
-          </div>
-          <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-            Visualize, refine e edite todos os prompts e conexões de conhecimento da IA deste fluxo em um só lugar, com salvamento instantâneo.
-          </p>
-        </div>
-
-        {/* Global Summary Badges */}
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          <div style={{ padding: '8px 14px', borderRadius: '8px', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', fontSize: '12px' }}>
-            <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '11px', textTransform: 'uppercase', fontWeight: 600 }}>Nós de Inteligência</span>
-            <strong style={{ fontSize: '15px' }}>{promptNodes.length} blocos ativos</strong>
-          </div>
-          <div style={{ padding: '8px 14px', borderRadius: '8px', background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', fontSize: '12px' }}>
-            <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '11px', textTransform: 'uppercase', fontWeight: 600 }}>RAG Conectado</span>
-            <strong style={{ fontSize: '15px', color: knowledgeNodes.length > 0 ? '#10b981' : '#f59e0b' }}>
-              {knowledgeNodes.length} {knowledgeNodes.length === 1 ? 'coleção' : 'coleções'}
-            </strong>
-          </div>
+    <div className="mx-auto h-full max-w-5xl overflow-y-auto px-6 py-6">
+      {/* Context in one line; the tab itself already says where you are. */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <SegmentedControl
+          aria-label="Filtrar blocos"
+          value={filterType}
+          onChange={setFilterType}
+          options={[
+            { value: 'ALL', label: 'Todos', count: promptNodes.length },
+            ...Array.from(new Set(promptNodes.map(n => n.type))).map(type => ({ value: type, label: catalog[type]?.label || type })),
+          ]}
+        />
+        <div className="ml-auto w-full max-w-xs">
+          <Input aria-label="Buscar nos prompts" placeholder="Buscar nos prompts" value={search} onChange={e => setSearch(e.target.value)} leftIcon={<Search size={14} />} className="!h-8" />
         </div>
       </div>
-
-      {/* Search and Filters Bar */}
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
-        <div style={{ flex: '1', minWidth: '240px', position: 'relative' }}>
-          <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-secondary)' }} />
-          <input
-            type="text"
-            placeholder="Buscar por nome do bloco, texto de prompt ou instrução..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{ width: '100%', padding: '8px 12px 8px 36px', borderRadius: '8px', fontSize: '13px', border: '1px solid var(--color-border)', background: 'var(--color-bg-primary)' }}
-          />
-        </div>
-
-        <div style={{ display: 'flex', gap: '6px', overflowX: 'auto' }}>
-          <button
-            onClick={() => setFilterType('ALL')}
-            style={{
-              padding: '6px 12px',
-              borderRadius: '6px',
-              fontSize: '12px',
-              border: '1px solid var(--color-border)',
-              background: filterType === 'ALL' ? 'var(--color-bg-accent)' : 'var(--color-bg-secondary)',
-              color: filterType === 'ALL' ? '#fff' : 'var(--color-text-primary)',
-              cursor: 'pointer',
-              fontWeight: 500,
-            }}
-          >
-            Todos ({promptNodes.length})
-          </button>
-          {Array.from(new Set(promptNodes.map(n => n.type))).map(type => {
-            const def = catalog[type];
-            return (
-              <button
-                key={type}
-                onClick={() => setFilterType(type)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  border: '1px solid var(--color-border)',
-                  background: filterType === type ? 'var(--color-bg-accent)' : 'var(--color-bg-secondary)',
-                  color: filterType === type ? '#fff' : 'var(--color-text-primary)',
-                  cursor: 'pointer',
-                  fontWeight: 500,
-                }}
-              >
-                {def?.label || type}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <p className="m-0 mb-4 flex flex-wrap items-center gap-1.5 text-xs text-content-secondary">
+        {promptNodes.length} {promptNodes.length === 1 ? 'bloco usa' : 'blocos usam'} IA ·{' '}
+        {knowledgeNodes.length > 0 ? (
+          <span>{knowledgeNodes.length} base(s) de conhecimento ligada(s)</span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-warning">
+            nenhuma base de conhecimento ligada
+            <Link to="/knowledge" className="font-semibold underline-offset-2 hover:underline">Ver base</Link>
+          </span>
+        )}
+        · As edições vão para o rascunho; publique para valer no WhatsApp.
+      </p>
 
       {/* Nodes List */}
       {filteredNodes.length === 0 ? (
@@ -216,9 +164,6 @@ export function PromptsView({ onSelectNodeInCanvas }: PromptsViewProps) {
                           {def?.label || node.type}
                         </span>
                       </div>
-                      <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
-                        ID: {node.id.substring(0, 18)}...
-                      </span>
                     </div>
                   </div>
 
