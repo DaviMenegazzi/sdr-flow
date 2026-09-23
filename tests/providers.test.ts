@@ -7,7 +7,7 @@ import { secretMatches, verifyMetaSignature } from '../apps/api/src/whatsapp/web
 
 const req = { provider: 'openai' as const, model: 'default', prompt: 'Atenda o lead.', latestUserMessage: 'Quero uma consulta', commercialMemory: { city: 'Campinas' }, knowledgeSnippets: ['Consulta apenas com agendamento'] };
 const lead = { name: 'Ana', city: null, interest: 'consulta', urgency: null, objections: null, notes: null };
-const decision = { reply: 'Qual horário prefere?', stage: 'QUALIFYING', handoff: false, handoff_reason: null, intent: 'consulta', lead_data: lead, score: 70 };
+const decision = { reply: 'Qual horário prefere?', handoff: false, handoff_reason: null, intent: 'consulta', lead_data: lead };
 const output = (data: unknown, overrides = {}) => Response.json({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(data) }] }], usage: { input_tokens: 234, output_tokens: 56 }, ...overrides });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 

@@ -11,3 +11,6 @@ export * from './trace/trace-sink.js';
 export * from './trace/trace-batch-writer.js';
 export * from './trace/trace-completion.js';
 export * from './trace/stream-commands.js';
+export * from './funnel/funnel-rules.js';
+export * from './funnel/laya-client.js';
+export * from './funnel/funnel-service.js';

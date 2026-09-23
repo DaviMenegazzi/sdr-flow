@@ -645,6 +645,48 @@ export type Database = {
       };
       Relationships: [];
     };
+    lead_stage_events: {
+      Row: {
+        id: string;
+        organization_id: string;
+        lead_id: string;
+        conversation_id: string | null;
+        from_stage: Database['public']['Enums']['conversation_stage'];
+        to_stage: Database['public']['Enums']['conversation_stage'];
+        source: string;
+        reason: string;
+        evidence: string | null;
+        confidence: number | null;
+        created_at: string;
+      };
+      Insert: {
+        id?: string;
+        organization_id: string;
+        lead_id: string;
+        conversation_id?: string | null;
+        from_stage: Database['public']['Enums']['conversation_stage'];
+        to_stage: Database['public']['Enums']['conversation_stage'];
+        source: string;
+        reason: string;
+        evidence?: string | null;
+        confidence?: number | null;
+        created_at?: string;
+      };
+      Update: {
+        id?: string;
+        organization_id?: string;
+        lead_id?: string;
+        conversation_id?: string | null;
+        from_stage?: Database['public']['Enums']['conversation_stage'];
+        to_stage?: Database['public']['Enums']['conversation_stage'];
+        source?: string;
+        reason?: string;
+        evidence?: string | null;
+        confidence?: number | null;
+        created_at?: string;
+      };
+      Relationships: [];
+    };
     leads: {
       Row: {
         id: string;
@@ -662,6 +704,11 @@ export type Database = {
         is_group: boolean;
         group_subject: string | null;
         group_subject_synced_at: string | null;
+        funnel_stage: Database['public']['Enums']['conversation_stage'];
+        funnel_stage_updated_at: string | null;
+        lead_score: number | null;
+        temperature: string | null;
+        lead_score_updated_at: string | null;
       };
       Insert: {
         id?: string;
@@ -679,6 +726,11 @@ export type Database = {
         is_group?: boolean;
         group_subject?: string | null;
         group_subject_synced_at?: string | null;
+        funnel_stage?: Database['public']['Enums']['conversation_stage'];
+        funnel_stage_updated_at?: string | null;
+        lead_score?: number | null;
+        temperature?: string | null;
+        lead_score_updated_at?: string | null;
       };
       Update: {
         id?: string;
@@ -696,6 +748,11 @@ export type Database = {
         is_group?: boolean;
         group_subject?: string | null;
         group_subject_synced_at?: string | null;
+        funnel_stage?: Database['public']['Enums']['conversation_stage'];
+        funnel_stage_updated_at?: string | null;
+        lead_score?: number | null;
+        temperature?: string | null;
+        lead_score_updated_at?: string | null;
       };
       Relationships: [];
     };
