@@ -44,11 +44,14 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm motion-overlay"
       data-closing={closing || undefined}
+      onClick={onClose}
     >
       <div
         className={`w-full ${widths[maxWidth]} bg-surface border border-border rounded-2xl shadow-modal flex flex-col max-h-[90vh] overflow-hidden motion-modal`}
         data-closing={closing || undefined}
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
       >
         {title && (
           <div className="flex items-center justify-between p-5 border-b border-border">
@@ -61,7 +64,8 @@ export function Modal({
             <button
               type="button"
               onClick={onClose}
-              className="p-1 rounded-lg text-content-muted hover:text-content-primary hover:bg-surface-elevated transition-colors"
+              aria-label="Fechar"
+              className="flex h-8 w-8 min-h-0 items-center justify-center rounded-lg border-0 bg-transparent p-0 text-content-muted hover:text-content-primary hover:bg-surface-elevated transition-colors"
             >
               <X size={18} />
             </button>

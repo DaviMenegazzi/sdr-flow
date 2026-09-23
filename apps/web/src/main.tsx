@@ -8,7 +8,7 @@ import { InstanceProvider } from './context/InstanceContext';
 import { AuthCallback, AuthGate, ForgotPasswordPage, LoginPage, NotFoundPage, RegisterPage, ResetPasswordPage } from './auth-pages';
 import { AppSidebar } from './components/layout/AppSidebar';
 import { AppHeader } from './components/layout/AppHeader';
-import { Skeleton } from './components/ui';
+import { ConfirmHost, Skeleton, Toaster } from './components/ui';
 import '@fontsource-variable/inter';
 import '@fontsource/sora/700.css';
 import './styles.css';
@@ -197,7 +197,7 @@ function ProtectedApp() {
 }
 
 
-function App(){return <SessionProvider><BrowserRouter><Routes><Route path="/login" element={<LoginPage/>}/><Route path="/register" element={<RegisterPage/>}/><Route path="/forgot-password" element={<ForgotPasswordPage/>}/><Route path="/reset-password" element={<ResetPasswordPage/>}/><Route path="/auth/callback" element={<AuthCallback/>}/><Route path="/404" element={<NotFoundPage/>}/><Route path="/*" element={<AuthGate><ProtectedApp/></AuthGate>}/></Routes></BrowserRouter></SessionProvider>}
+function App(){return <SessionProvider><BrowserRouter><Routes><Route path="/login" element={<LoginPage/>}/><Route path="/register" element={<RegisterPage/>}/><Route path="/forgot-password" element={<ForgotPasswordPage/>}/><Route path="/reset-password" element={<ResetPasswordPage/>}/><Route path="/auth/callback" element={<AuthCallback/>}/><Route path="/404" element={<NotFoundPage/>}/><Route path="/*" element={<AuthGate><ProtectedApp/></AuthGate>}/></Routes><Toaster/><ConfirmHost/></BrowserRouter></SessionProvider>}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
