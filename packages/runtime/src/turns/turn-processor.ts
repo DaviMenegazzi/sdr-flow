@@ -540,9 +540,12 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
       });
     }
 
-    // Only turns where the SDR actually answered feed the funnel: a flow blocked by test mode or
-    // a chat-type guard is not a sales conversation.
-    if (sentMessage && !lastEvent.isGroup) {
+    // Only leads the SDR has answered feed the funnel: a flow blocked by test mode or a chat-type
+    // guard is not a sales conversation. "Has answered" spans sessions on purpose — a refusal that
+    // lands in a fresh session often ends the flow without a reply, and it must still count.
+    const sdrEngaged = sentMessage
+      || await new FunnelRepository(db).leadHasSdrReplies(input.organizationId, lead.id).catch(() => false);
+    if (sdrEngaged && !lastEvent.isGroup) {
       await updateLeadFunnel(deps, {
         organizationId: input.organizationId,
         leadId: lead.id,
