@@ -219,7 +219,11 @@ export async function processInboundWebhook(
     // fast and never waits on the turn buffer.
     if (event.fromMe) {
       const convRepo = new ConversationRepository(db);
-      const lead = await convRepo.findOrCreateLead(organizationId, connectionId, event.phone, event.senderName);
+      // On a fromMe message pushName is the connected number's own profile name (the instance
+      // owner), never the contact's — naming the lead from it would stick forever, since
+      // find_or_create_lead keeps the first non-null name. Leave it null; the contact's first
+      // genuine inbound message fills it in.
+      const lead = await convRepo.findOrCreateLead(organizationId, connectionId, event.phone, null);
       const sessionTimeoutMinutes = Number(process.env.SESSION_TIMEOUT_MINUTES) || 15;
       const conversation = await convRepo.findOrCreateConversation(organizationId, connectionId, lead.id, null, { sessionTimeoutMinutes, lead });
 

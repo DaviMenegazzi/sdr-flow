@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import * as database from '../packages/db/src/index.js';
 import request from 'supertest';
 import { createApp } from '../apps/api/src/app.js';
-import { parseEvolutionWebhook } from '../apps/api/src/webhook.js';
+import { parseEvolutionWebhook, processInboundWebhook } from '../apps/api/src/webhook.js';
 
 describe('API Webhook & Inbound Gateway', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -101,6 +101,28 @@ describe('API Webhook & Inbound Gateway', () => {
       data: { key: { id: 'empty-1', remoteJid: '5511999999999@s.whatsapp.net', fromMe: false }, message: {} },
     });
     expect(event).toMatchObject({ messageType: 'text', textContent: '' });
+  });
+  it('never names the lead after the connected number (instance owner) pushName on a fromMe message', async () => {
+    const organizationId = '00000000-0000-4000-8000-00000000000a';
+    const empty: any = { select: () => empty, eq: () => empty, order: () => empty, limit: async () => ({ data: [], error: null }) };
+    vi.spyOn(database, 'serviceDatabase').mockReturnValue({
+      from: () => empty,
+      rpc: async (name: string) => name === 'accept_inbound_event'
+        ? { data: [{ event_id: 'evt-1', organization_id: organizationId, is_new: true, status: 'received' }], error: null }
+        : { data: null, error: null },
+    } as any);
+    const findOrCreateLead = vi.spyOn(database.ConversationRepository.prototype, 'findOrCreateLead').mockResolvedValue({ id: 'lead-1' } as any);
+    vi.spyOn(database.ConversationRepository.prototype, 'findOrCreateConversation').mockResolvedValue({ id: 'conv-1' } as any);
+
+    // Sent from the connected phone itself: Evolution sets pushName to the owner's profile name.
+    const event = parseEvolutionWebhook({
+      data: { key: { id: 'from-me-1', remoteJid: '5555999940634@s.whatsapp.net', fromMe: true }, pushName: 'Danieli', message: { conversation: 'deu certo' } },
+    })!;
+    await processInboundWebhook('00000000-0000-4000-8000-000000000001', event, { supabaseUrl: 'https://example.supabase.co', serviceRoleKey: 'test' }, {
+      provider: 'evolution', inlineFallback: false, eventPublisher: {} as any, debugRegistry: {} as any,
+    });
+
+    expect(findOrCreateLead).toHaveBeenCalledWith(organizationId, '00000000-0000-4000-8000-000000000001', '5555999940634', null);
   });
   it('authenticates Meta challenge and signed status events before processing', async () => {
     const query: any = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: { id: 'connection' } }) };
