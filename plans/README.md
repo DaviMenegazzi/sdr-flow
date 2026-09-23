@@ -16,3 +16,8 @@ Cada plano é autocontido e pode ser executado por qualquer agente.
 1. **001** primeiro — 002, 003 e 004 usam `var(--ease-out)` / a classe `ease-out`.
 2. **002**, **003** e **004** são independentes entre si depois do 001.
 3. **005** por último — o passo 3 dele depende de quais hovers sobraram depois do 004.
+
+## Auditoria de design
+
+Além dos planos de animação, há uma auditoria de design (tipografia, cor/contraste, tema claro,
+consistência, estados vazios, celular) em [design-audit/README.md](design-audit/README.md).
