@@ -22,9 +22,11 @@ import { ProdigiWordmark } from './ProdigiWordmark';
 interface AppSidebarProps {
   dark: boolean;
   onToggleTheme: () => void;
+  /** Mobile only: whether the off-canvas drawer is open. Always visible from md up. */
+  mobileOpen?: boolean;
 }
 
-export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
+export function AppSidebar({ dark, onToggleTheme, mobileOpen = false }: AppSidebarProps) {
   const { session, profile, signOut, activeOrg, organizations, activeTier, can } = useSession();
   const currentOrg = organizations.find((o) => o.id === activeOrg);
 
@@ -61,7 +63,12 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
   const hasIntegrations = can('integrations:manage');
 
   return (
-    <aside className="w-56 bg-surface border-r border-border flex flex-col h-full flex-shrink-0 select-none z-20">
+    <aside
+      className={`fixed inset-y-0 left-0 z-40 w-64 md:static md:z-20 md:w-56 md:translate-x-0 bg-surface border-r border-border flex flex-col h-full flex-shrink-0 select-none transition-transform duration-[320ms] ease-drawer motion-reduce:transition-none ${
+        mobileOpen ? 'translate-x-0 shadow-modal' : '-translate-x-full'
+      }`}
+      aria-label="Navegação principal"
+    >
       {/* Brand Header */}
       <div className="sidebar-brand-header">
         <Link to="/dashboard" className="sidebar-brand-link" aria-label="Prodigi — ir para o painel">

@@ -89,3 +89,23 @@ Capturas nesta pasta: `dark-dashboard.png`, `light-flows.png`, `dark-agents.png`
 2. **Seções 2 e 3** (contraste + tema claro): em sua maioria são trocas de token.
 3. **Seção 5** (`fitViewOptions`: uma linha, retorno imediato no Builder).
 4. **Seções 4, 6 e 7**.
+
+---
+
+## Status da implantação
+
+| Fase | Escopo | Commit | Status |
+| --- | --- | --- | --- |
+| 1 · Fundações | Cores com canais RGB (`bg-brand/10` etc. voltaram a gerar CSS), borda padrão do tema, tokens e variáveis que faltavam, fonte Inter carregada, `select` sem esmagar a busca | `8097aa8` | Feito |
+| 2 · Contraste e tipografia | Textos cinza e verde ≥ 4,5:1 nos dois temas, `text-brand-fg` para verde usado como texto, piso de 11px (`text-2xs`), ajuste dos títulos | `3432e92` | Feito |
+| 3 · Tema claro | Cores fixas e paleta crua → tokens, minimapa/canvas pelo tema, balões do Inbox legíveis, texto das categorias dos nós, `theme-color` acompanha o tema | `5394f8c` | Feito |
+| 4 · Animação | Planos 001–005 (ver `plans/README.md`) | `e0d48ab` | Feito |
+| 5 · Consistência e Builder | Um nome por página, abas unificadas sem a "caixa" do botão global, selo de papel neutro, toggle "Tema", `h2` semibold, US$ em pt-BR, `EmptyState`, zoom automático limitado a 100% | `5cfd67a` | Feito |
+| 6 · Celular | Sidebar vira gaveta abaixo de `md` (botão ☰, fecha ao navegar/Esc), sem rolagem horizontal, campos com 16px em telas de toque, `100dvh` no overlay | (este commit) | Feito |
+
+### Ainda em aberto (fora desta rodada)
+
+- **Builder**: juntar as faixas de abas e ferramentas (≈223px de controles antes do canvas). É uma mudança de layout maior, que merece protótipo antes.
+- **Inbox no celular**: a lista e a conversa continuam lado a lado. O ideal é lista → conversa em telas separadas (mestre/detalhe).
+- **Gráficos do Dashboard** (Recharts) ainda usam `#2ee86b`/`#38bdf8` fixos, porque atributos SVG não aceitam `var()`. Dá para ler a cor com `getComputedStyle` quando o tema mudar.
+- Faltam títulos em caixa alta repetidos acima do H1 e revisar o CSS antigo (`styles.css`) restante para migrar a Tailwind.

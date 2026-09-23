@@ -1,11 +1,11 @@
 import React from 'react';
 import { useLocation, Link } from 'react-router-dom';
-import { ChevronDown, ChevronRight, Radio, Sparkles } from 'lucide-react';
+import { ChevronDown, ChevronRight, Menu, Radio, Sparkles } from 'lucide-react';
 import { useInstance } from '../../context/InstanceContext';
 import { useSession } from '../../session';
 import { Skeleton } from '../ui';
 
-export function AppHeader() {
+export function AppHeader({ onOpenNav }: { onOpenNav?: () => void }) {
   const { activeInstance, setActiveInstance, instances, loading } = useInstance();
   const { can } = useSession();
   const location = useLocation();
@@ -49,6 +49,16 @@ export function AppHeader() {
   return (
     <header className="app-header h-14 bg-surface border-b border-border flex items-center justify-between px-5 flex-shrink-0 z-10 select-none">
       <div className="app-header-breadcrumb flex items-center gap-2 text-xs min-w-0">
+        {onOpenNav && (
+          <button
+            type="button"
+            onClick={onOpenNav}
+            aria-label="Abrir menu"
+            className="md:hidden -ml-1 mr-1 h-9 w-9 min-h-0 p-0 border-0 bg-transparent rounded-lg text-content-secondary hover:text-content-primary hover:bg-surface-elevated"
+          >
+            <Menu size={18} />
+          </button>
+        )}
         <Link to="/dashboard" className="app-header-home flex items-center gap-2 font-semibold text-content-primary tracking-tight">
           <span className="app-header-mark" aria-hidden="true"><Sparkles size={13} /></span>
           <span>SDR Flow</span>

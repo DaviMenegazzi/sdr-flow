@@ -1,6 +1,6 @@
 import React, { useState, useEffect, Suspense, lazy, type ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Workflow, ArrowUpRight, RefreshCw } from 'lucide-react';
 import { SessionProvider, useSession } from './session';
 import type { Capability } from '@sdr/shared';
@@ -82,6 +82,16 @@ class RouteErrorBoundary extends React.Component<{ children: ReactNode }, { fail
 }
 
 function ProtectedApp() {
+  const location = useLocation();
+  // Below md the sidebar is an off-canvas drawer opened from the header.
+  const [navOpen, setNavOpen] = useState(false);
+  useEffect(() => setNavOpen(false), [location.pathname]);
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setNavOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [navOpen]);
   const [dark, setDark] = useState(() => {
     try {
       const saved = localStorage.getItem('sdr-flow:theme');
@@ -111,9 +121,16 @@ function ProtectedApp() {
   return (
     <InstanceProvider>
       <div className="flex h-[100dvh] w-full overflow-hidden bg-canvas text-content-primary">
-        <AppSidebar dark={dark} onToggleTheme={() => setDark(!dark)} />
+        <AppSidebar dark={dark} onToggleTheme={() => setDark(!dark)} mobileOpen={navOpen} />
+        {navOpen && (
+          <div
+            className="md:hidden fixed inset-0 z-30 bg-slate-950/60 backdrop-blur-sm motion-overlay"
+            onClick={() => setNavOpen(false)}
+            aria-hidden="true"
+          />
+        )}
         <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-          <AppHeader />
+          <AppHeader onOpenNav={() => setNavOpen(true)} />
           <main className="flex-1 min-h-0 overflow-auto flex flex-col bg-canvas">
             <RouteErrorBoundary>
             <Suspense fallback={<RouteLoadingFallback />}>
