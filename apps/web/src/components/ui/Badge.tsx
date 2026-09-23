@@ -20,12 +20,12 @@ export function Badge({
     warning: 'bg-warning-bg text-warning border border-warning-border',
     danger: 'bg-danger-bg text-danger border border-danger-border',
     info: 'bg-info-bg text-info border border-info-border',
-    accent: 'bg-brand-subtle text-brand border border-brand/20',
+    accent: 'bg-brand-subtle text-brand-fg border border-brand/20',
     outline: 'bg-transparent text-content-secondary border border-border',
   };
 
   const sizes = {
-    sm: 'text-[10px] px-1.5 py-0.5 leading-tight',
+    sm: 'text-2xs px-1.5 py-0.5 leading-tight',
     md: 'text-xs px-2.5 py-0.5',
   };
 

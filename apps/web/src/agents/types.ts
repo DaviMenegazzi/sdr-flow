@@ -43,10 +43,10 @@ export interface AgentFormData {
 }
 
 export const POPULAR_MODELS = [
-  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai', desc: 'Padrão recomendado: ultra-rápido, econômico e altamente preciso para SDRs' },
-  { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', desc: 'Raciocínio avançado para objeções comerciais e vendas de ticket alto' },
-  { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', provider: 'openai', desc: 'Modelo ágil para fluxos e triagens rápidas' },
-  { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', provider: 'openai', desc: 'Janela de contexto ampla e alta fidelidade a regras' },
+  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai', desc: 'Rápido e econômico. Atende bem a maioria dos SDRs.' },
+  { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', desc: 'Raciocínio mais forte para objeções e vendas de ticket alto.' },
+  { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', provider: 'openai', desc: 'Ágil para triagens e respostas curtas.' },
+  { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', provider: 'openai', desc: 'Contexto amplo e alta fidelidade às regras.' },
 ];
 
 export const PROMPT_VARIABLES = [
@@ -56,3 +56,19 @@ export const PROMPT_VARIABLES = [
   { token: '{{historico}}', label: 'Histórico' },
   { token: '{{data_atual}}', label: 'Data Atual' },
 ];
+
+export const TEMPERATURE_PRESETS = [
+  { value: 'precise', label: 'Preciso', temperature: 0.2, description: 'Segue as instruções à risca. Bom para triagem e regras rígidas.' },
+  { value: 'balanced', label: 'Equilibrado', temperature: 0.4, description: 'Natural sem improvisar. Recomendado para SDR.' },
+  { value: 'creative', label: 'Criativo', temperature: 0.7, description: 'Varia mais as respostas. Bom para conversas abertas.' },
+] as const;
+
+export type TemperaturePreset = (typeof TEMPERATURE_PRESETS)[number]['value'] | 'custom';
+
+export function presetForTemperature(value: number): TemperaturePreset {
+  return TEMPERATURE_PRESETS.find(p => Math.abs(p.temperature - value) < 0.001)?.value ?? 'custom';
+}
+
+export function temperatureLabel(value: number): string {
+  return TEMPERATURE_PRESETS.find(p => Math.abs(p.temperature - value) < 0.001)?.label ?? `Temperatura ${value.toFixed(2).replace('.', ',')}`;
+}

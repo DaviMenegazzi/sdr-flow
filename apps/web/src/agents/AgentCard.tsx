@@ -1,188 +1,108 @@
 import React from 'react';
-import {
-  Bot,
-  KeyRound,
-  Edit3,
-  Archive,
-  Play,
-  Smartphone,
-  Radio,
-  Zap,
-  TrendingUp,
-  MessageSquare,
-  ShieldCheck,
-  AlertCircle,
-} from 'lucide-react';
-import { Badge, Button, Card } from '../components/ui';
-import type { Agent, Instance } from './types';
+import { Link, useNavigate } from 'react-router-dom';
+import { AlertTriangle, Archive, Bot, Copy, MoreHorizontal, Settings2 } from 'lucide-react';
+import { DropdownMenu, IconButton, type MenuItem } from '../components/ui';
+import { formatPhone } from '../lib/format';
+import { POPULAR_MODELS, temperatureLabel, type Agent, type Instance } from './types';
 
 interface AgentCardProps {
   agent: Agent;
   assignedInstances: Instance[];
-  onEdit: (agent: Agent) => void;
+  canDuplicate: boolean;
+  onDuplicate: (agent: Agent) => void;
   onArchive: (agent: Agent) => void;
-  onSimulate: (agent: Agent) => void;
 }
 
-export function AgentCard({
-  agent,
-  assignedInstances,
-  onEdit,
-  onArchive,
-  onSimulate,
-}: AgentCardProps) {
-  const isDefault = agent.is_default;
-  const hasKey = agent.hasOpenaiKey;
+/** The whole card opens the agent; occasional actions live in ⋯; only the exception (no key) gets a badge. */
+export function AgentCard({ agent, assignedInstances, canDuplicate, onDuplicate, onArchive }: AgentCardProps) {
+  const navigate = useNavigate();
+  const href = `/agents/${agent.id}`;
+  const modelName = POPULAR_MODELS.find(m => m.id === agent.model)?.name ?? agent.model;
+  const temperature = (agent.model_config as { temperature?: unknown } | undefined)?.temperature;
+
+  const menu: MenuItem[] = [
+    { label: 'Abrir configurações', icon: <Settings2 size={14} />, onSelect: () => navigate(href) },
+    {
+      label: 'Duplicar',
+      icon: <Copy size={14} />,
+      disabled: !canDuplicate,
+      hint: canDuplicate ? undefined : 'Limite de agentes do plano atingido',
+      onSelect: () => onDuplicate(agent),
+    },
+    { type: 'separator' },
+    {
+      label: 'Arquivar…',
+      icon: <Archive size={14} />,
+      danger: true,
+      disabled: agent.is_default,
+      hint: agent.is_default ? 'O agente padrão não pode ser arquivado' : undefined,
+      onSelect: () => onArchive(agent),
+    },
+  ];
 
   return (
-    <Card className="group relative flex flex-col justify-between p-5 bg-surface border-border hover:border-border-strong hover:shadow-elevated transition-all duration-200">
-      {/* Top Bar: Icon, Name, Badges */}
-      <div>
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-brand/10 border border-brand/20 flex items-center justify-center text-brand flex-shrink-0 group-hover:scale-105 transition-transform">
-              <Bot className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <h3 className="text-sm font-bold text-content truncate leading-snug">
-                  {agent.name}
-                </h3>
-                {isDefault && (
-                  <Badge variant="accent" size="sm" title="Agente padrão da organização">
-                    Padrão
-                  </Badge>
-                )}
-              </div>
-              <p className="text-[11px] font-mono text-content-muted mt-0.5 truncate">
-                {agent.provider} / {agent.model}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            <Badge
-              variant={hasKey ? 'success' : 'danger'}
-              size="sm"
-              title={
-                hasKey
-                  ? 'Chave de API configurada e pronta para responder'
-                  : 'Sem chave própria configurada. O agente não responderá mensagens até configurá-la.'
-              }
+    <article className="group relative flex flex-col rounded-xl border border-border bg-surface p-4 transition-[border-color,box-shadow] duration-200 ease-out hover:border-border-strong hover:shadow-elevated focus-within:border-border-strong">
+      <div className="flex items-start gap-3">
+        <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-brand/20 bg-brand/10 text-brand-fg">
+          <Bot size={18} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            {/* Stretched link: the whole card is the target, the ⋯ stays clickable above it. */}
+            <Link
+              to={href}
+              className="truncate text-sm font-semibold text-content no-underline outline-none after:absolute after:inset-0 after:rounded-xl after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-brand/40"
             >
-              <KeyRound className="w-3 h-3" />
-              {hasKey ? 'Chave OK' : 'Sem chave'}
-            </Badge>
+              {agent.name}
+            </Link>
+            {agent.is_default && (
+              <span className="flex-shrink-0 rounded-full border border-border px-1.5 text-2xs font-medium text-content-secondary">
+                Padrão
+              </span>
+            )}
           </div>
+          <p className="m-0 mt-0.5 truncate text-2xs text-content-muted">
+            {modelName}
+            {typeof temperature === 'number' && ` · ${temperatureLabel(temperature)}`}
+          </p>
         </div>
+        <div className="relative z-10">
+          <DropdownMenu
+            aria-label={`Ações de ${agent.name}`}
+            items={menu}
+            trigger={<IconButton label="Mais ações" icon={<MoreHorizontal size={16} />} size="sm" tooltip={false} />}
+          />
+        </div>
+      </div>
 
-        {/* Instâncias WhatsApp Vinculadas */}
-        <div className="mb-3.5 pt-2.5 border-t border-border/50">
-          <div className="flex items-center gap-1.5 text-[11px] text-content-secondary mb-1">
-            <Smartphone className="w-3.5 h-3.5 text-content-muted" />
-            <span className="font-medium">Instâncias WhatsApp:</span>
-          </div>
-          {assignedInstances.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5 mt-1">
-              {assignedInstances.map((inst) => (
-                <span
-                  key={inst.id}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium bg-surface-elevated border border-border text-content"
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      inst.status === 'connected'
-                        ? 'bg-[#2ee86b] animate-pulse'
-                        : 'bg-amber-400'
-                    }`}
-                  />
-                  {inst.name}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <span className="text-[10px] text-content-muted italic">
-              Nenhuma instância conectada a este agente
+      {agent.description && <p className="m-0 mt-3 line-clamp-2 text-xs text-content-secondary">{agent.description}</p>}
+
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {assignedInstances.length > 0 ? (
+          assignedInstances.map(inst => (
+            <span
+              key={inst.id}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-elevated px-2 py-0.5 text-2xs text-content"
+              title={inst.phone ? formatPhone(inst.phone) : undefined}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${inst.status === 'connected' ? 'bg-brand' : 'bg-warning'}`} />
+              {inst.name}
             </span>
-          )}
-        </div>
-
-        {/* Prompt Preview */}
-        {agent.system_prompt ? (
-          <div className="p-2.5 rounded-lg bg-surface-elevated/40 border border-border/40 mb-4">
-            <p className="text-[11px] text-content-muted line-clamp-2 leading-relaxed italic">
-              "{agent.system_prompt}"
-            </p>
-          </div>
+          ))
         ) : (
-          <div className="p-2.5 rounded-lg bg-amber-500/5 border border-amber-500/15 mb-4 text-[11px] text-amber-300/80 flex items-center gap-1.5">
-            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-            <span>Sem instruções de prompt definidas.</span>
-          </div>
+          <span className="text-2xs text-content-muted">Nenhum número atendido</span>
         )}
+      </div>
 
-        {/* Telemetry row */}
-        <div className="grid grid-cols-3 gap-2 py-2.5 px-3 rounded-lg bg-surface-elevated/60 border border-border/40 text-center mb-4">
-          <div>
-            <span className="block text-[10px] uppercase font-bold text-content-muted tracking-wider">
-              Conversas
-            </span>
-            <strong className="text-xs font-semibold text-content mt-0.5 block">
-              Ativo
-            </strong>
-          </div>
-          <div className="border-x border-border/40 px-1">
-            <span className="block text-[10px] uppercase font-bold text-content-muted tracking-wider">
-              Qualificação
-            </span>
-            <strong className="text-xs font-semibold text-[#2ee86b] mt-0.5 block">
-              IA Ativa
-            </strong>
-          </div>
-          <div>
-            <span className="block text-[10px] uppercase font-bold text-content-muted tracking-wider">
-              Latência
-            </span>
-            <strong className="text-xs font-semibold text-content mt-0.5 block">
-              ~850ms
-            </strong>
-          </div>
+      {!agent.hasOpenaiKey && (
+        <div className="relative z-10 mt-3 flex items-center gap-2 rounded-lg border border-warning/25 bg-warning/10 px-2.5 py-1.5 text-2xs text-content">
+          <AlertTriangle size={13} className="flex-shrink-0 text-warning" />
+          <span className="min-w-0 flex-1">Sem chave da OpenAI — o agente não responde</span>
+          <Link to={`${href}?section=key`} className="flex-shrink-0 font-semibold text-content underline-offset-2 hover:underline">
+            Adicionar
+          </Link>
         </div>
-      </div>
-
-      {/* Action Buttons */}
-      <div className="flex items-center gap-2 pt-3 border-t border-border/60">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => onEdit(agent)}
-          className="flex-1 text-xs"
-        >
-          <Edit3 className="w-3.5 h-3.5" /> Configurar
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => onSimulate(agent)}
-          className="text-xs"
-          title="Simular resposta deste agente"
-        >
-          <Play className="w-3.5 h-3.5" />
-        </Button>
-        <Button
-          variant="danger"
-          size="sm"
-          disabled={isDefault}
-          onClick={() => onArchive(agent)}
-          title={
-            isDefault
-              ? 'O agente padrão não pode ser arquivado'
-              : 'Arquivar este agente'
-          }
-        >
-          <Archive className="w-3.5 h-3.5" />
-        </Button>
-      </div>
-    </Card>
+      )}
+    </article>
   );
 }

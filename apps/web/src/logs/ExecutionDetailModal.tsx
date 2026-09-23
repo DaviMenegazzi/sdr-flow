@@ -167,14 +167,14 @@ export function ExecutionDetailModal({ executionId, onClose }: ExecutionDetailMo
                         <CheckCircle2 size={15} className="text-success flex-shrink-0" />
                       )}
                       <span className="flex-1 min-w-0">
-                        <span className="block text-[10px] text-content-muted uppercase tracking-wide">
+                        <span className="block text-2xs text-content-muted uppercase tracking-wide">
                           Passo {index + 1} · {node?.type || 'nó desconhecido'}
                         </span>
                         <span className="block text-xs font-semibold text-content-primary truncate">
                           {node?.label || step.node_id}
                         </span>
                       </span>
-                      <span className="text-[11px] text-content-muted flex-shrink-0 max-w-[160px] truncate">
+                      <span className="text-2xs text-content-muted flex-shrink-0 max-w-[160px] truncate">
                         {failed ? step.error || 'Falhou' : `${step.duration_ms ?? 0} ms`}
                       </span>
                       <ChevronDown size={14} className={`flex-shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
@@ -182,13 +182,13 @@ export function ExecutionDetailModal({ executionId, onClose }: ExecutionDetailMo
                     {expanded && (
                       <div className="p-3 pt-0 flex flex-col gap-2 bg-surface-subtle/40 border-t border-border">
                         {step.error && (
-                          <div className="p-2 rounded-md bg-danger-bg border border-danger-border text-danger text-[11px]">
+                          <div className="p-2 rounded-md bg-danger-bg border border-danger-border text-danger text-2xs">
                             {step.error}
                           </div>
                         )}
                         <StepJson label="Entrada do bloco" value={step.input} />
                         <StepJson label="Saída do bloco" value={step.output} />
-                        <div className="text-[10px] font-mono text-content-muted">ID do nó: {step.node_id}</div>
+                        <div className="text-2xs font-mono text-content-muted">ID do nó: {step.node_id}</div>
                       </div>
                     )}
                   </div>
@@ -205,7 +205,7 @@ export function ExecutionDetailModal({ executionId, onClose }: ExecutionDetailMo
 function SummaryItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="p-2.5 rounded-lg bg-surface-elevated/50 border border-border/60">
-      <span className="block text-[10px] font-semibold uppercase tracking-wide text-content-muted">{label}</span>
+      <span className="block text-2xs font-semibold uppercase tracking-wide text-content-muted">{label}</span>
       <span className="block text-xs font-semibold text-content-primary mt-0.5 truncate" title={value}>
         {value}
       </span>
@@ -215,7 +215,7 @@ function SummaryItem({ label, value }: { label: string; value: string }) {
 
 function StepJson({ label, value }: { label: string; value: unknown }) {
   return (
-    <details className="text-[11px]">
+    <details className="text-2xs">
       <summary className="cursor-pointer text-content-secondary font-medium">{label}</summary>
       <pre className="mt-1.5 p-2 rounded-md bg-surface border border-border overflow-x-auto text-content-muted whitespace-pre-wrap break-words">
         {JSON.stringify(value ?? null, null, 2)}

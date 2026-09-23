@@ -1,5 +1,6 @@
 import React, { useEffect, type ReactNode } from 'react';
 import { X } from 'lucide-react';
+import { usePresence } from './usePresence';
 
 export interface ModalProps {
   isOpen: boolean;
@@ -28,7 +29,8 @@ export function Modal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  const { mounted, closing } = usePresence(isOpen);
+  if (!mounted) return null;
 
   const widths = {
     sm: 'max-w-sm',
@@ -40,23 +42,30 @@ export function Modal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm motion-overlay"
+      data-closing={closing || undefined}
+      onClick={onClose}
+    >
       <div
-        className={`w-full ${widths[maxWidth]} bg-surface border border-border rounded-2xl shadow-modal flex flex-col max-h-[90vh] overflow-hidden`}
+        className={`w-full ${widths[maxWidth]} bg-surface border border-border rounded-2xl shadow-modal flex flex-col max-h-[90vh] overflow-hidden motion-modal`}
+        data-closing={closing || undefined}
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
       >
         {title && (
           <div className="flex items-center justify-between p-5 border-b border-border">
             <div>
               <h2 className="text-base font-semibold text-content-primary">{title}</h2>
               {description && (
-                <p className="text-xs text-content-secondary mt-0.5">{description}</p>
+                <div className="text-xs text-content-secondary mt-0.5">{description}</div>
               )}
             </div>
             <button
               type="button"
               onClick={onClose}
-              className="p-1 rounded-lg text-content-muted hover:text-content-primary hover:bg-surface-elevated transition-colors"
+              aria-label="Fechar"
+              className="flex h-8 w-8 min-h-0 items-center justify-center rounded-lg border-0 bg-transparent p-0 text-content-muted hover:text-content-primary hover:bg-surface-elevated transition-colors"
             >
               <X size={18} />
             </button>

@@ -1,30 +1,28 @@
-import { useState, useEffect } from 'react';
-import {
-  BarChart3,
-  TrendingUp,
-  Clock,
-  Coins,
-  CheckCircle2,
-  Users,
-  Download,
-  RefreshCw,
-  Workflow,
-  AlertCircle,
-} from 'lucide-react';
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  AreaChart,
-  Area,
-} from 'recharts';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
+import { AlertCircle, ArrowDown, ArrowUp, BarChart3, Download, MoreHorizontal, RefreshCw, TrendingUp, Workflow } from 'lucide-react';
+import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts';
 import { useSession } from '../session';
 import { useInstance } from '../context/InstanceContext';
-import { Button, Card, Badge, CardGridSkeleton, Skeleton, TableSkeleton } from '../components/ui';
+import {
+  DateRangePicker,
+  DEFAULT_PRESETS,
+  DropdownMenu,
+  EmptyState,
+  IconButton,
+  PageContainer,
+  PageHeader,
+  Select,
+  Skeleton,
+  TableSkeleton,
+  Tooltip,
+  describeRange,
+  previousRange,
+  rangeFromPreset,
+  toast,
+  type DateRange,
+} from '../components/ui';
+import { formatCompact, formatDuration, formatNumber, formatTime, formatUsd } from '../lib/format';
 
 interface FunnelStep {
   stage: string;
@@ -69,61 +67,151 @@ interface DashboardData {
   dailyTrends: DailyTrend[];
 }
 
-export function DashboardPage() {
-  const { session, activeOrg } = useSession();
-  const { activeInstance } = useInstance();
+// Palettes validated with the dataviz validator (CVD separation + contrast) against each surface.
+const PALETTE = {
+  light: {
+    ramp: ['#6cc795', '#3fb074', '#1f9460', '#127547', '#0b5a36'],
+    conversations: '#2a78d6',
+    qualified: '#10915a',
+    grid: 'rgba(15, 23, 42, 0.08)',
+    axis: '#64748b',
+  },
+  dark: {
+    ramp: ['#0f5c37', '#1a7a4a', '#27a866', '#4fc583', '#8fe0b0'],
+    conversations: '#3987e5',
+    qualified: '#22a861',
+    grid: 'rgba(255, 255, 255, 0.08)',
+    axis: '#8b8b8b',
+  },
+};
 
-  const [metrics, setMetrics] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [consolidating, setConsolidating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [connectionId, setConnectionId] = useState<string | null>(null);
+/** Stages where the conversation left the funnel; shown as outcomes, not as funnel steps. */
+const OUTCOME_STAGES = new Set(['HUMAN_HANDOFF', 'CLOSED']);
 
+function useIsDark() {
+  const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'));
   useEffect(() => {
+    const observer = new MutationObserver(() => setDark(document.documentElement.classList.contains('dark')));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+  return dark;
+}
+
+function shortDate(iso: string) {
+  const [, m, d] = iso.split('-');
+  return d && m ? `${d}/${m}` : iso;
+}
+
+/** Relative change, or null when there is no previous value to compare with. */
+function delta(current: number, previous: number | undefined | null) {
+  if (previous === undefined || previous === null || previous === 0) return null;
+  return (current - previous) / previous;
+}
+
+function Delta({ value, unit = '%', invert = false }: { value: number | null; unit?: '%' | 'p.p.' | 's'; invert?: boolean }) {
+  if (value === null || !Number.isFinite(value)) return <span className="text-2xs text-content-muted">sem comparação</span>;
+  const shown = unit === '%' ? Math.abs(value * 100) : Math.abs(value);
+  if (shown < 0.05) return <span className="text-2xs text-content-muted">estável vs. anterior</span>;
+  const up = value > 0;
+  const good = invert ? !up : up;
+  const Icon = up ? ArrowUp : ArrowDown;
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-2xs font-medium ${good ? 'text-success' : 'text-danger'}`}>
+      <Icon size={11} strokeWidth={2.5} />
+      {shown.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}
+      {unit === '%' ? '%' : ` ${unit}`}
+      <span className="font-normal text-content-muted">&nbsp;vs. anterior</span>
+    </span>
+  );
+}
+
+function Kpi({ label, value, hint, children }: { label: string; value: ReactNode; hint?: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="flex flex-col rounded-xl border border-border bg-surface p-4">
+      <span className="text-xs text-content-secondary">{label}</span>
+      <span className="mt-1.5 text-2xl font-semibold tabular-nums tracking-tight text-content">{value}</span>
+      <div className="mt-1 min-h-[16px]">{children}</div>
+      {hint && <span className="mt-0.5 text-2xs text-content-muted">{hint}</span>}
+    </div>
+  );
+}
+
+function Sparkline({ values, color }: { values: number[]; color: string }) {
+  if (values.length < 2) return null;
+  const max = Math.max(...values, 0.0001);
+  const points = values.map((v, i) => `${(i / (values.length - 1)) * 100},${30 - (v / max) * 28}`).join(' ');
+  return (
+    <svg viewBox="0 0 100 32" preserveAspectRatio="none" className="h-10 w-full" aria-hidden="true">
+      <polyline points={points} fill="none" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function DashboardPage() {
+  const { session, activeOrg, activeRole } = useSession();
+  const { activeInstance } = useInstance();
+  const dark = useIsDark();
+  const colors = dark ? PALETTE.dark : PALETTE.light;
+  const canConsolidate = activeRole === 'owner' || activeRole === 'admin';
+
+  const [range, setRange] = useState<DateRange>(() => rangeFromPreset(DEFAULT_PRESETS[2]!));
+  const [connections, setConnections] = useState<Array<{ id: string; name: string }>>([]);
+  const [connectionId, setConnectionId] = useState<string>('all');
+  const [metrics, setMetrics] = useState<DashboardData | null>(null);
+  const [previous, setPrevious] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [loadedAt, setLoadedAt] = useState<Date | null>(null);
+  const [consolidating, setConsolidating] = useState(false);
+
+  const auth = { Authorization: `Bearer ${session?.access_token}` };
+
+  // Instances for the filter; the one picked in the header is the default.
+  useEffect(() => {
+    if (!session || !activeOrg) return;
+    let cancelled = false;
+    fetch(`/api/organizations/${activeOrg}/connections`, { headers: auth })
+      .then(res => (res.ok ? res.json() : []))
+      .then((data: unknown) => {
+        if (cancelled) return;
+        const list = Array.isArray(data) ? (data as Array<{ id: string; name: string }>) : [];
+        setConnections(list);
+        const matching = list.find(c => c.name === activeInstance || c.id === activeInstance);
+        setConnectionId(matching?.id ?? 'all');
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.access_token, activeOrg, activeInstance]);
+
+  async function fetchMetrics(r: DateRange | null): Promise<DashboardData | null> {
+    if (!r) return null;
+    const params = new URLSearchParams();
+    if (r.start) params.set('startDate', r.start);
+    if (r.end) params.set('endDate', r.end);
+    if (connectionId !== 'all') params.set('connectionId', connectionId);
+    const res = await fetch(`/api/organizations/${activeOrg}/metrics/dashboard?${params}`, { headers: auth });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as { error?: string }).error || 'Falha ao carregar indicadores.');
+    }
+    return res.json();
+  }
+
+  async function load() {
     if (!session || !activeOrg) {
-      setMetrics(null);
       setLoading(false);
       return;
     }
-    setConnectionId(null);
-
-    async function resolveConnectionId() {
-      if (!activeInstance) return null;
-      try {
-        const res = await fetch(`/api/organizations/${activeOrg}/connections`, {
-          headers: { Authorization: `Bearer ${session?.access_token}` },
-        });
-        if (!res.ok) return null;
-        const data = await res.json();
-        const list: Array<{ id: string; name: string }> = Array.isArray(data) ? data : [];
-        const matching = list.find(c => c.name === activeInstance || c.id === activeInstance);
-        return matching?.id ?? null;
-      } catch {
-        return null;
-      }
-    }
-
-    resolveConnectionId().then(id => {
-      setConnectionId(id);
-      loadMetrics(id);
-    });
-  }, [session, activeOrg, activeInstance]);
-
-  async function loadMetrics(connId?: string | null) {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams();
-      const effectiveConnId = connId !== undefined ? connId : connectionId;
-      if (effectiveConnId) params.set('connectionId', effectiveConnId);
-      const qs = params.toString();
-      const res = await fetch(`/api/organizations/${activeOrg}/metrics/dashboard${qs ? `?${qs}` : ''}`, {
-        headers: { Authorization: `Bearer ${session?.access_token}` },
-      });
-      if (!res.ok) throw new Error('Falha ao carregar indicadores.');
-      const data = await res.json();
-      setMetrics(data);
+      const [current, before] = await Promise.all([fetchMetrics(range), fetchMetrics(previousRange(range)).catch(() => null)]);
+      setMetrics(current);
+      setPrevious(before);
+      setLoadedAt(new Date());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar métricas.');
     } finally {
@@ -131,20 +219,23 @@ export function DashboardPage() {
     }
   }
 
+  useEffect(() => {
+    void load();
+  }, [session?.access_token, activeOrg, connectionId, range.start, range.end]);
+
   async function handleRollup() {
     setConsolidating(true);
-    setNotice(null);
     try {
       const res = await fetch(`/api/organizations/${activeOrg}/metrics/rollup`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${session?.access_token}`, 'Content-Type': 'application/json' },
+        headers: { ...auth, 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
       if (!res.ok) throw new Error('Falha na consolidação.');
-      setNotice('Métricas do dia consolidadas em metrics_daily com sucesso!');
-      await loadMetrics();
+      toast.success('Métricas de hoje consolidadas');
+      await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao consolidar métricas.');
+      toast.error(err instanceof Error ? err.message : 'Erro ao consolidar métricas.');
     } finally {
       setConsolidating(false);
     }
@@ -152,10 +243,8 @@ export function DashboardPage() {
 
   async function downloadCsv(type: 'leads' | 'conversations') {
     try {
-      const res = await fetch(`/api/organizations/${activeOrg}/export/${type}.csv`, {
-        headers: { Authorization: `Bearer ${session?.access_token}` },
-      });
-      if (!res.ok) throw new Error(`Falha ao exportar ${type}.`);
+      const res = await fetch(`/api/organizations/${activeOrg}/export/${type}.csv`, { headers: auth });
+      if (!res.ok) throw new Error(`Falha ao exportar ${type === 'leads' ? 'leads' : 'conversas'}.`);
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -165,327 +254,282 @@ export function DashboardPage() {
       a.click();
       a.remove();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro na exportação CSV.');
+      toast.error(err instanceof Error ? err.message : 'Erro na exportação.');
     }
   }
 
+  const funnel = useMemo(() => (metrics?.funnel ?? []).filter(step => !OUTCOME_STAGES.has(step.stage)), [metrics]);
+  const outcomes = useMemo(() => (metrics?.funnel ?? []).filter(step => OUTCOME_STAGES.has(step.stage)), [metrics]);
+  const funnelTop = funnel[0]?.count || 1;
+  const dailyRate = (metrics?.dailyTrends ?? []).map(d => (d.conversations ? d.qualified / d.conversations : 0));
+  const instanceName = connectionId === 'all' ? 'Todas as instâncias' : connections.find(c => c.id === connectionId)?.name ?? 'Instância';
+
+  const rateDelta = metrics && previous ? metrics.qualificationRate - previous.qualificationRate : null;
+  const hasData = Boolean(metrics && metrics.totalConversations > 0);
+
   return (
-    <div className="h-full overflow-y-auto p-6 md:p-8 bg-canvas text-content">
-      <div className="max-w-6xl mx-auto space-y-6">
-        {/* Top Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand mb-1">
-              <BarChart3 className="w-3.5 h-3.5" /> INDICADORES DE DESEMPENHO
-            </div>
-            <h1 className="text-2xl font-bold text-content tracking-tight">
-              Painel Gerencial SDR
-            </h1>
-            <p className="text-sm text-content-secondary max-w-2xl mt-1">
-              Taxas de conversão, tempo de resposta, funil e custos consolidados em tempo real.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            onClick={handleRollup}
-            disabled={consolidating}
-            variant="secondary"
-            size="sm"
-            title="Consolidar métricas do dia em lote"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${consolidating ? 'animate-spin' : ''}`} />
-            Consolidar Hoje
-          </Button>
-          <Button
-            onClick={() => downloadCsv('leads')}
-            variant="outline"
-            size="sm"
-            title="Baixar lista completa de leads em CSV"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Exportar Leads (CSV)
-          </Button>
-          <Button
-            onClick={() => downloadCsv('conversations')}
-            variant="outline"
-            size="sm"
-            title="Baixar histórico de conversas em CSV"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Exportar Conversas (CSV)
-          </Button>
-        </div>
-      </div>
-
-      {notice && (
-        <div className="p-3.5 mb-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-          <span>{notice}</span>
-        </div>
-      )}
+    <PageContainer wide>
+      <PageHeader
+        title="Indicadores"
+        description={`${describeRange(range)} · ${instanceName}${loadedAt ? ` · atualizado ${formatTime(loadedAt)}` : ''}`}
+        actions={
+          <>
+            <DropdownMenu
+              aria-label="Exportar"
+              width={240}
+              items={[
+                { label: 'Leads', description: 'Planilha CSV com todos os leads', icon: <Download size={14} />, onSelect: () => void downloadCsv('leads') },
+                { label: 'Conversas', description: 'Planilha CSV com o histórico', icon: <Download size={14} />, onSelect: () => void downloadCsv('conversations') },
+              ]}
+              trigger={
+                <button
+                  type="button"
+                  className="press flex h-8 min-h-0 items-center gap-1.5 rounded-lg border border-border bg-surface px-3 text-xs font-medium text-content hover:bg-surface-elevated"
+                >
+                  <Download size={14} /> Exportar
+                </button>
+              }
+            />
+            {canConsolidate && (
+              <DropdownMenu
+                aria-label="Mais ações"
+                width={260}
+                items={[
+                  {
+                    label: consolidating ? 'Consolidando…' : 'Consolidar métricas de hoje',
+                    description: 'Recalcula o dia atual agora, sem esperar a rotina noturna',
+                    icon: <RefreshCw size={14} className={consolidating ? 'animate-spin' : ''} />,
+                    disabled: consolidating,
+                    onSelect: () => void handleRollup(),
+                  },
+                ]}
+                trigger={<IconButton label="Mais ações" icon={<MoreHorizontal size={16} />} variant="outline" tooltip={false} />}
+              />
+            )}
+          </>
+        }
+        toolbar={
+          <>
+            <DateRangePicker value={range} onChange={setRange} />
+            <Select
+              appearance="chip"
+              aria-label="Instância"
+              prefix="Instância:"
+              value={connectionId}
+              onChange={setConnectionId}
+              options={[{ value: 'all', label: 'Todas' }, ...connections.map(c => ({ value: c.id, label: c.name }))]}
+            />
+          </>
+        }
+      />
 
       {error && (
-        <div className="p-3.5 mb-6 rounded-lg bg-danger/10 border border-danger/20 text-danger text-xs flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" />
-          <span>{error}</span>
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-danger/20 bg-danger/10 p-3 text-xs text-danger">
+          <AlertCircle size={16} className="flex-shrink-0" />
+          <span className="flex-1">{error}</span>
+          <button type="button" onClick={() => void load()} className="min-h-0 border-0 bg-transparent p-0 text-xs font-semibold text-danger hover:underline">
+            Tentar de novo
+          </button>
         </div>
       )}
 
-      {/* KPI Cards Grid */}
+      {/* KPIs: one headline number, four supporting ones. */}
       {loading && !metrics ? (
-        <CardGridSkeleton
-          count={6}
-          className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6"
-        />
-      ) : (
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-        {/* Total Conversas */}
-        <Card className="p-4 bg-surface border-border flex flex-col justify-between">
-          <div className="flex items-center justify-between text-content-muted mb-2">
-            <span className="text-xs font-medium">Total de Conversas</span>
-            <Users className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-content tracking-tight">
-              {metrics?.totalConversations ?? 0}
-            </div>
-            <span className="block text-[10px] text-content-muted mt-1">
-              {metrics?.handoffConversations ?? 0} assumidas por humanos
-            </span>
-          </div>
-        </Card>
-
-        {/* Leads Qualificados */}
-        <Card className="p-4 bg-surface border-border flex flex-col justify-between">
-          <div className="flex items-center justify-between text-emerald-500 mb-2">
-            <span className="text-xs font-medium text-content-muted">Qualificados</span>
-            <CheckCircle2 className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight">
-              {metrics?.qualifiedConversations ?? 0}
-            </div>
-            <span className="block text-[10px] text-content-muted mt-1">
-              Leads com critérios atingidos
-            </span>
-          </div>
-        </Card>
-
-        {/* Taxa de Qualificação */}
-        <Card className="p-4 bg-surface border-border flex flex-col justify-between">
-          <div className="flex items-center justify-between text-brand mb-2">
-            <span className="text-xs font-medium text-content-muted">Taxa de Qualificação</span>
-            <TrendingUp className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-brand tracking-tight">
-              {metrics?.qualificationRate ?? 0}%
-            </div>
-            <span className="block text-[10px] text-content-muted mt-1">
-              Percentual sobre o total
-            </span>
-          </div>
-        </Card>
-
-        {/* Tempo de Resposta */}
-        <Card className="p-4 bg-surface border-border flex flex-col justify-between">
-          <div className="flex items-center justify-between text-amber-500 mb-2">
-            <span className="text-xs font-medium text-content-muted">1ª Resposta Média</span>
-            <Clock className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-content tracking-tight">
-              {metrics?.avgFirstResponseTimeSec ?? 0}s
-            </div>
-            <span className="block text-[10px] text-content-muted mt-1">
-              Tempo até primeiro retorno
-            </span>
-          </div>
-        </Card>
-
-        {/* Custo Total de IA */}
-        <Card className="p-4 bg-surface border-border flex flex-col justify-between">
-          <div className="flex items-center justify-between text-content-muted mb-2">
-            <span className="text-xs font-medium">Custo Estimado IA</span>
-            <Coins className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-content tracking-tight">
-              ${metrics?.totalEstimatedCost?.toFixed(3) ?? '0.000'}
-            </div>
-            <span className="block text-[10px] text-content-muted mt-1">
-              {((metrics?.totalTokens ?? 0) / 1000).toFixed(1)}k tokens consumidos
-            </span>
-          </div>
-        </Card>
-
-        {/* Custo por Lead Qualificado */}
-        <Card className="p-4 bg-surface border-border flex flex-col justify-between">
-          <div className="flex items-center justify-between text-content-muted mb-2">
-            <span className="text-xs font-medium">Custo / Lead Qual.</span>
-            <Coins className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-content tracking-tight">
-              ${metrics?.costPerQualifiedLead?.toFixed(3) ?? '0.000'}
-            </div>
-            <span className="block text-[10px] text-content-muted mt-1">
-              Eficiência de custo da IA
-            </span>
-          </div>
-        </Card>
-      </div>
-      )}
-
-      {/* Charts Row */}
-      {loading && !metrics ? (
-        <div role="status" aria-live="polite" className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <span className="sr-only">Carregando gráficos…</span>
-          {Array.from({ length: 2 }, (_, index) => (
-            <Card key={index} className="p-6">
-              <div className="mb-5 flex items-center justify-between" aria-hidden="true">
-                <Skeleton className="h-4 w-44" />
-                <Skeleton className="h-3 w-24" />
-              </div>
-              <Skeleton className="h-64 w-full" rounded="lg" />
-            </Card>
+        <div className="mb-6 grid grid-cols-1 gap-3 lg:grid-cols-[1.4fr_repeat(2,1fr)] xl:grid-cols-[1.4fr_repeat(4,1fr)]">
+          {Array.from({ length: 5 }, (_, i) => (
+            <Skeleton key={i} className="h-[120px] w-full" rounded="lg" />
           ))}
         </div>
       ) : (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Funnel Bar Chart */}
-        <Card className="p-6 bg-surface border-border">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-content m-0">Funil de Conversão SDR</h2>
-            <span className="text-xs text-content-muted">Por Estágio Canônico</span>
-          </div>
-
-          <div className="w-full h-64">
-            {metrics?.funnel && metrics.funnel.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={metrics.funnel} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                  <XAxis dataKey="label" fontSize={10} interval={0} angle={-25} textAnchor="end" stroke="var(--color-text-secondary)" />
-                  <YAxis fontSize={10} allowDecimals={false} stroke="var(--color-text-secondary)" />
-                  <Tooltip
-                    contentStyle={{
-                      background: 'var(--color-bg-primary)',
-                      borderColor: 'var(--color-border-secondary)',
-                      borderRadius: '8px',
-                      fontSize: '11px',
-                    }}
-                    formatter={(val: any) => [`${val} conversas`, 'Volume']}
-                  />
-                  <Bar dataKey="count" fill="var(--color-bg-accent)" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-xs text-content-muted">
-                Sem dados de funil disponíveis.
+        <div className={`mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-[1.5fr_repeat(4,1fr)] transition-opacity ${loading ? 'opacity-60' : ''}`}>
+          <div className="col-span-2 flex flex-col rounded-xl border border-border bg-surface p-4 lg:col-span-4 xl:col-span-1">
+            <span className="text-xs text-content-secondary">Taxa de qualificação</span>
+            <div className="mt-1.5 flex items-end justify-between gap-4">
+              <div>
+                <span className="text-4xl font-semibold tabular-nums tracking-tight text-content">
+                  {(metrics?.qualificationRate ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+                </span>
+                <div className="mt-1">
+                  <Delta value={rateDelta} unit="p.p." />
+                </div>
               </div>
-            )}
-          </div>
-        </Card>
-
-        {/* Daily Trends Area Chart */}
-        <Card className="p-6 bg-surface border-border">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-content m-0">Evolução Diária de Atendimentos</h2>
-            <span className="text-xs text-content-muted">Consolidado por Data</span>
-          </div>
-
-          <div className="w-full h-64">
-            {metrics?.dailyTrends && metrics.dailyTrends.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={metrics.dailyTrends} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorConv" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#2ee86b" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="#2ee86b" stopOpacity={0.0} />
-                    </linearGradient>
-                    <linearGradient id="colorQual" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                  <XAxis dataKey="date" fontSize={10} stroke="var(--color-text-secondary)" />
-                  <YAxis fontSize={10} allowDecimals={false} stroke="var(--color-text-secondary)" />
-                  <Tooltip
-                    contentStyle={{
-                      background: 'var(--color-bg-primary)',
-                      borderColor: 'var(--color-border-secondary)',
-                      borderRadius: '8px',
-                      fontSize: '11px',
-                    }}
-                  />
-                  <Area type="monotone" dataKey="conversations" name="Conversas" stroke="#2ee86b" fillOpacity={1} fill="url(#colorConv)" />
-                  <Area type="monotone" dataKey="qualified" name="Qualificados" stroke="#38bdf8" fillOpacity={1} fill="url(#colorQual)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-xs text-content-muted">
-                Sem dados temporais disponíveis.
+              <div className="w-32 flex-shrink-0">
+                <Sparkline values={dailyRate} color={colors.qualified} />
               </div>
-            )}
+            </div>
+            <span className="mt-auto pt-2 text-2xs text-content-muted">
+              {formatNumber(metrics?.qualifiedConversations)} de {formatNumber(metrics?.totalConversations)} conversas qualificadas
+            </span>
           </div>
-        </Card>
-      </div>
+          <Kpi label="Conversas" value={formatNumber(metrics?.totalConversations)} hint={`${formatNumber(metrics?.handoffConversations)} passaram para atendentes`}>
+            <Delta value={delta(metrics?.totalConversations ?? 0, previous?.totalConversations)} />
+          </Kpi>
+          <Kpi label="Qualificados" value={formatNumber(metrics?.qualifiedConversations)}>
+            <Delta value={delta(metrics?.qualifiedConversations ?? 0, previous?.qualifiedConversations)} />
+          </Kpi>
+          <Kpi label="1ª resposta (média)" value={formatDuration(metrics?.avgFirstResponseTimeSec ?? 0)}>
+            <Delta value={delta(metrics?.avgFirstResponseTimeSec ?? 0, previous?.avgFirstResponseTimeSec)} invert />
+          </Kpi>
+          <Kpi label="Custo por qualificado" value={formatUsd(metrics?.costPerQualifiedLead)} hint={`Total ${formatUsd(metrics?.totalEstimatedCost)} · ${formatCompact(metrics?.totalTokens)} tokens`}>
+            <Delta value={delta(metrics?.costPerQualifiedLead ?? 0, previous?.costPerQualifiedLead)} invert />
+          </Kpi>
+        </div>
       )}
 
-      {/* Flow Comparison Table */}
-      <Card className="p-6 bg-surface border-border">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-content m-0 flex items-center gap-2">
-            <Workflow className="w-4 h-4 text-brand" />
-            Comparativo de Eficiência por Versão de Fluxo
-          </h2>
-          <span className="text-xs text-content-muted">
-            Compare o impacto de prompts e nós nas conversões reais
-          </span>
-        </div>
+      <div className="mb-6 grid grid-cols-1 gap-3 lg:grid-cols-2">
+        {/* Funnel as horizontal bars: labels stay readable, the ramp encodes depth. */}
+        <section className="rounded-xl border border-border bg-surface p-5">
+          <h2 className="m-0 mb-4 text-sm font-semibold text-content">Funil</h2>
+          {loading && !metrics ? (
+            <Skeleton className="h-56 w-full" rounded="lg" />
+          ) : funnel.length > 0 && hasData ? (
+            <>
+              <ol className="m-0 list-none space-y-2.5 p-0">
+                {funnel.map((step, i) => {
+                  const ratio = step.count / funnelTop;
+                  const colorIndex = funnel.length > 1 ? Math.round((i * (colors.ramp.length - 1)) / (funnel.length - 1)) : 0;
+                  return (
+                    <li key={step.stage}>
+                        <div>
+                          <div className="mb-1 flex items-baseline justify-between gap-2 text-xs">
+                            <span className="truncate text-content-secondary">{step.label}</span>
+                            <span className="flex-shrink-0 tabular-nums text-content">
+                              {formatNumber(step.count)}
+                              <span className="ml-1.5 text-2xs text-content-muted">{Math.round(ratio * 100)}%</span>
+                            </span>
+                          </div>
+                          <div className="h-2.5 w-full rounded-full bg-surface-elevated">
+                            <div
+                              className="h-full rounded-full transition-[width] duration-500 ease-out"
+                              style={{ width: `${Math.max(ratio * 100, 1.5)}%`, background: colors.ramp[colorIndex] }}
+                            />
+                          </div>
+                        </div>
+                    </li>
+                  );
+                })}
+              </ol>
+              {outcomes.length > 0 && (
+                <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 border-t border-border pt-3 text-xs">
+                  {outcomes.map(step => (
+                    <span key={step.stage} className="text-content-secondary">
+                      {step.label}: <span className="tabular-nums font-medium text-content">{formatNumber(step.count)}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <EmptyState
+              icon={<BarChart3 size={18} />}
+              title="Sem dados de funil no período"
+              description="O funil aparece quando as conversas passam pelos estágios do fluxo publicado."
+              action={<Link to="/connections" className="text-xs font-semibold text-brand-fg hover:underline">Conectar WhatsApp</Link>}
+            />
+          )}
+        </section>
 
+        <section className="rounded-xl border border-border bg-surface p-5">
+          <h2 className="m-0 mb-4 text-sm font-semibold text-content">Conversas por dia</h2>
+          {loading && !metrics ? (
+            <Skeleton className="h-56 w-full" rounded="lg" />
+          ) : metrics?.dailyTrends && metrics.dailyTrends.length > 0 ? (
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={metrics.dailyTrends} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                  <CartesianGrid stroke={colors.grid} vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={shortDate}
+                    fontSize={11}
+                    stroke={colors.axis}
+                    tickLine={false}
+                    axisLine={false}
+                    minTickGap={24}
+                  />
+                  <YAxis fontSize={11} allowDecimals={false} stroke={colors.axis} tickLine={false} axisLine={false} tickFormatter={v => formatCompact(v)} />
+                  <ChartTooltip
+                    cursor={{ stroke: colors.axis, strokeDasharray: '3 3' }}
+                    labelFormatter={label => shortDate(String(label))}
+                    formatter={(value, name) => [formatNumber(Number(value)), String(name)]}
+                    contentStyle={{
+                      background: 'var(--bg-surface)',
+                      border: '1px solid var(--border-default)',
+                      borderRadius: 8,
+                      fontSize: 12,
+                      color: 'var(--text-primary)',
+                    }}
+                  />
+                  <Legend
+                    iconType="plainline"
+                    iconSize={14}
+                    wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+                    formatter={value => <span style={{ color: 'var(--text-secondary)' }}>{value}</span>}
+                  />
+                  <Line type="monotone" dataKey="conversations" name="Conversas" stroke={colors.conversations} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: 'var(--bg-surface)' }} />
+                  <Line type="monotone" dataKey="qualified" name="Qualificados" stroke={colors.qualified} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: 'var(--bg-surface)' }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <EmptyState icon={<TrendingUp size={18} />} title="Sem conversas no período" description="A linha começa no primeiro dia com conversas." />
+          )}
+        </section>
+      </div>
+
+      <section className="rounded-xl border border-border bg-surface">
+        <div className="flex items-center justify-between gap-2 px-5 pb-3 pt-5">
+          <h2 className="m-0 text-sm font-semibold text-content">Resultado por versão do fluxo</h2>
+          <Link to="/flows" className="text-xs text-content-secondary hover:text-content">
+            Abrir construtor →
+          </Link>
+        </div>
         {loading && !metrics ? (
-          <TableSkeleton columns={7} rows={4} />
+          <TableSkeleton columns={6} rows={3} />
         ) : metrics?.flowComparison && metrics.flowComparison.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left border-collapse">
+            <table className="w-full border-collapse text-left text-xs">
               <thead>
-                <tr className="border-b border-border text-content-muted">
-                  <th className="py-2.5 px-3 font-medium">Fluxo</th>
-                  <th className="py-2.5 px-3 font-medium">Versão</th>
-                  <th className="py-2.5 px-3 font-medium">Conversas</th>
-                  <th className="py-2.5 px-3 font-medium">Qualificados</th>
-                  <th className="py-2.5 px-3 font-medium">Taxa (%)</th>
-                  <th className="py-2.5 px-3 font-medium">Tokens</th>
-                  <th className="py-2.5 px-3 font-medium">Custo ($)</th>
+                <tr className="border-y border-border text-2xs text-content-muted">
+                  <th className="px-5 py-2 font-medium">Fluxo</th>
+                  <th className="px-3 py-2 text-right font-medium">Conversas</th>
+                  <th className="px-3 py-2 text-right font-medium">Qualificados</th>
+                  <th className="px-3 py-2 text-right font-medium">Taxa</th>
+                  <th className="hidden px-3 py-2 text-right font-medium md:table-cell">1ª resposta</th>
+                  <th className="px-5 py-2 text-right font-medium">Custo</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border/60">
-                {metrics.flowComparison.map((f, idx) => (
-                  <tr key={idx} className="hover:bg-surface-muted/40 transition-colors">
-                    <td className="py-3 px-3 font-semibold text-content">{f.flowName}</td>
-                    <td className="py-3 px-3">
-                      <Badge variant="outline" size="sm">v{f.version}</Badge>
+              <tbody>
+                {metrics.flowComparison.map(flow => (
+                  <tr key={`${flow.flowVersionId ?? flow.flowName}-${flow.version}`} className="border-b border-border last:border-0">
+                    <td className="px-5 py-2.5">
+                      <span className="font-medium text-content">{flow.flowName}</span>
+                      <span className="ml-1.5 text-content-muted">v{flow.version}</span>
                     </td>
-                    <td className="py-3 px-3 text-content">{f.conversationsCount}</td>
-                    <td className="py-3 px-3 text-emerald-600 dark:text-emerald-400 font-semibold">{f.qualifiedCount}</td>
-                    <td className="py-3 px-3 font-semibold text-content">{f.qualificationRate}%</td>
-                    <td className="py-3 px-3 text-content-muted">{f.totalTokens.toLocaleString()}</td>
-                    <td className="py-3 px-3 text-content-muted">${f.totalCost.toFixed(4)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-content">{formatNumber(flow.conversationsCount)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-content">{formatNumber(flow.qualifiedCount)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-medium text-content">
+                      {flow.qualificationRate.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+                    </td>
+                    <td className="hidden px-3 py-2.5 text-right tabular-nums text-content-secondary md:table-cell">{formatDuration(flow.avgResponseTimeSec)}</td>
+                    <td className="px-5 py-2.5 text-right tabular-nums text-content-secondary">
+                      <Tooltip content={`${formatNumber(flow.totalTokens)} tokens`}>
+                        <span>{formatUsd(flow.totalCost)}</span>
+                      </Tooltip>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         ) : (
-          <div className="py-6 text-center text-xs text-content-muted">
-            Nenhum fluxo publicado associado a conversas ainda.
-          </div>
+          <EmptyState
+            icon={<Workflow size={18} />}
+            title="Nenhum fluxo publicado com conversas"
+            description="Publique um fluxo numa instância para comparar as versões."
+          />
         )}
-      </Card>
-    </div>
-  </div>
+      </section>
+    </PageContainer>
   );
 }

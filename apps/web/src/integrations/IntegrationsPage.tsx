@@ -1,22 +1,32 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
-  CalendarDays,
-  CheckCircle2,
   AlertCircle,
+  CalendarDays,
+  Check,
+  ChevronRight,
+  Copy,
+  CreditCard,
+  ExternalLink,
+  Lock,
+  MoreHorizontal,
   RefreshCw,
   Unlink,
-  Copy,
-  Check,
-  ShieldCheck,
-  ServerCog,
-  Calendar,
-  ExternalLink,
-  CreditCard,
-  Lock,
 } from 'lucide-react';
 import { useSession } from '../session';
-import { Button, Badge, Card, Skeleton, SkeletonText } from '../components/ui';
+import {
+  confirmDialog,
+  toast,
+  Button,
+  DropdownMenu,
+  IconButton,
+  PageContainer,
+  PageHeader,
+  Popover,
+  Skeleton,
+  SkeletonText,
+} from '../components/ui';
+import { formatDate } from '../lib/format';
 
 interface CalendarAccount {
   id: string;
@@ -48,7 +58,6 @@ export function IntegrationsPage() {
   const [showCalendars, setShowCalendars] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   const isAdmin = activeRole === 'owner' || activeRole === 'admin';
 
@@ -58,7 +67,7 @@ export function IntegrationsPage() {
     const errorParam = searchParams.get('error');
 
     if (googleParam === 'connected') {
-      setActionSuccess('Conta Google Calendar conectada com sucesso para esta organização!');
+      toast.success('Google Agenda conectada');
       searchParams.delete('google');
       setSearchParams(searchParams, { replace: true });
     } else if (errorParam) {
@@ -152,7 +161,7 @@ export function IntegrationsPage() {
 
   const handleDisconnect = async (accountId: string) => {
     if (!activeOrg || !session?.access_token) return;
-    if (!window.confirm('Tem certeza que deseja desconectar esta conta Google Calendar?')) return;
+    if (!(await confirmDialog({ title: 'Desconectar Google Agenda?', description: 'Os agentes deixam de consultar horários e de marcar consultas nesta agenda.', confirmLabel: 'Desconectar', danger: true }))) return;
 
     try {
       const res = await fetch(
@@ -163,7 +172,7 @@ export function IntegrationsPage() {
         },
       );
       if (res.ok) {
-        setActionSuccess('Conta Google desconectada com sucesso.');
+        toast.success('Google Agenda desconectada');
         setShowCalendars(false);
         setCalendars([]);
         await fetchAccounts();
@@ -182,351 +191,220 @@ export function IntegrationsPage() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  if (!can('integrations:manage')) {
-    return (
-      <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-6 sm:p-10">
-        <header>
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-warning/20 bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">
-            <Lock size={15} />
-            Recurso Exclusivo
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-content-primary">Integrações Externas</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-content-secondary">
-            O plano atual ({activeTier || 'Pré-Venda'}) tem acesso focado ao Atendimento (Inbox), Indicadores e Agentes de IA.
-          </p>
-        </header>
+  const accountLabel: Record<CalendarAccount['status'], { dot: string; text: string }> = {
+    connected: { dot: 'bg-success', text: 'Conectada' },
+    expired: { dot: 'bg-warning', text: 'Autorização expirada' },
+    revoked: { dot: 'bg-danger', text: 'Acesso revogado' },
+    error: { dot: 'bg-danger', text: 'Erro' },
+  };
 
-        <Card className="p-8 text-center flex flex-col items-center justify-center">
-          <div className="w-14 h-14 rounded-2xl bg-warning/10 border border-warning/20 text-warning flex items-center justify-center mb-4">
-            <Lock size={28} />
-          </div>
-          <h2 className="text-lg font-bold text-content-primary">
-            Desbloqueie Integrações Externas e Automações
-          </h2>
-          <p className="text-xs text-content-secondary mt-2 max-w-md leading-relaxed">
-            Faça upgrade para o plano <strong>Vendedor</strong> para conectar o Google Calendar e webhooks, ou para o plano <strong>Vendedor Sênior</strong> para habilitar também Gates de Pagamento (Asaas, Mercado Pago e Stripe).
+  const locked = !can('integrations:manage');
+  const gatesUnlocked = can('payment_gates:manage');
+  const gates = [
+    { id: 'asaas', name: 'Asaas', initial: 'A', desc: 'Pix e boleto na conversa, com baixa automática.' },
+    { id: 'mercado_pago', name: 'Mercado Pago', initial: 'M', desc: 'Link de pagamento na conversa.' },
+    { id: 'stripe', name: 'Stripe', initial: 'S', desc: 'Cartão nacional e internacional, assinaturas.' },
+  ];
+
+  if (locked) {
+    return (
+      <PageContainer>
+        <PageHeader title="Integrações" description="Conecte a agenda e os meios de pagamento que a IA usa na conversa." />
+        <div className="flex flex-col items-center rounded-xl border border-border bg-surface p-8 text-center">
+          <span className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-surface-elevated text-content-muted">
+            <Lock size={20} />
+          </span>
+          <p className="m-0 text-sm font-semibold text-content">Disponível a partir do plano Vendedor</p>
+          <p className="m-0 mt-1 max-w-md text-xs text-content-secondary">
+            O plano atual ({activeTier || 'Pré-Venda'}) inclui Atendimento, Indicadores e Agentes. No Vendedor você conecta o Google Agenda; no Pro, também os pagamentos.
           </p>
-          <div className="mt-6 flex items-center gap-3">
-            <Link
-              to="/settings"
-              className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-xs font-bold text-brand-contrast transition-colors hover:bg-brand/90"
-            >
-              Fazer Upgrade da Organização
-            </Link>
-            <Link
-              to="/dashboard"
-              className="inline-flex items-center rounded-lg border border-border px-4 py-2.5 text-xs font-semibold text-content-secondary hover:text-content-primary transition-colors"
-            >
-              Voltar ao Dashboard
-            </Link>
-          </div>
-        </Card>
-      </main>
+          <Link to="/settings" className="mt-4">
+            <Button variant="primary">Ver planos</Button>
+          </Link>
+        </div>
+      </PageContainer>
     );
   }
 
-  return (
-    <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-6 sm:p-10">
-      <header>
-        <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-brand/20 bg-brand/10 px-3 py-1 text-xs font-semibold text-brand">
-          <ShieldCheck size={15} />
-          Conexões Multi-inquilino Seguras
-        </div>
-        <h1 className="text-2xl font-bold tracking-tight text-content-primary">Conexões Externas</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-content-secondary">
-          Conecte ferramentas externas como o Google Calendar diretamente à sua organização. As credenciais são criptografadas e isoladas no banco de dados com segurança nível empresarial (RLS).
-        </p>
-      </header>
+  const status = primaryAccount ? accountLabel[primaryAccount.status] ?? accountLabel.error : null;
 
-      {actionSuccess && (
-        <div className="flex items-center gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-400">
-          <CheckCircle2 size={18} className="shrink-0" />
-          <span>{actionSuccess}</span>
-        </div>
-      )}
+  return (
+    <PageContainer>
+      <PageHeader title="Integrações" description="Conecte a agenda e os meios de pagamento que a IA usa na conversa." />
 
       {actionError && (
-        <div className="flex items-center gap-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-400">
-          <AlertCircle size={18} className="shrink-0" />
-          <span>{actionError}</span>
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs text-danger">
+          <AlertCircle size={16} className="shrink-0" />
+          <span className="flex-1">{actionError}</span>
+          <button type="button" onClick={() => setActionError(null)} className="min-h-0 border-0 bg-transparent p-0 text-xs font-semibold text-danger">
+            Fechar
+          </button>
         </div>
       )}
 
-      {/* Card Google Calendar */}
-      <Card className="p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand">
-              <CalendarDays size={24} />
+      {/* Every integration has the same shape: logo, name, one line, status, one action. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <article className="flex flex-col rounded-xl border border-border bg-surface p-4">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-border bg-surface-elevated text-content">
+              <CalendarDays size={20} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="m-0 text-sm font-semibold text-content">Google Agenda</p>
+              <p className="m-0 mt-0.5 text-xs text-content-secondary">Os agentes consultam horários livres e marcam reuniões na sua agenda.</p>
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-content">Google Calendar</h2>
-                {loading ? (
-                  <Skeleton className="h-5 w-20" rounded="full" />
-                ) : primaryAccount ? (
-                  <Badge variant="accent" size="sm">
-                    CONECTADO
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" size="sm">
-                    DISPONÍVEL
-                  </Badge>
-                )}
-              </div>
-              <p className="mt-1 text-xs text-content-secondary leading-relaxed max-w-xl">
-                Permite que os nós de fluxo <code className="rounded bg-surface-secondary px-1 py-0.5 text-content">calendar.availability</code> e <code className="rounded bg-surface-secondary px-1 py-0.5 text-content">calendar.create_event</code> consultem horários livres e criem agendamentos automaticamente na sua agenda.
-              </p>
-            </div>
+            {primaryAccount && isAdmin && (
+              <DropdownMenu
+                aria-label="Ações do Google Agenda"
+                items={[
+                  { label: 'Conectar outra conta', icon: <ExternalLink size={14} />, onSelect: () => void handleStartGoogleOAuth() },
+                  { type: 'separator' },
+                  { label: 'Desconectar…', icon: <Unlink size={14} />, danger: true, onSelect: () => void handleDisconnect(primaryAccount.id) },
+                ]}
+                trigger={<IconButton label="Mais ações" icon={<MoreHorizontal size={16} />} size="sm" tooltip={false} />}
+              />
+            )}
           </div>
 
-          <div className="shrink-0">
+          <div className="mt-auto pt-4">
             {loading ? (
-              <div role="status" aria-live="polite" className="flex items-center gap-3">
-                <span className="sr-only">Carregando integração…</span>
-                <Skeleton className="h-8 w-28" rounded="lg" />
-              </div>
-            ) : primaryAccount ? (
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void fetchCalendars(primaryAccount.id)}
-                  disabled={loadingCalendars}
-                >
-                  <Calendar size={14} className="mr-1.5" />
-                  {loadingCalendars ? 'Consultando...' : showCalendars ? 'Atualizar Agendas' : 'Ver Agendas'}
-                </Button>
-                {isAdmin && (
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onClick={() => void handleDisconnect(primaryAccount.id)}
+              <Skeleton className="h-8 w-full" />
+            ) : primaryAccount && status ? (
+              <div className="flex items-end justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="m-0 flex items-center gap-1.5 text-xs font-medium text-content">
+                    <span className={`h-2 w-2 rounded-full ${status.dot}`} aria-hidden="true" /> {status.text}
+                  </p>
+                  <p className="m-0 mt-0.5 truncate text-2xs text-content-muted" title={primaryAccount.account_email}>
+                    {primaryAccount.account_email} · desde {formatDate(primaryAccount.created_at)}
+                  </p>
+                </div>
+                {primaryAccount.status === 'connected' ? (
+                  <Popover
+                    align="end"
+                    width={320}
+                    className="p-1"
+                    trigger={
+                      <Button size="sm" variant="outline" onClick={() => !showCalendars && void fetchCalendars(primaryAccount.id)}>
+                        Agendas
+                      </Button>
+                    }
                   >
-                    <Unlink size={14} className="mr-1.5" /> Desconectar
-                  </Button>
+                    <div className="flex items-center justify-between px-2.5 pb-1 pt-2">
+                      <span className="text-2xs font-medium text-content-muted">Agendas desta conta</span>
+                      <button
+                        type="button"
+                        aria-label="Atualizar agendas"
+                        onClick={() => void fetchCalendars(primaryAccount.id)}
+                        className="flex min-h-0 items-center border-0 bg-transparent p-0 text-content-muted hover:text-content"
+                      >
+                        <RefreshCw size={12} className={loadingCalendars ? 'animate-spin' : ''} />
+                      </button>
+                    </div>
+                    {loadingCalendars && calendars.length === 0 ? (
+                      <div className="p-2.5">
+                        <SkeletonText lines={3} />
+                      </div>
+                    ) : calendars.length === 0 ? (
+                      <p className="m-0 px-2.5 py-2 text-xs text-content-secondary">Nenhuma agenda encontrada.</p>
+                    ) : (
+                      calendars.map(cal => (
+                        <div key={cal.id} className="flex items-center gap-2 rounded-lg px-2.5 py-2 hover:bg-surface-elevated">
+                          <div className="min-w-0 flex-1">
+                            <p className="m-0 truncate text-xs text-content">
+                              {cal.summary}
+                              {cal.primary && <span className="ml-1.5 text-2xs text-content-muted">Principal</span>}
+                            </p>
+                            <p className="m-0 truncate text-2xs text-content-muted" title={cal.id}>
+                              {cal.id}
+                            </p>
+                          </div>
+                          <IconButton
+                            label={copiedId === cal.id ? 'Copiado' : 'Copiar ID da agenda'}
+                            size="sm"
+                            icon={copiedId === cal.id ? <Check size={13} className="text-success" /> : <Copy size={13} />}
+                            onClick={() => copyCalendarId(cal.id)}
+                          />
+                        </div>
+                      ))
+                    )}
+                  </Popover>
+                ) : (
+                  isAdmin && (
+                    <Button size="sm" variant="primary" onClick={() => void handleStartGoogleOAuth()} loading={connecting}>
+                      Reautorizar
+                    </Button>
+                  )
                 )}
               </div>
             ) : (
-              <Button
-                variant="primary"
-                size="md"
-                onClick={() => void handleStartGoogleOAuth()}
-                disabled={connecting || !isAdmin}
-                title={!isAdmin ? 'Apenas administradores podem conectar integrações' : undefined}
-              >
-                {connecting ? (
-                  <>
-                    <RefreshCw size={14} className="animate-spin mr-1.5" /> Conectando...
-                  </>
-                ) : (
-                  <>
-                    <ExternalLink size={14} className="mr-1.5" /> Conectar com Google
-                  </>
-                )}
-              </Button>
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-xs text-content-secondary">
+                  <span className="h-2 w-2 rounded-full border border-border-strong" aria-hidden="true" /> Não conectada
+                </span>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => void handleStartGoogleOAuth()}
+                  loading={connecting}
+                  disabled={!isAdmin}
+                  title={!isAdmin ? 'Só administradores conectam integrações' : undefined}
+                >
+                  Conectar
+                </Button>
+              </div>
             )}
           </div>
-        </div>
+        </article>
 
-        {/* Informações da conta conectada */}
-        {loading ? (
-          <div role="status" aria-live="polite" className="mt-5 border-t border-border pt-4">
-            <span className="sr-only">Carregando conta conectada…</span>
-            <div className="flex items-center justify-between gap-4" aria-hidden="true">
-              <SkeletonText lines={2} className="w-72" />
-              <Skeleton className="h-3 w-24" />
+        {gates.map(gate => (
+          <article key={gate.id} className="flex flex-col rounded-xl border border-border bg-surface p-4">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-border bg-surface-elevated text-sm font-bold text-content">
+                {gate.initial}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="m-0 text-sm font-semibold text-content">{gate.name}</p>
+                <p className="m-0 mt-0.5 text-xs text-content-secondary">{gate.desc}</p>
+              </div>
             </div>
-          </div>
-        ) : primaryAccount && (
-          <div className="mt-5 pt-4 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between text-xs text-content-secondary gap-2">
-            <div>
-              Conta autorizada: <strong className="text-content">{primaryAccount.account_email}</strong>
-              {primaryAccount.account_name && primaryAccount.account_name !== primaryAccount.account_email && (
-                <span className="ml-1 text-content-muted">({primaryAccount.account_name})</span>
+            <div className="mt-auto flex items-center justify-between gap-2 pt-4">
+              <span className="flex items-center gap-1.5 text-xs text-content-secondary">
+                <span className="h-2 w-2 rounded-full border border-border-strong" aria-hidden="true" /> Não conectado
+              </span>
+              {gatesUnlocked ? (
+                <span className="text-2xs font-medium text-content-muted" title="A configuração pelo painel ainda não está disponível">
+                  Em breve
+                </span>
+              ) : (
+                <Link to="/settings" className="flex items-center gap-1 text-2xs font-medium text-content-secondary hover:text-content">
+                  <Lock size={11} /> Plano Pro
+                </Link>
               )}
             </div>
-            <div className="text-content-muted">
-              Conectado em: {new Date(primaryAccount.created_at).toLocaleDateString('pt-BR', { dateStyle: 'short' })}
-            </div>
-          </div>
-        )}
-
-        {/* Lista de Calendários Disponíveis */}
-        {loadingCalendars ? (
-          <div role="status" aria-live="polite" className="mt-6 border-t border-border pt-5">
-            <span className="sr-only">Carregando agendas…</span>
-            <Skeleton className="mb-2 h-4 w-56" />
-            <Skeleton className="mb-4 h-3 w-96 max-w-full" />
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2" aria-hidden="true">
-              {Array.from({ length: 4 }, (_, index) => (
-                <div key={index} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-elevated/60 p-3">
-                  <SkeletonText lines={2} className="flex-1" />
-                  <Skeleton className="h-7 w-20" />
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : showCalendars && calendars.length > 0 && (
-          <div className="mt-6 pt-5 border-t border-border">
-            <h3 className="text-sm font-bold text-content mb-1 flex items-center gap-2">
-              <Calendar size={16} className="text-brand" /> Agendas Disponíveis nesta Conta
-            </h3>
-            <p className="text-xs text-content-secondary mb-4">
-              Copie o ID da agenda desejada e utilize no campo <code className="text-content font-mono">calendarId</code> dos nós do seu fluxo.
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {calendars.map(cal => (
-                <div
-                  key={cal.id}
-                  className="rounded-lg border border-border bg-surface-secondary/60 p-3 flex items-center justify-between gap-3"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <strong className="text-xs text-content font-semibold truncate block">{cal.summary}</strong>
-                      {cal.primary && (
-                        <span className="shrink-0 rounded bg-brand/10 text-brand px-1.5 py-0.2 text-[10px] font-bold">
-                          Principal
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-[11px] font-mono text-content-muted block truncate mt-0.5" title={cal.id}>
-                      {cal.id}
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => copyCalendarId(cal.id)}
-                    className="inline-flex shrink-0 items-center gap-1 rounded border border-border bg-surface px-2 py-1 text-[11px] font-medium text-content transition-colors hover:bg-surface-hover"
-                    title="Copiar ID da Agenda"
-                  >
-                    {copiedId === cal.id ? (
-                      <>
-                        <Check size={12} className="text-emerald-400" /> Copiado
-                      </>
-                    ) : (
-                      <>
-                        <Copy size={12} /> Copiar ID
-                      </>
-                    )}
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Informação sobre Fallback do Servidor */}
-        <div className="mt-5 rounded-xl border border-border bg-surface-elevated/40 p-4 text-xs text-content-secondary">
-          <div className="flex items-center gap-2 font-semibold text-content-primary">
-            <ServerCog size={15} className="text-brand" />
-            Isolamento e Fallback Seguro
-          </div>
-          <p className="mt-1.5 leading-relaxed">
-            Quando você conecta uma conta Google nesta tela, ela se torna exclusiva para a organização ativa. Se nenhuma conta estiver conectada, o motor de execução do servidor recorrerá de forma transparente ao <code className="rounded bg-surface px-1 py-0.5 font-mono text-[11px]">GOOGLE_CALENDAR_CREDENTIALS_JSON</code> configurado no ambiente da VPS.
-          </p>
-        </div>
-      </Card>
-
-      {/* Card Gates de Pagamento (Asaas, Mercado Pago, Stripe) */}
-      <Card className="p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-border">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 flex items-center justify-center shrink-0">
-              <CreditCard size={20} />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-content-primary">Gates de Pagamento</h2>
-                {can('payment_gates:manage') ? (
-                  <Badge variant="success" className="text-[10px]">
-                    Vendedor Sênior Ativo
-                  </Badge>
-                ) : (
-                  <Badge variant="warning" className="text-[10px] flex items-center gap-1">
-                    <Lock size={10} /> Exclusivo Vendedor Sênior
-                  </Badge>
-                )}
-              </div>
-              <p className="text-xs text-content-secondary mt-0.5">
-                Emissão de PIX dinâmico, boletos e checkout direto na conversa do WhatsApp via Asaas, Mercado Pago e Stripe.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {can('payment_gates:manage') ? (
-          <div className="mt-5 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {[
-                { id: 'asaas', name: 'Asaas', desc: 'PIX instantâneo e Boleto bancário com conciliação automática no WhatsApp.', status: 'Pronto para Conectar' },
-                { id: 'mercado_pago', name: 'Mercado Pago', desc: 'Links de pagamento, Checkout Pro e confirmação de pagamento instantânea.', status: 'Pronto para Conectar' },
-                { id: 'stripe', name: 'Stripe', desc: 'Cartões nacionais e internacionais com proteção antifraude e assinaturas.', status: 'Pronto para Conectar' },
-              ].map(gate => (
-                <div key={gate.id} className="rounded-xl border border-border bg-surface-elevated/40 p-4 flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-bold text-content-primary">{gate.name}</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 font-medium border border-emerald-500/20">
-                        {gate.status}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-content-secondary leading-relaxed">
-                      {gate.desc}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => alert(`Configuração do gateway ${gate.name} pronta para ser vinculada ao motor SDR.`)}
-                    className="mt-4 w-full py-1.5 px-2 rounded-lg text-xs font-semibold bg-surface border border-border hover:border-brand text-content-primary hover:text-brand transition-colors cursor-pointer"
-                  >
-                    Configurar Credenciais
-                  </button>
-                </div>
-              ))}
-            </div>
-            <div className="rounded-xl border border-border bg-surface-elevated/20 p-4 text-xs text-content-secondary flex items-start gap-2.5">
-              <ShieldCheck size={16} className="text-emerald-500 shrink-0 mt-0.5" />
-              <p className="leading-relaxed">
-                No plano <strong>Vendedor Sênior</strong>, os nós de pagamento no construtor de fluxos geram cobranças e registram a confirmação automaticamente no deal do CRM e na memória comercial do lead.
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="mt-5 rounded-xl border border-border/70 bg-surface-elevated/20 p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <div className="w-9 h-9 rounded-lg bg-warning/10 text-warning flex items-center justify-center shrink-0">
-                <Lock size={18} />
-              </div>
-              <div>
-                <h4 className="text-xs font-bold text-content-primary">
-                  Desbloqueie Gates de Pagamento no Plano Vendedor Sênior
-                </h4>
-                <p className="text-xs text-content-secondary mt-1 max-w-xl leading-relaxed">
-                  Permita que seus agentes IA fechem vendas gerando cobranças PIX copia-e-cola e links do Mercado Pago/Asaas/Stripe diretamente no WhatsApp sem precisar de intervenção humana.
-                </p>
-              </div>
-            </div>
-            <Link
-              to="/settings"
-              className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-brand text-brand-contrast hover:bg-brand/90 transition-colors shadow-xs"
-            >
-              Fazer Upgrade para Vendedor Sênior
-            </Link>
-          </div>
-        )}
-      </Card>
-
-      <div>
-        <Link
-          to="/flows"
-          className="inline-flex items-center rounded-lg border border-border px-4 py-2 text-sm font-semibold text-content-primary transition-colors hover:bg-surface-elevated"
-        >
-          Voltar aos fluxos
-        </Link>
+          </article>
+        ))}
       </div>
-    </main>
+
+      {isAdmin && (
+        <details className="group mt-6 rounded-lg border border-border bg-surface px-3 py-2 text-xs text-content-secondary">
+          <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-content">
+            <CreditCard size={14} className="text-content-muted" /> Detalhes técnicos
+            <ChevronRight size={14} className="ml-auto text-content-muted transition-transform group-open:rotate-90" />
+          </summary>
+          <ul className="m-0 mt-2 space-y-1.5 pl-6 leading-relaxed">
+            <li>
+              As credenciais ficam criptografadas e isoladas por organização. A conta Google conectada aqui vale só para a organização ativa.
+            </li>
+            <li>
+              Sem conta conectada, o servidor usa a credencial <code className="text-2xs">GOOGLE_CALENDAR_CREDENTIALS_JSON</code> do ambiente, se existir.
+            </li>
+            <li>
+              Nos fluxos, os nós <code className="text-2xs">calendar.availability</code> e <code className="text-2xs">calendar.create_event</code> usam o ID da agenda (copie em Agendas).
+            </li>
+          </ul>
+        </details>
+      )}
+    </PageContainer>
   );
 }

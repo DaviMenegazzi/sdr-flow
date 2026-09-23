@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink, Link } from 'react-router-dom';
+import { NavLink, Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Workflow,
   Radio,
@@ -8,141 +8,200 @@ import {
   BookOpen,
   MessageSquare,
   BarChart3,
-  Blocks,
   Settings2,
   Moon,
   Sun,
   LogOut,
   Shield,
   ScrollText,
+  ChevronsUpDown,
+  Check,
+  Plus,
 } from 'lucide-react';
 import { useSession } from '../../session';
 import { ProdigiWordmark } from './ProdigiWordmark';
+import { DropdownMenu, Popover, type MenuItem } from '../ui';
 
 interface AppSidebarProps {
   dark: boolean;
   onToggleTheme: () => void;
+  /** Mobile only: whether the off-canvas drawer is open. Always visible from md up. */
+  mobileOpen?: boolean;
 }
 
-export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
-  const { session, profile, signOut, activeOrg, organizations, activeTier, can } = useSession();
-  const currentOrg = organizations.find((o) => o.id === activeOrg);
+const tierLabels: Record<string, string> = {
+  'pre-venda': 'Pré-Venda',
+  vendedor: 'Vendedor',
+  'vendedor-senior': 'Pro',
+};
 
-  const tierLabels: Record<string, string> = {
-    'pre-venda': 'Pré-Venda',
-    'vendedor': 'Vendedor',
-    'vendedor-senior': 'Vendedor Sênior',
-  };
-  const tierName = activeTier ? (tierLabels[activeTier] || activeTier) : null;
+const roleLabels: Record<string, string> = {
+  owner: 'Dono',
+  admin: 'Administrador',
+  agent: 'Atendente',
+  viewer: 'Leitor',
+};
+
+function initials(text: string) {
+  const parts = text.trim().split(/\s+/).filter(Boolean);
+  if (parts.length > 1) return `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}`.toUpperCase();
+  return (parts[0] ?? 'SF').slice(0, 2).toUpperCase();
+}
+
+export function AppSidebar({ dark, onToggleTheme, mobileOpen = false }: AppSidebarProps) {
+  const { session, profile, signOut, activeOrg, organizations, activeTier, activeRole, can, setActiveOrg } = useSession();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const currentOrg = organizations.find(o => o.id === activeOrg);
+  const tierName = activeTier ? tierLabels[activeTier] || activeTier.charAt(0).toUpperCase() + activeTier.slice(1) : null;
+  const isPlatformAdmin = profile?.role === 'admin';
 
   const userEmail = session?.user?.email ?? '';
   const displayName =
-    (session?.user?.user_metadata?.display_name as string | undefined) ||
-    userEmail.split('@')[0] ||
-    'Usuário';
-
-  const getInitials = (text: string) => {
-    const cleaned = text.trim();
-    if (!cleaned) return 'SF';
-    const parts = cleaned.split(/\s+/);
-    if (parts.length > 1 && parts[0] && parts[1]) {
-      return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
-    }
-    return cleaned.slice(0, 2).toUpperCase();
-  };
+    (session?.user?.user_metadata?.display_name as string | undefined) || userEmail.split('@')[0] || 'Usuário';
 
   const navItemClass = ({ isActive }: { isActive: boolean }) =>
-    `flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 ${
-      isActive
-        ? 'bg-brand/10 text-brand font-semibold shadow-xs'
-        : 'text-content-secondary hover:text-content-primary hover:bg-surface-elevated'
+    `flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-xs font-medium transition-colors duration-150 ease-out ${
+      isActive ? 'bg-brand/10 text-brand-fg font-semibold' : 'text-content-secondary hover:bg-surface-elevated hover:text-content'
     }`;
 
-  const hasIntegrations = can('integrations:manage');
+  const section = (label: string, children: React.ReactNode) => (
+    <div>
+      <span className="px-2.5 text-2xs font-semibold uppercase tracking-wider text-content-muted">{label}</span>
+      <div className="mt-1 space-y-0.5">{children}</div>
+    </div>
+  );
+
+  const userMenu: MenuItem[] = [
+    { type: 'label', label: userEmail || displayName },
+    {
+      label: dark ? 'Mudar para tema claro' : 'Mudar para tema escuro',
+      icon: dark ? <Sun size={14} /> : <Moon size={14} />,
+      onSelect: onToggleTheme,
+    },
+    { label: 'Configurações', icon: <Settings2 size={14} />, onSelect: () => navigate('/settings') },
+    ...(isPlatformAdmin
+      ? [{ label: 'Administração', icon: <Shield size={14} />, onSelect: () => navigate('/admin') } as MenuItem]
+      : []),
+    { type: 'separator' },
+    { label: 'Sair', icon: <LogOut size={14} />, onSelect: () => void signOut() },
+  ];
 
   return (
-    <aside className="w-56 bg-surface border-r border-border flex flex-col h-full flex-shrink-0 select-none z-20">
-      {/* Brand Header */}
-      <div className="sidebar-brand-header">
-        <Link to="/dashboard" className="sidebar-brand-link" aria-label="Prodigi — ir para o painel">
+    <aside
+      className={`fixed inset-y-0 left-0 z-40 w-64 md:static md:z-20 md:w-56 md:translate-x-0 bg-surface border-r border-border flex flex-col h-full flex-shrink-0 select-none transition-transform duration-[320ms] ease-drawer motion-reduce:transition-none ${
+        mobileOpen ? 'translate-x-0 shadow-modal' : '-translate-x-full'
+      }`}
+      aria-label="Navegação principal"
+    >
+      <div className="px-3 pb-3 pt-4">
+        <Link to="/dashboard" className="sidebar-brand-link ml-1.5" aria-label="Prodigi — ir para os indicadores">
           <ProdigiWordmark />
         </Link>
-        <div className="sidebar-workspace-row">
-          <span className="sidebar-workspace-name" title={currentOrg?.name || 'Workspace'}>
-            <i aria-hidden="true" />
-            {currentOrg?.name || 'Workspace'}
-          </span>
-          {tierName && (
-            <span className="sidebar-tier-badge" title={`Plano ${tierName}`}>
-              {tierName}
-            </span>
+
+        {/* Organization switcher: the active organization is global context, so it lives here. */}
+        <Popover
+          align="start"
+          width={232}
+          className="p-1"
+          block
+          trigger={
+            <button
+              type="button"
+              className="mt-3 flex h-9 w-full min-h-0 items-center gap-2 rounded-lg border border-border bg-surface-elevated px-2.5 text-left text-xs text-content hover:border-border-strong"
+            >
+              <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-brand" aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate font-medium">{currentOrg?.name || 'Organização'}</span>
+              {tierName && (
+                <span className="flex-shrink-0 rounded-full border border-success-border bg-brand-subtle px-1.5 text-2xs font-semibold text-brand-fg">
+                  {tierName}
+                </span>
+              )}
+              <ChevronsUpDown size={13} className="flex-shrink-0 text-content-muted" />
+            </button>
+          }
+        >
+          {close => (
+            <>
+              <div className="px-2.5 pb-1 pt-2 text-2xs font-medium text-content-muted">Organizações</div>
+              {organizations.map(org => (
+                <button
+                  key={org.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveOrg(org.id);
+                    close();
+                  }}
+                  className="flex w-full min-h-0 items-center gap-2 rounded-lg border-0 bg-transparent px-2.5 py-2 text-left text-xs text-content hover:bg-surface-elevated"
+                >
+                  <span className="min-w-0 flex-1 truncate">{org.name}</span>
+                  {org.id === activeOrg && <Check size={14} className="text-brand-fg" />}
+                </button>
+              ))}
+              {isPlatformAdmin && (
+                <>
+                  <div className="my-1 h-px bg-border" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      close();
+                      navigate('/settings?section=new-org');
+                    }}
+                    className="flex w-full min-h-0 items-center gap-2 rounded-lg border-0 bg-transparent px-2.5 py-2 text-left text-xs text-content-secondary hover:bg-surface-elevated hover:text-content"
+                  >
+                    <Plus size={14} /> Nova organização
+                  </button>
+                </>
+              )}
+            </>
           )}
-        </div>
+        </Popover>
       </div>
 
-      {/* Navigation Sections */}
-      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
-        {/* Operação */}
-        <div>
-          <span className="px-3 text-[10px] font-bold uppercase tracking-wider text-content-muted">
-            Operação
-          </span>
-          <div className="mt-1 space-y-0.5">
+      <nav className="flex-1 space-y-4 overflow-y-auto px-3 py-2">
+        {section(
+          'Operação',
+          <>
             {can('inbox:read') && (
               <NavLink to="/inbox" className={navItemClass}>
                 <MessageSquare size={16} />
-                <span>Atendimento (Inbox)</span>
+                <span>Atendimento</span>
               </NavLink>
             )}
             {can('instances:manage') && (
               <NavLink to="/connections" className={navItemClass}>
                 <Radio size={16} />
-                <span>WhatsApp Instâncias</span>
+                <span>Conexões WhatsApp</span>
               </NavLink>
             )}
-          </div>
-        </div>
-
-        {/* Automação & IA */}
-        <div>
-          <span className="px-3 text-[10px] font-bold uppercase tracking-wider text-content-muted">
-            Automação & IA
-          </span>
-          <div className="mt-1 space-y-0.5">
+          </>
+        )}
+        {section(
+          'Automação & IA',
+          <>
             {can('flows:read') && (
-              <>
-                <NavLink to="/flows/new" className={navItemClass}>
-                  <Workflow size={16} />
-                  <span>Construtor de Fluxos</span>
-                </NavLink>
-                <NavLink to="/templates" className={navItemClass}>
-                  <Blocks size={16} />
-                  <span>Modelos SDR</span>
-                </NavLink>
-              </>
+              <NavLink to="/flows" className={({ isActive }) => navItemClass({ isActive: isActive || location.pathname.startsWith('/templates') })}>
+                <Workflow size={16} />
+                <span>Construtor de Fluxos</span>
+              </NavLink>
             )}
-            {/* Todos os tiers têm acesso à aba de agentes das instâncias configuradas */}
             <NavLink to="/agents" className={navItemClass}>
               <Users size={16} />
               <span>Agentes de IA</span>
             </NavLink>
             <NavLink to="/knowledge" className={navItemClass}>
               <BookOpen size={16} />
-              <span>Base Conhecimento</span>
+              <span>Base de Conhecimento</span>
             </NavLink>
-          </div>
-        </div>
-
-        {/* Inteligência & Dados */}
-        <div>
-          <span className="px-3 text-[10px] font-bold uppercase tracking-wider text-content-muted">
-            Inteligência & Dados
-          </span>
-          <div className="mt-1 space-y-0.5">
+          </>
+        )}
+        {section(
+          'Dados',
+          <>
             {can('dashboard:read') && (
               <NavLink to="/dashboard" className={navItemClass}>
                 <BarChart3 size={16} />
-                <span>Indicadores (KPIs)</span>
+                <span>Indicadores</span>
               </NavLink>
             )}
             {can('flows:read') && (
@@ -151,76 +210,43 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
                 <span>Logs de Execução</span>
               </NavLink>
             )}
-            {hasIntegrations && (
+            {can('integrations:manage') && (
               <NavLink to="/integrations" className={navItemClass}>
                 <Plug size={16} />
-                <span>Integrações Externas</span>
+                <span>Integrações</span>
               </NavLink>
             )}
-          </div>
-        </div>
+          </>
+        )}
+      </nav>
 
-        {/* Sistema */}
-        <div>
-          <span className="px-3 text-[10px] font-bold uppercase tracking-wider text-content-muted">
-            Sistema
-          </span>
-          <div className="mt-1 space-y-0.5">
-            <NavLink to="/settings" className={navItemClass}>
-              <Settings2 size={16} />
-              <span>Configurações</span>
-            </NavLink>
-            {profile?.role === 'admin' && (
-              <NavLink to="/admin" className={navItemClass}>
-                <Shield size={16} />
-                <span>Administração</span>
-              </NavLink>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Footer: Theme Toggle & User Info */}
-      <div className="p-3 border-t border-border/60 bg-surface-subtle/50 space-y-2">
-        <button
-          type="button"
-          onClick={onToggleTheme}
-          className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium text-content-secondary hover:text-content-primary hover:bg-surface-elevated transition-colors"
-          title={dark ? 'Mudar para Modo Claro' : 'Mudar para Modo Escuro'}
-        >
-          <span className="flex items-center gap-2">
-            {dark ? <Sun size={15} className="text-warning" /> : <Moon size={15} className="text-content-secondary" />}
-            <span>{dark ? 'Modo Claro' : 'Modo Escuro'}</span>
-          </span>
-          <span className="text-[10px] px-1.5 py-0.5 bg-surface-elevated border border-border rounded text-content-muted font-mono">
-            {dark ? 'Dark' : 'Light'}
-          </span>
-        </button>
-
-        {/* User Card */}
-        <div className="flex items-center justify-between p-2 rounded-lg bg-surface border border-border">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-7 h-7 rounded-full bg-brand/10 border border-brand/20 text-brand font-bold text-xs flex items-center justify-center flex-shrink-0">
-              {getInitials(displayName)}
-            </div>
-            <div className="flex flex-col min-w-0">
-              <span className="text-xs font-semibold text-content-primary truncate">
-                {displayName}
+      {/* One place for everything that is "mine": theme, settings, admin, sign out. */}
+      <div className="border-t border-border p-3">
+        <DropdownMenu
+          side="top"
+          align="start"
+          width={232}
+          block
+          aria-label="Menu da conta"
+          items={userMenu}
+          trigger={
+            <button
+              type="button"
+              className="flex w-full min-h-0 items-center gap-2.5 rounded-lg border-0 bg-transparent p-1.5 text-left hover:bg-surface-elevated"
+            >
+              <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border border-brand/20 bg-brand/10 text-2xs font-bold text-brand-fg">
+                {initials(displayName)}
               </span>
-              <span className="text-[10px] text-content-muted truncate">
-                {profile?.role || 'membro'}
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-xs font-semibold text-content">{displayName}</span>
+                <span className="truncate text-2xs text-content-muted">
+                  {(activeRole && roleLabels[activeRole]) || (isPlatformAdmin ? 'Administrador' : 'Membro')}
+                </span>
               </span>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => void signOut()}
-            className="p-1.5 text-content-muted hover:text-danger hover:bg-danger/10 rounded-md transition-colors"
-            title="Sair da Plataforma"
-          >
-            <LogOut size={14} />
-          </button>
-        </div>
+              <ChevronsUpDown size={13} className="flex-shrink-0 text-content-muted" />
+            </button>
+          }
+        />
       </div>
     </aside>
   );

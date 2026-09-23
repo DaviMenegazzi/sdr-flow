@@ -32,18 +32,18 @@ export function Tabs<T extends string = string>({
               key={tab.id}
               type="button"
               onClick={() => onChange(tab.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-150 ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border-0 min-h-0 transition-colors duration-150 ease-out ${
                 isActive
                   ? 'bg-surface text-content-primary shadow-sm'
-                  : 'text-content-secondary hover:text-content-primary'
+                  : 'bg-transparent text-content-secondary hover:text-content-primary'
               }`}
             >
               {tab.icon}
               <span>{tab.label}</span>
               {tab.badge !== undefined && (
                 <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                    isActive ? 'bg-brand/10 text-brand' : 'bg-surface-elevated text-content-muted'
+                  className={`text-2xs px-1.5 py-0.2 rounded-full font-bold ${
+                    isActive ? 'bg-brand/10 text-brand-fg' : 'bg-surface-elevated text-content-muted'
                   }`}
                 >
                   {tab.badge}
@@ -65,9 +65,9 @@ export function Tabs<T extends string = string>({
             key={tab.id}
             type="button"
             onClick={() => onChange(tab.id)}
-            className={`flex items-center gap-2 py-3 px-1 text-xs font-medium border-b-2 transition-all duration-150 -mb-[1px] ${
+            className={`flex items-center gap-2 py-3 px-1 text-xs font-medium border-0 border-b-2 rounded-none bg-transparent min-h-0 transition-colors duration-150 ease-out -mb-[1px] ${
               isActive
-                ? 'border-brand text-brand font-semibold'
+                ? 'border-brand text-brand-fg font-semibold'
                 : 'border-transparent text-content-secondary hover:text-content-primary hover:border-border'
             }`}
           >
@@ -75,8 +75,8 @@ export function Tabs<T extends string = string>({
             <span>{tab.label}</span>
             {tab.badge !== undefined && (
               <span
-                className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
-                  isActive ? 'bg-brand/10 text-brand' : 'bg-surface-elevated text-content-muted'
+                className={`text-2xs px-1.5 py-0.5 rounded-full font-bold ${
+                  isActive ? 'bg-brand/10 text-brand-fg' : 'bg-surface-elevated text-content-muted'
                 }`}
               >
                 {tab.badge}

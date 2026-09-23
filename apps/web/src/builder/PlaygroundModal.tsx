@@ -409,7 +409,7 @@ export function PlaygroundModal({ isOpen, onClose, flowId, flowVersionId, graph 
                       {/* Chat Bubbles */}
                       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                         <div style={{ padding: 6, background: '#e0f2fe', borderRadius: '50%', flexShrink: 0 }}>
-                          <User size={16} color="#0284c7" />
+                          <User size={16} className="text-info" />
                         </div>
                         <div
                           style={{
@@ -431,7 +431,7 @@ export function PlaygroundModal({ isOpen, onClose, flowId, flowVersionId, graph 
                       {sentReplies.length > 0 ? sentReplies.map((reply, idx) => (
                         <div key={idx} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                           <div style={{ padding: 6, background: '#dcfce7', borderRadius: '50%', flexShrink: 0 }}>
-                            <Bot size={16} color="#16a34a" />
+                            <Bot size={16} className="text-success" />
                           </div>
                           <div
                             style={{
@@ -452,7 +452,7 @@ export function PlaygroundModal({ isOpen, onClose, flowId, flowVersionId, graph 
                       )) : (
                         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                           <div style={{ padding: 6, background: '#dcfce7', borderRadius: '50%', flexShrink: 0 }}>
-                            <Bot size={16} color="#16a34a" />
+                            <Bot size={16} className="text-success" />
                           </div>
                           <div
                             style={{
