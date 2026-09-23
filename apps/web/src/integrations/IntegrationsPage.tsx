@@ -47,7 +47,7 @@ interface CalendarItem {
 }
 
 export function IntegrationsPage() {
-  const { session, activeOrg, activeRole, activeTier, can } = useSession();
+  const { session, activeOrg, activeRole, can } = useSession();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [accounts, setAccounts] = useState<CalendarAccount[]>([]);
@@ -216,11 +216,15 @@ export function IntegrationsPage() {
           </span>
           <p className="m-0 text-sm font-semibold text-content">Disponível a partir do plano Vendedor</p>
           <p className="m-0 mt-1 max-w-md text-xs text-content-secondary">
-            O plano atual ({activeTier || 'Pré-Venda'}) inclui Atendimento, Indicadores e Agentes. No Vendedor você conecta o Google Agenda; no Pro, também os pagamentos.
+            O plano atual inclui Atendimento, Indicadores e Agentes. No Vendedor você conecta o Google Agenda; no Vendedor Sênior, também os pagamentos dos seus leads.
           </p>
-          <Link to="/settings" className="mt-4">
-            <Button variant="primary">Ver planos</Button>
-          </Link>
+          {activeRole === 'owner' ? (
+            <Link to="/billing" className="mt-4">
+              <Button variant="primary">Fazer upgrade</Button>
+            </Link>
+          ) : (
+            <p className="m-0 mt-4 text-2xs text-content-muted">Peça ao proprietário da organização para fazer o upgrade em Plano e cobrança.</p>
+          )}
         </div>
       </PageContainer>
     );

@@ -24,7 +24,8 @@ export interface Instance {
 }
 
 export interface AgentLimits {
-  max_agents: number;
+  /** null = ilimitado (plano Vendedor Sênior). */
+  max_agents: number | null;
   max_instances: number | null;
 }
 

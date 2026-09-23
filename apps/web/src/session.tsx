@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createClient, type Session } from '@supabase/supabase-js';
 import type { MemberRole, OrgTier, Capability } from '@sdr/shared';
 
@@ -62,6 +62,8 @@ interface SessionContextType {
   can(capability: Capability): boolean;
   setActiveOrg(id: string): void;
   reload(): Promise<void>;
+  /** Recarrega /api/me (tier e capabilities efetivos), ex.: após confirmação de pagamento. */
+  refresh(): void;
   loading: boolean;
   profile: {
     role: 'admin' | 'client';
@@ -85,6 +87,7 @@ const Context = createContext<SessionContextType>({
   can: () => false,
   setActiveOrg: () => {},
   reload: async () => {},
+  refresh: () => {},
   loading: true,
   profile: null,
   signOut: async () => {},
@@ -114,6 +117,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [capabilities, setCapabilities] = useState<Capability[]>([]);
   const [loading, setLoading] = useState(() => Boolean(supabase));
   const [profile, setProfile] = useState<SessionContextType['profile']>(null);
+  const [profileVersion, setProfileVersion] = useState(0);
+  // A refresh keeps the current UI mounted (no loading gate) while /api/me is re-read.
+  const silentRefresh = useRef(false);
 
   const reload = async () => {
     if (!supabase || !session) return;
@@ -151,7 +157,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       return;
     }
-    void supabase.auth.getSession().then(({ data }) => { setSession(data.session); setLoading(false); });
+    // With a session, stay in the loading state until /api/me answers (effect below); ending it
+    // here let AuthGate render once with a session but no profile and bounce deep links
+    // (e.g. the checkout return URL) through /login to /dashboard.
+    void supabase.auth.getSession().then(({ data }) => { setSession(data.session); if (!data.session) setLoading(false); });
     const { data } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
     return () => data.subscription.unsubscribe();
   }, []);
@@ -164,7 +173,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setCapabilities([]);
       return;
     }
-    setLoading(true);
+    if (!silentRefresh.current) setLoading(true);
+    silentRefresh.current = false;
     const headers: Record<string, string> = { Authorization: `Bearer ${session.access_token}` };
     if (activeOrg) headers['X-Organization-Id'] = activeOrg;
     void fetch('/api/me', { headers })
@@ -188,7 +198,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (me.memberRole) setActiveRole(me.memberRole);
       })
       .finally(() => setLoading(false));
-  }, [session?.access_token, activeOrg]);
+  }, [session?.access_token, activeOrg, profileVersion]);
 
   const signOut = async () => {
     setOrganizations([]);
@@ -245,6 +255,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         can,
         setActiveOrg,
         reload,
+        refresh: () => { silentRefresh.current = true; setProfileVersion(version => version + 1); },
         loading,
         profile,
         signOut,

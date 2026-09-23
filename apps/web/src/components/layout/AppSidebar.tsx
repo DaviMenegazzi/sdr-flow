@@ -17,6 +17,8 @@ import {
   ChevronsUpDown,
   Check,
   Plus,
+  CreditCard,
+  Sparkles,
 } from 'lucide-react';
 import { useSession } from '../../session';
 import { ProdigiWordmark } from './ProdigiWordmark';
@@ -32,7 +34,7 @@ interface AppSidebarProps {
 const tierLabels: Record<string, string> = {
   'pre-venda': 'Pré-Venda',
   vendedor: 'Vendedor',
-  'vendedor-senior': 'Pro',
+  'vendedor-senior': 'Sênior',
 };
 
 const roleLabels: Record<string, string> = {
@@ -218,7 +220,29 @@ export function AppSidebar({ dark, onToggleTheme, mobileOpen = false }: AppSideb
             )}
           </>
         )}
+        {section(
+          'Conta',
+          <>
+            <NavLink to="/billing" className={navItemClass}>
+              <CreditCard size={16} />
+              <span>Plano e cobrança</span>
+            </NavLink>
+          </>
+        )}
       </nav>
+
+      {/* Upgrade entry point: only the owner can buy, and only while a higher plan exists. */}
+      {activeRole === 'owner' && activeTier !== 'vendedor-senior' && (
+        <div className="px-3 pb-2">
+          <Link
+            to="/billing"
+            className="flex items-center gap-2 rounded-lg border border-brand/30 bg-brand/10 px-2.5 py-2 text-xs font-semibold text-brand-fg no-underline transition-colors hover:border-brand/60"
+          >
+            <Sparkles size={14} aria-hidden="true" />
+            Fazer upgrade do plano
+          </Link>
+        </div>
+      )}
 
       {/* One place for everything that is "mine": theme, settings, admin, sign out. */}
       <div className="border-t border-border p-3">

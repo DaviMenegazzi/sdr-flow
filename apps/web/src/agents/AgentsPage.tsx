@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { AlertCircle, Bot, Plus, Search } from 'lucide-react';
 import {
   Button,
@@ -26,7 +26,7 @@ export function AgentsPage() {
   const navigate = useNavigate();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [instances, setInstances] = useState<Instance[]>([]);
-  const [limits, setLimits] = useState<AgentLimits>({ max_agents: 2, max_instances: null });
+  const [limits, setLimits] = useState<AgentLimits>({ max_agents: 2, max_instances: 1 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -51,8 +51,8 @@ export function AgentsPage() {
     void load();
   }, [api]);
 
-  const quotaMax = limits.max_agents || 2;
-  const canCreate = agents.length < quotaMax;
+  const quotaMax = limits.max_agents;
+  const canCreate = quotaMax === null || agents.length < quotaMax;
 
   const archive = async (agent: Agent) => {
     const ok = await confirmDialog({
@@ -111,7 +111,12 @@ export function AgentsPage() {
       <PageHeader
         title="Agentes de IA"
         description={
-          loading ? 'Carregando…' : `${agents.length} de ${quotaMax} agentes do plano${canCreate ? '' : ' — limite atingido'}`
+          loading ? 'Carregando…' : (
+            <>
+              {quotaMax === null ? `${agents.length} agentes · plano sem limite` : `${agents.length} de ${quotaMax} agentes do plano`}
+              {!canCreate && <> — limite atingido. <Link to="/billing" className="text-brand-fg">Ver planos</Link></>}
+            </>
+          )
         }
         actions={newButton}
         toolbar={

@@ -420,7 +420,7 @@ export function AgentEditorPage() {
               )}
             </>
           )}
-          {limits && isNew && agents.length >= (limits.max_agents || 2) && (
+          {limits && isNew && limits.max_agents !== null && agents.length >= limits.max_agents && (
             <p className="mt-4 text-xs text-warning">Limite de agentes do plano atingido — não será possível criar este agente.</p>
           )}
         </section>

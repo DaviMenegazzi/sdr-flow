@@ -1,7 +1,7 @@
 import React, { useEffect, useState, type FormEvent } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Building2, Check, ChevronDown, Copy, KeyRound, MoreHorizontal, Plus, Trash2, User, UserPlus, Users } from 'lucide-react';
-import type { MemberRole, OrgTier } from '@sdr/shared';
+import type { MemberRole } from '@sdr/shared';
 import { supabase, useSession } from '../session';
 import {
   Button,
@@ -20,6 +20,7 @@ import {
   type MenuItem,
 } from '../components/ui';
 import { formatDate, formatRelative } from '../lib/format';
+import { PlanGrantPanel } from '../billing/PlanGrantPanel';
 
 interface Member {
   organization_id: string;
@@ -66,7 +67,7 @@ const SCOPES = [
   { id: 'executions:write', label: 'Disparar nova execução' },
 ];
 
-const TIERS: Record<string, string> = { 'pre-venda': 'Pré-Venda', vendedor: 'Vendedor', 'vendedor-senior': 'Pro' };
+const TIERS: Record<string, string> = { 'pre-venda': 'Pré-Venda', vendedor: 'Vendedor', 'vendedor-senior': 'Vendedor Sênior' };
 
 /** Settings as a sidebar of sections: organization first, "my account" last. */
 export function SettingsPage() {
@@ -211,7 +212,7 @@ export function SettingsPage() {
   const [inviteToken, setInviteToken] = useState<{ email: string; token: string } | null>(null);
 
   const [loginOpen, setLoginOpen] = useState(false);
-  const [login, setLogin] = useState({ name: '', email: '', password: '', accountRole: 'client' as 'admin' | 'client', memberRole: 'agent' as MemberRole, tier: (activeTier ?? 'pre-venda') as OrgTier });
+  const [login, setLogin] = useState({ name: '', email: '', password: '', accountRole: 'client' as 'admin' | 'client', memberRole: 'agent' as MemberRole });
 
   const [keyOpen, setKeyOpen] = useState(false);
   const [keyName, setKeyName] = useState('');
@@ -257,7 +258,6 @@ export function SettingsPage() {
             password: login.password,
             accountRole: login.accountRole,
             memberRole: login.memberRole,
-            orgTier: login.tier,
           }),
         },
         'Falha ao criar o login.'
@@ -377,12 +377,23 @@ export function SettingsPage() {
             <Panel title="Geral">
               <dl className="m-0 divide-y divide-border rounded-xl border border-border bg-surface text-xs">
                 <Row label="Organização" value={activeOrganization?.name ?? '—'} />
-                <Row label="Plano" value={activeTier ? TIERS[activeTier] ?? activeTier : '—'} />
+                <Row
+                  label="Plano"
+                  value={
+                    <span className="inline-flex items-center gap-2">
+                      {activeTier ? TIERS[activeTier] ?? activeTier : '—'}
+                      <Link to="/billing" className="text-brand-fg">Plano e cobrança</Link>
+                    </span>
+                  }
+                />
                 <Row label="Seu papel" value={activeRole ? roleLabel(activeRole) : '—'} />
                 <Row label="Membros" value={loadingTeam ? '…' : String(members.length)} />
               </dl>
               <p className="m-0 text-2xs text-content-muted">Para trocar de organização, use o seletor no topo da barra lateral.</p>
             </Panel>
+          )}
+          {section === 'general' && isPlatformAdmin && activeOrg && (
+            <PlanGrantPanel organizationId={activeOrg} onChanged={() => void reload()} />
           )}
 
           {section === 'members' && (
@@ -657,19 +668,9 @@ export function SettingsPage() {
                 ]}
               />
             </Field>
-            <Field label="Plano da organização">
-              <Select
-                fullWidth
-                aria-label="Plano da organização"
-                value={login.tier}
-                onChange={value => setLogin(l => ({ ...l, tier: value }))}
-                options={[
-                  { value: 'pre-venda', label: 'Pré-Venda' },
-                  { value: 'vendedor', label: 'Vendedor' },
-                  { value: 'vendedor-senior', label: 'Pro' },
-                ]}
-              />
-            </Field>
+            <p className="m-0 self-end text-2xs text-content-muted">
+              O login entra no plano atual da organização. Criar um login nunca altera o plano.
+            </p>
           </div>
           <div className="flex justify-end gap-2 border-t border-border pt-4">
             <Button type="button" variant="ghost" onClick={() => setLoginOpen(false)}>

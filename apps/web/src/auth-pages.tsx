@@ -3,6 +3,7 @@ import { Navigate, Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase, useSession } from './session';
 import { Button, Input, Skeleton } from './components/ui';
 import { ProdigiWordmark } from './components/layout/ProdigiWordmark';
+import { describeOffer, peekPendingOffer, postLoginDestination, rememberOffer } from './billing/pendingOffer';
 
 export function AuthGate({ children, admin = false }: { children: ReactNode; admin?: boolean }) {
   const { session, loading, profile } = useSession();
@@ -41,8 +42,9 @@ export function AuthGate({ children, admin = false }: { children: ReactNode; adm
       </div>
     );
   }
-  if (!session) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
-  if (!profile || profile.status !== 'active') return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  const from = `${location.pathname}${location.search}`;
+  if (!session) return <Navigate to="/login" replace state={{ from }} />;
+  if (!profile || profile.status !== 'active') return <Navigate to="/login" replace state={{ from }} />;
   if (admin && profile.role !== 'admin') return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
@@ -81,7 +83,7 @@ export function LoginPage() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  if (session) return <Navigate to="/dashboard" replace />;
+  if (session) return <Navigate to={postLoginDestination()} replace />;
   if (!client) return <ConfigurationRequired />;
 
   const submit = async (e: FormEvent) => {
@@ -95,12 +97,13 @@ export function LoginPage() {
       return;
     }
     const from = (location.state as { from?: string } | null)?.from;
-    const dest = from && from.startsWith('/') && !from.startsWith('//') && from !== '/' && from !== '/login' && from !== '/404' ? from : '/dashboard';
+    const dest = from && from.startsWith('/') && !from.startsWith('//') && from !== '/' && from !== '/login' && from !== '/404' ? from : postLoginDestination();
     navigate(dest, { replace: true });
   };
 
   return (
     <AuthCard title="Entrar no SDR Flow">
+      <PendingOfferNote />
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Input
           label="E-mail"
@@ -142,7 +145,20 @@ export function LoginPage() {
   );
 }
 
+/** Mostra o plano escolhido na LP; a compra acontece depois do login, na organização ativa. */
+function PendingOfferNote() {
+  const offer = describeOffer(peekPendingOffer() ?? '');
+  if (!offer) return null;
+  return (
+    <p className="m-0 rounded-lg border border-brand/30 bg-brand/10 p-3 text-center text-xs text-content-secondary">
+      Plano escolhido: <strong className="text-content">{offer.plan}</strong> ({offer.interval}). Você conclui o pagamento depois de entrar.
+    </p>
+  );
+}
+
 export function RegisterPage() {
+  const { search } = useLocation();
+  useEffect(() => { rememberOffer(new URLSearchParams(search).get('offer')); }, [search]);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -169,6 +185,7 @@ export function RegisterPage() {
 
   return (
     <AuthCard title="Criar conta">
+      <PendingOfferNote />
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Input
           label="Nome"
@@ -311,7 +328,7 @@ export function ResetPasswordPage() {
 export function AuthCallback() {
   const navigate = useNavigate();
   useEffect(() => {
-    const timer = setTimeout(() => navigate('/dashboard', { replace: true }), 500);
+    const timer = setTimeout(() => navigate(postLoginDestination(), { replace: true }), 500);
     return () => clearTimeout(timer);
   }, [navigate]);
   return (

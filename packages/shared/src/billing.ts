@@ -75,7 +75,6 @@ export const PLANS: Record<OrgTier, PlanDefinition> = {
     features: [
       'Tudo do Vendedor',
       'Gates de pagamento para seus leads (Asaas, Mercado Pago, Stripe)',
-      'Agentes e instâncias sem limite',
     ],
   },
 };

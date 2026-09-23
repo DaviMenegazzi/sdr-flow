@@ -27,6 +27,11 @@ const InboxPage = lazy(() => import('./inbox/InboxPage').then(m => ({ default: m
 const DashboardPage = lazy(() => import('./metrics/DashboardPage').then(m => ({ default: m.DashboardPage })));
 const ExecutionLogPage = lazy(() => import('./logs/ExecutionLogPage').then(m => ({ default: m.ExecutionLogPage })));
 const Settings = lazy(() => import('./settings/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const BillingPage = lazy(() => import('./billing/BillingPage').then(m => ({ default: m.BillingPage })));
+const BillingReturnPage = lazy(() => import('./billing/BillingReturnPage').then(m => ({ default: m.BillingReturnPage })));
+// Public pages (LP and pricing) live in their own chunks so the app shell stays small.
+const LandingPage = lazy(() => import('./billing/LandingPage').then(m => ({ default: m.LandingPage })));
+const PricingPage = lazy(() => import('./billing/PricingPage').then(m => ({ default: m.PricingPage })));
 
 function RouteLoadingFallback() {
   return (
@@ -185,6 +190,8 @@ function ProtectedApp() {
                 }
               />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/billing" element={<BillingPage />} />
+              <Route path="/billing/return" element={<BillingReturnPage />} />
               <Route path="*" element={<Navigate to="/404" replace />} />
             </Routes>
             </Suspense>
@@ -197,7 +204,11 @@ function ProtectedApp() {
 }
 
 
-function App(){return <SessionProvider><BrowserRouter><Routes><Route path="/login" element={<LoginPage/>}/><Route path="/register" element={<RegisterPage/>}/><Route path="/forgot-password" element={<ForgotPasswordPage/>}/><Route path="/reset-password" element={<ResetPasswordPage/>}/><Route path="/auth/callback" element={<AuthCallback/>}/><Route path="/404" element={<NotFoundPage/>}/><Route path="/*" element={<AuthGate><ProtectedApp/></AuthGate>}/></Routes><Toaster/><ConfirmHost/></BrowserRouter></SessionProvider>}
+function PublicFallback() {
+  return <div role="status" aria-live="polite" className="dark min-h-[100dvh] bg-canvas"><span className="sr-only">Carregando…</span></div>;
+}
+
+function App(){return <SessionProvider><BrowserRouter><Suspense fallback={<PublicFallback/>}><Routes><Route path="/" element={<LandingPage/>}/><Route path="/pricing" element={<PricingPage/>}/><Route path="/login" element={<LoginPage/>}/><Route path="/register" element={<RegisterPage/>}/><Route path="/forgot-password" element={<ForgotPasswordPage/>}/><Route path="/reset-password" element={<ResetPasswordPage/>}/><Route path="/auth/callback" element={<AuthCallback/>}/><Route path="/404" element={<NotFoundPage/>}/><Route path="/*" element={<AuthGate><ProtectedApp/></AuthGate>}/></Routes></Suspense><Toaster/><ConfirmHost/></BrowserRouter></SessionProvider>}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
