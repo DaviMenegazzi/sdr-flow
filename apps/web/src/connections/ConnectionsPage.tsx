@@ -3,23 +3,36 @@ import { Link } from 'react-router-dom';
 import { useSession } from '../session';
 import type { FlowGraph } from '@sdr/shared';
 import { PlaygroundModal } from '../builder/PlaygroundModal';
-import { confirmDialog, Button, Badge, Card, Input, CardGridSkeleton, Skeleton, TableSkeleton } from '../components/ui';
 import {
-  Radio,
-  QrCode,
-  CheckCircle2,
-  AlertCircle,
-  RefreshCw,
-  Trash2,
-  Copy,
-  Plus,
+  confirmDialog,
+  toast,
+  Button,
+  DropdownMenu,
+  EmptyState,
+  IconButton,
+  Input,
+  Modal,
+  PageContainer,
+  PageHeader,
+  Skeleton,
+  TableSkeleton,
+  type MenuItem,
+} from '../components/ui';
+import { formatPhone, formatDateTime } from '../lib/format';
+import {
   ArrowRight,
-  ExternalLink,
-  ShieldCheck,
-  Check,
-  Workflow,
-  ShieldAlert,
+  CheckCircle2,
+  Copy,
+  MoreHorizontal,
   Play,
+  Plus,
+  Power,
+  QrCode,
+  Radio,
+  RefreshCw,
+  ShieldCheck,
+  Trash2,
+  Workflow,
 } from 'lucide-react';
 
 interface Connection {
@@ -31,6 +44,7 @@ interface Connection {
   provider_instance_id: string | null;
   created_at: string;
   webhook_url?: string;
+  agent_id?: string | null;
 }
 
 interface ActiveFlowBinding {
@@ -48,6 +62,18 @@ interface ActiveFlowBinding {
     graph: FlowGraph;
   };
 }
+
+const STATUS_META: Record<Connection['status'], { dot: string; label: string }> = {
+  connected: { dot: 'bg-success', label: 'Conectado' },
+  connecting: { dot: 'bg-warning', label: 'Aguardando QR Code' },
+  disconnected: { dot: 'bg-content-muted', label: 'Desconectado' },
+  error: { dot: 'bg-danger', label: 'Erro' },
+};
+
+const PROVIDER_LABEL: Record<Connection['provider'], string> = {
+  evolution: 'QR Code · Evolution',
+  meta: 'API oficial da Meta',
+};
 
 export function ConnectionsPage() {
   const { session, activeOrg } = useSession();
@@ -78,11 +104,28 @@ export function ConnectionsPage() {
   const [qrBase64, setQrBase64] = useState<string | null>(null);
   const [qrCodeString, setQrCodeString] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeFlows, setActiveFlows] = useState<ActiveFlowBinding[]>([]);
   const [loadingActive, setLoadingActive] = useState(true);
   const [simulatingFlow, setSimulatingFlow] = useState<{ id: string; name: string; versionId: string; graph: FlowGraph } | null>(null);
   const activeFlowsRequest = useRef(0);
+  const [agentNames, setAgentNames] = useState<Record<string, string>>({});
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+
+  async function loadAgentNames() {
+    if (!session?.access_token) return;
+    try {
+      const res = await fetch('/api/me/agents', {
+        headers: { Authorization: `Bearer ${session.access_token}`, ...(activeOrg ? { 'X-Organization-Id': activeOrg } : {}) },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const map: Record<string, string> = {};
+      for (const agent of (data.agents ?? []) as Array<{ id: string; name: string }>) map[agent.id] = agent.name;
+      setAgentNames(map);
+    } catch {
+      // Agent names are a convenience column; the table still works without them.
+    }
+  }
 
   async function loadActiveFlows() {
     const requestId = ++activeFlowsRequest.current;
@@ -116,6 +159,7 @@ export function ConnectionsPage() {
   useEffect(() => {
     void loadConnections();
     void loadActiveFlows();
+    void loadAgentNames();
   }, [activeOrg, session?.access_token]);
 
   // Polling for QR when the existing-connection QR modal is open
@@ -135,7 +179,7 @@ export function ConnectionsPage() {
           const data = await res.json();
           if (data.connected || data.status === 'connected') {
             setActiveQrModal(null);
-            setMessage('Conexão estabelecida com sucesso!');
+            toast.success('WhatsApp conectado');
             void loadConnections();
             return;
           }
@@ -323,23 +367,27 @@ export function ConnectionsPage() {
     }
   }
 
-  async function handleVerify(connId: string) {
-    setMessage(`Verificando conexão...`);
+  /** Asks the provider for the real status. Returns it, or null when the check itself failed. */
+  async function handleVerify(connId: string, quiet = false): Promise<string | null> {
+    setVerifyingId(connId);
     try {
       if (!activeOrg || !session?.access_token) throw new Error('Sessão indisponível.');
       const url = `/api/organizations/${activeOrg}/connections/${connId}/verify`;
       const headers = { Authorization: `Bearer ${session.access_token}` };
-
       const res = await fetch(url, { method: 'POST', headers });
-      const data = await res.json();
-      if (res.ok) {
-        setMessage(`Status verificado: ${data.status}`);
-        void loadConnections();
-      } else {
-        setMessage(`Erro na verificação: ${data.error}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Erro ${res.status}`);
+      if (!quiet) {
+        if (data.status === 'connected') toast.success('Conectado e respondendo');
+        else toast.info(`Status: ${STATUS_META[data.status as Connection['status']]?.label ?? data.status}`);
       }
-    } catch {
-      setMessage('Falha na comunicação com o servidor.');
+      void loadConnections();
+      return typeof data.status === 'string' ? data.status : null;
+    } catch (err) {
+      toast.error('Não foi possível verificar', { description: err instanceof Error ? err.message : undefined });
+      return null;
+    } finally {
+      setVerifyingId(null);
     }
   }
 
@@ -349,11 +397,12 @@ export function ConnectionsPage() {
       const url = `/api/organizations/${activeOrg}/connections/${connId}/restart`;
       const headers = { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' };
 
-      await fetch(url, { method: 'POST', headers });
-      setMessage('Comando de reinício enviado à instância.');
+      const res = await fetch(url, { method: 'POST', headers });
+      if (!res.ok) throw new Error();
+      toast.info('Reinício solicitado', { description: 'O status é atualizado em alguns segundos.' });
       setTimeout(() => void loadConnections(), 2000);
     } catch {
-      setMessage('Erro ao reiniciar instância.');
+      toast.error('Não foi possível reiniciar a instância.');
     }
   }
 
@@ -365,548 +414,423 @@ export function ConnectionsPage() {
       const headers = { Authorization: `Bearer ${session.access_token}` };
 
       const res = await fetch(url, { method: 'DELETE', headers });
-      if (res.ok) {
-        setMessage('Conexão removida com sucesso.');
-        void loadConnections();
-      }
+      if (!res.ok) throw new Error();
+      toast.success('Conexão removida');
+      void loadConnections();
     } catch {
-      setMessage('Falha ao excluir conexão.');
+      toast.error('Não foi possível remover a conexão.');
     }
   }
 
-  function copyWebhook(urlPath: string, id: string) {
+  function copyWebhook(urlPath: string) {
     const fullUrl = `${window.location.origin}${urlPath}`;
-    void navigator.clipboard.writeText(fullUrl);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+    void navigator.clipboard.writeText(fullUrl).then(
+      () => toast.success('URL do webhook copiada', { description: 'Cole no painel do provedor.' }),
+      () => toast.error('Não foi possível copiar a URL.')
+    );
   }
 
+  /** "Já conectei" asks the provider instead of assuming it worked. */
+  async function confirmConnected() {
+    if (!createdConnectionId) return;
+    const status = await handleVerify(createdConnectionId, true);
+    if (status === 'connected') setWizardStep(4);
+    else if (status) setMessage('Ainda não conectou. Escaneie o QR Code e aguarde alguns segundos.');
+  }
+
+  const flowByConnection = new Map(activeFlows.map(binding => [binding.connection.id, binding]));
+  const connectedCount = connections.filter(c => c.status === 'connected').length;
+
+  const rowMenu = (conn: Connection): MenuItem[] => {
+    const binding = flowByConnection.get(conn.id);
+    return [
+      { label: 'Copiar URL do webhook', icon: <Copy size={14} />, onSelect: () => copyWebhook(conn.webhook_url || '') },
+      { label: 'Verificar status', icon: <RefreshCw size={14} />, onSelect: () => void handleVerify(conn.id) },
+      ...(conn.provider === 'evolution'
+        ? [{ label: 'Reiniciar instância', icon: <Power size={14} />, onSelect: () => void handleRestart(conn.id) } as MenuItem]
+        : []),
+      ...(binding
+        ? ([
+            { type: 'separator' },
+            {
+              label: 'Simular conversa do fluxo',
+              icon: <Play size={14} />,
+              description: 'Sem enviar WhatsApp',
+              onSelect: () =>
+                setSimulatingFlow({ id: binding.flow.id, name: binding.flow.name, versionId: binding.flow.versionId, graph: binding.flow.graph }),
+            },
+          ] as MenuItem[])
+        : []),
+      { type: 'separator' },
+      { label: 'Remover conexão…', icon: <Trash2 size={14} />, danger: true, onSelect: () => void handleDelete(conn.id) },
+    ];
+  };
+
+  const wizardTitle =
+    wizardStep === 1 ? 'Nova conexão' : wizardStep === 2 ? 'Credenciais' : wizardStep === 3 ? 'Escaneie o QR Code' : 'Conectado';
+  const steps = ['Número', 'Credenciais', provider === 'evolution' ? 'QR Code' : 'Validação', 'Pronto'];
+
   return (
-    <div className="h-full overflow-y-auto p-6 md:p-8 bg-canvas text-content">
-      <div className="max-w-6xl mx-auto space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand-fg mb-1">
-              <Radio className="w-3.5 h-3.5" /> TRANSPORTE & MENSAGERIA
+    <PageContainer>
+      <PageHeader
+        title="Conexões WhatsApp"
+        description={
+          loading
+            ? 'Carregando…'
+            : connections.length === 0
+            ? 'Conecte um número para a IA começar a atender.'
+            : `${connections.length} ${connections.length === 1 ? 'número' : 'números'} · ${connectedCount} ${connectedCount === 1 ? 'conectado' : 'conectados'}`
+        }
+        actions={
+          <Button variant="primary" onClick={startWizard}>
+            <Plus size={16} /> Nova conexão
+          </Button>
+        }
+      />
+
+      <div className="overflow-hidden rounded-xl border border-border bg-surface">
+        {loading ? (
+          <TableSkeleton columns={5} rows={3} />
+        ) : connections.length === 0 ? (
+          <EmptyState
+            icon={<Radio size={20} />}
+            title="Nenhum número conectado"
+            description="Conecte por QR Code em menos de um minuto, ou use a API oficial da Meta."
+            action={
+              <Button variant="primary" onClick={startWizard}>
+                <Plus size={16} /> Conectar WhatsApp
+              </Button>
+            }
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left text-xs">
+              <thead>
+                <tr className="border-b border-border text-2xs text-content-muted">
+                  <th className="px-4 py-2 font-medium">Nome</th>
+                  <th className="px-4 py-2 font-medium">Número</th>
+                  <th className="px-4 py-2 font-medium">Status</th>
+                  <th className="hidden px-4 py-2 font-medium lg:table-cell">Agente</th>
+                  <th className="hidden px-4 py-2 font-medium md:table-cell">Fluxo publicado</th>
+                  <th className="w-12" />
+                </tr>
+              </thead>
+              <tbody>
+                {connections.map(conn => {
+                  const meta = STATUS_META[conn.status] ?? STATUS_META.disconnected;
+                  const binding = flowByConnection.get(conn.id);
+                  const isTest = Boolean(binding?.flow.graph.testMode?.enabled);
+                  const needsQr = conn.provider === 'evolution' && conn.status !== 'connected';
+                  return (
+                    <tr key={conn.id} className="border-b border-border last:border-0 hover:bg-surface-elevated/50">
+                      <td className="px-4 py-3">
+                        <p className="m-0 font-medium text-content">{conn.name}</p>
+                        <p className="m-0 text-2xs text-content-muted">{PROVIDER_LABEL[conn.provider]}</p>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 tabular-nums text-content-secondary">
+                        {conn.phone ? formatPhone(conn.phone) : <span className="text-content-muted">—</span>}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <span className="inline-flex items-center gap-1.5 font-medium text-content">
+                            <span className={`h-2 w-2 rounded-full ${meta.dot}`} aria-hidden="true" />
+                            {meta.label}
+                          </span>
+                          {needsQr ? (
+                            <Button size="sm" variant="outline" onClick={() => setActiveQrModal(conn.name || conn.id)}>
+                              <QrCode size={14} /> Reconectar
+                            </Button>
+                          ) : conn.status === 'error' ? (
+                            <Button size="sm" variant="outline" loading={verifyingId === conn.id} onClick={() => void handleVerify(conn.id)}>
+                              Verificar de novo
+                            </Button>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="hidden px-4 py-3 text-content-secondary lg:table-cell">
+                        {conn.agent_id ? (
+                          <Link to={`/agents/${conn.agent_id}`} className="hover:text-content hover:underline">
+                            {agentNames[conn.agent_id] ?? 'Agente'}
+                          </Link>
+                        ) : (
+                          <span className="text-content-muted">—</span>
+                        )}
+                      </td>
+                      <td className="hidden px-4 py-3 md:table-cell">
+                        {binding ? (
+                          <div className="flex items-center gap-2">
+                            <Link
+                              to={`/flows/new?id=${encodeURIComponent(binding.flow.id)}`}
+                              className="truncate text-content-secondary hover:text-content hover:underline"
+                              title={`Publicado em ${formatDateTime(binding.flow.publishedAt)}`}
+                            >
+                              {binding.flow.name} · v{binding.flow.version}
+                            </Link>
+                            {isTest && (
+                              <span
+                                className="flex-shrink-0 rounded-full border border-warning/40 bg-warning/10 px-1.5 text-2xs font-medium text-content"
+                                title={`Responde só a ${binding.flow.graph.testMode?.phone ? formatPhone(binding.flow.graph.testMode.phone) : 'número não configurado'}`}
+                              >
+                                Teste
+                              </span>
+                            )}
+                          </div>
+                        ) : loadingActive ? (
+                          <Skeleton className="h-3 w-24" />
+                        ) : (
+                          <Link to="/flows" className="text-content-muted hover:text-content">
+                            Publicar um fluxo →
+                          </Link>
+                        )}
+                      </td>
+                      <td className="px-2 py-2 text-right">
+                        <DropdownMenu
+                          aria-label={`Ações de ${conn.name}`}
+                          width={240}
+                          items={rowMenu(conn)}
+                          trigger={<IconButton label="Mais ações" icon={<MoreHorizontal size={16} />} size="sm" tooltip={false} />}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* The wizard is a focused task, so it gets its own layer instead of pushing the table down. */}
+      <Modal
+        isOpen={wizardOpen}
+        onClose={() => !busy && setWizardOpen(false)}
+        maxWidth="lg"
+        title={wizardTitle}
+        description={
+          <ol className="m-0 mt-2 flex list-none items-center gap-1.5 p-0 text-2xs">
+            {steps.map((label, index) => {
+              const n = index + 1;
+              const state = n < wizardStep ? 'done' : n === wizardStep ? 'current' : 'next';
+              return (
+                <li key={label} className="flex items-center gap-1.5">
+                  <span
+                    className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold ${
+                      state === 'current' ? 'bg-brand text-canvas' : state === 'done' ? 'bg-brand/20 text-brand-fg' : 'bg-surface-elevated text-content-muted'
+                    }`}
+                  >
+                    {n}
+                  </span>
+                  <span className={state === 'current' ? 'font-medium text-content' : 'text-content-muted'}>{label}</span>
+                  {n < steps.length && <span className="text-content-muted">·</span>}
+                </li>
+              );
+            })}
+          </ol>
+        }
+      >
+        {message && wizardStep !== 4 && (
+          <div className="mb-4 rounded-lg border border-border bg-surface-elevated p-3 text-xs text-content-secondary">{message}</div>
+        )}
+
+        {wizardStep === 1 && (
+          <div className="flex flex-col gap-4">
+            <Input
+              label="Nome da conexão"
+              required
+              autoFocus
+              placeholder="Ex.: WhatsApp Comercial"
+              value={name}
+              onChange={e => setName(e.target.value)}
+            />
+            <div className="flex flex-col gap-2">
+              <span className="text-xs font-medium text-content-secondary">Como conectar</span>
+              <div role="radiogroup" className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {(
+                  [
+                    { id: 'evolution', icon: <QrCode size={16} />, title: 'QR Code (rápido)', text: 'Escaneie com o celular. Bom para começar e para testes.', tech: 'Evolution API' },
+                    { id: 'meta', icon: <ShieldCheck size={16} />, title: 'API oficial da Meta', text: 'Para operação em escala, com templates aprovados.', tech: 'Meta Cloud API' },
+                  ] as const
+                ).map(option => {
+                  const selected = provider === option.id;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => setProvider(option.id)}
+                      className={`flex min-h-0 flex-col items-start justify-start gap-1 rounded-xl border p-3.5 text-left transition-colors duration-150 ease-out ${
+                        selected ? 'border-brand bg-brand/5 ring-1 ring-brand' : 'border-border bg-surface hover:border-border-strong'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2 text-sm font-medium text-content">
+                        <span className={selected ? 'text-brand-fg' : 'text-content-muted'}>{option.icon}</span>
+                        {option.title}
+                      </span>
+                      <span className="text-xs text-content-secondary">{option.text}</span>
+                      <span className="text-2xs text-content-muted">{option.tech}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <h1 className="text-2xl font-bold text-content tracking-tight">
-              Conexões WhatsApp
-            </h1>
-            <p className="text-sm text-content-secondary max-w-2xl mt-1">
-              Conecte números via Evolution API (QR Code ao vivo) ou Meta Cloud API oficial com isolamento por organização.
+            <div className="flex justify-end gap-2 border-t border-border pt-4">
+              <Button variant="ghost" onClick={() => setWizardOpen(false)}>
+                Cancelar
+              </Button>
+              <Button variant="primary" disabled={!name.trim()} onClick={() => setWizardStep(2)}>
+                Continuar <ArrowRight size={14} />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {wizardStep === 2 && (
+          <div className="flex flex-col gap-4">
+            <p className="m-0 text-xs text-content-secondary">
+              {provider === 'evolution'
+                ? 'Endereço e chave do seu servidor Evolution. Ficam guardados criptografados.'
+                : 'Dados do app no Meta for Developers. Ficam guardados criptografados.'}
             </p>
-          </div>
-          {!wizardOpen && (
-            <Button variant="primary" size="sm" onClick={startWizard}>
-              <Plus className="w-4 h-4" /> Nova Conexão
-            </Button>
-          )}
-        </div>
-
-      {message && (
-        <div className="p-3.5 mb-6 rounded-lg bg-brand/10 border border-brand/20 text-brand-fg text-xs flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-          <span>{message}</span>
-        </div>
-      )}
-
-      {wizardOpen ? (
-        <Card className="p-6 bg-surface border-border mb-8 max-w-2xl">
-          {/* Steps Breadcrumb */}
-          <div className="flex items-center gap-2 pb-4 mb-6 border-b border-border overflow-x-auto">
-            {[
-              { step: 1, label: '1. Identificação & Provedor' },
-              { step: 2, label: '2. Credenciais' },
-              { step: 3, label: provider === 'evolution' ? '3. Escanear QR Code' : '3. Validação' },
-              { step: 4, label: '4. Conclusão' },
-            ].map((s) => (
-              <Badge
-                key={s.step}
-                variant={wizardStep === s.step ? 'accent' : 'outline'}
-                size="sm"
-              >
-                {s.label}
-              </Badge>
-            ))}
-          </div>
-
-          {/* Wizard Step 1: Name and Provider */}
-          {wizardStep === 1 && (
-            <div className="flex flex-col gap-4">
-              <div>
-                <h2 className="text-base font-semibold text-content m-0">Identificação da Conexão</h2>
-                <p className="text-xs text-content-muted mt-1 mb-0">Defina um nome de referência e escolha o canal de transporte oficial ou Baileys.</p>
-              </div>
-
-              <Input
-                label="Nome amigável da conexão"
-                required
-                placeholder="Ex: WhatsApp Comercial Matriz"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-
-              <div className="flex flex-col gap-2">
-                <label className="text-xs font-semibold text-content">Provedor de Conexão</label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div
-                    onClick={() => setProvider('evolution')}
-                    className={`border-2 rounded-xl p-4 cursor-pointer transition-colors duration-150 ease-out ${
-                      provider === 'evolution'
-                        ? 'border-brand bg-brand/5 shadow-xs'
-                        : 'border-border bg-surface hover:border-border-hover'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 font-semibold text-xs text-content mb-1.5">
-                      <QrCode className="w-4 h-4 text-brand-fg" /> Evolution API
-                    </div>
-                    <p className="text-2xs text-content-muted m-0">
-                      Conexão via QR Code ao vivo (Baileys). Ideal para números de teste e operações flexíveis.
-                    </p>
-                  </div>
-
-                  <div
-                    onClick={() => setProvider('meta')}
-                    className={`border-2 rounded-xl p-4 cursor-pointer transition-colors duration-150 ease-out ${
-                      provider === 'meta'
-                        ? 'border-brand bg-brand/5 shadow-xs'
-                        : 'border-border bg-surface hover:border-border-hover'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 font-semibold text-xs text-content mb-1.5">
-                      <ShieldCheck className="w-4 h-4 text-success" /> Meta Cloud API
-                    </div>
-                    <p className="text-2xs text-content-muted m-0">
-                      API Oficial do WhatsApp Business, com autenticação e templates aprovados pela Meta.
-                    </p>
-                  </div>
+            {provider === 'evolution' ? (
+              <>
+                <Input
+                  label="URL do servidor"
+                  required
+                  placeholder="https://evolution.seudominio.com"
+                  value={evolutionUrl}
+                  onChange={e => setEvolutionUrl(e.target.value)}
+                />
+                <Input
+                  label="API key"
+                  type="password"
+                  required
+                  autoComplete="off"
+                  value={evolutionApiKey}
+                  onChange={e => setEvolutionApiKey(e.target.value)}
+                />
+                <Input
+                  label="Número (opcional)"
+                  placeholder="Ex.: 55 55 99999-0000"
+                  helperText="Só para parear pelo código em vez do QR Code."
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                />
+              </>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Input label="Phone Number ID" required value={metaPhoneNumberId} onChange={e => setMetaPhoneNumberId(e.target.value)} />
+                  <Input label="WABA ID" required value={metaWabaId} onChange={e => setMetaWabaId(e.target.value)} />
                 </div>
-              </div>
-
-              <div className="flex items-center gap-2.5 mt-4">
-                <Button
-                  variant="primary"
-                  size="sm"
-                  disabled={!name.trim()}
-                  onClick={() => setWizardStep(2)}
-                >
-                  Próximo <ArrowRight className="w-3.5 h-3.5" />
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setWizardOpen(false)}>
-                  Cancelar
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Wizard Step 2: Credentials */}
-          {wizardStep === 2 && (
-            <div className="flex flex-col gap-4">
-              <div>
-                <h2 className="text-base font-semibold text-content m-0">Configurar Credenciais — {provider === 'evolution' ? 'Evolution API' : 'Meta Cloud API'}</h2>
-                <p className="text-xs text-content-muted mt-1 mb-0">
-                  {provider === 'evolution'
-                    ? 'Informe o endpoint e a API key do seu container Evolution.'
-                    : 'Informe os identificadores do aplicativo Meta for Developers e o Access Token permanente.'}
-                </p>
-              </div>
-
-              {provider === 'evolution' ? (
-                <>
-                  <Input
-                    label="URL do Servidor Evolution"
-                    required
-                    placeholder="http://localhost:8080 ou https://evolution.seudominio.com"
-                    value={evolutionUrl}
-                    onChange={(e) => setEvolutionUrl(e.target.value)}
-                  />
-                  <Input
-                    label="API Key da Evolution"
-                    type="password"
-                    required
-                    placeholder="Sua chave de autenticação apikey"
-                    value={evolutionApiKey}
-                    onChange={(e) => setEvolutionApiKey(e.target.value)}
-                  />
-                  <Input
-                    label="Número de telefone (opcional - para pareamento)"
-                    placeholder="Ex: 5511999999999"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                  />
-                </>
-              ) : (
-                <>
-                  <Input
-                    label="Phone Number ID"
-                    required
-                    placeholder="Ex: 109876543210987"
-                    value={metaPhoneNumberId}
-                    onChange={(e) => setMetaPhoneNumberId(e.target.value)}
-                  />
-                  <Input
-                    label="WABA ID (WhatsApp Business Account ID)"
-                    required
-                    placeholder="Ex: 987654321098765"
-                    value={metaWabaId}
-                    onChange={(e) => setMetaWabaId(e.target.value)}
-                  />
-                  <Input
-                    label="Token de Acesso do Sistema (System User Token)"
-                    type="password"
-                    required
-                    placeholder="EAAB..."
-                    value={metaAccessToken}
-                    onChange={(e) => setMetaAccessToken(e.target.value)}
-                  />
-                  <Input
-                    label="App Secret (validação dos webhooks)"
-                    type="password"
-                    required
-                    value={metaAppSecret}
-                    onChange={e => setMetaAppSecret(e.target.value)}
-                    autoComplete="off"
-                  />
-                  <Input
-                    label="Token de verificação do webhook"
-                    required
-                    value={metaVerifyToken}
-                    onChange={e => setMetaVerifyToken(e.target.value)}
-                    autoComplete="off"
-                    placeholder="Crie um token com pelo menos 16 caracteres"
-                    helperText="Use este mesmo token ao cadastrar a URL do webhook no painel da Meta."
-                  />
-                </>
-              )}
-
-              <div className="flex items-center gap-2.5 mt-4">
-                <Button
-                  variant="primary"
-                  size="sm"
-                  disabled={
-                    busy ||
-                    (provider === 'evolution' && (!evolutionUrl || !evolutionApiKey)) ||
-                    (provider === 'meta' && (!metaPhoneNumberId || !metaWabaId || !metaAccessToken || !metaAppSecret || metaVerifyToken.length < 16))
-                  }
-                  loading={busy}
-                  onClick={handleCreateConnection}
-                >
-                  {provider === 'evolution' ? 'Criar Instância & Gerar QR' : 'Validar na Meta & Conectar'}
-                </Button>
-                <Button variant="secondary" size="sm" onClick={() => setWizardStep(1)}>
-                  Voltar
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Wizard Step 3: Live QR for Evolution */}
-          {wizardStep === 3 && (
-            <div className="flex flex-col items-center text-center gap-4">
-              <div>
-                <h2 className="text-base font-semibold text-content m-0">Escanear QR Code no Celular</h2>
-                <p className="text-xs text-content-muted mt-1 mb-0">
-                  Abra o WhatsApp &gt; Dispositivos Conectados &gt; Conectar um aparelho e aponte a câmera para o código abaixo:
-                </p>
-              </div>
-
-              {qrBase64 ? (
-                <div className="p-4 bg-white dark:bg-zinc-900 border border-border rounded-xl inline-block shadow-sm">
-                  <img
-                    src={qrBase64.startsWith('data:') ? qrBase64 : `data:image/png;base64,${qrBase64}`}
-                    alt="WhatsApp QR Code"
-                    className="w-60 h-60 block mx-auto"
-                  />
-                </div>
-              ) : (
-                <div role="status" aria-live="polite" className="p-4 bg-surface-muted rounded-xl flex flex-col items-center gap-3">
-                  <span className="sr-only">Aguardando geração do QR Code…</span>
-                  <Skeleton className="h-60 w-60" rounded="lg" />
-                  <Skeleton className="h-3 w-52" />
-                </div>
-              )}
-
-              <div className="flex items-center gap-2.5 mt-2">
-                <Button variant="outline" size="sm" onClick={() => createdConnectionId && void fetchLiveQr(createdConnectionId)}>
-                  <RefreshCw className="w-3.5 h-3.5" /> Atualizar QR Code
-                </Button>
-                <Button variant="primary" size="sm" onClick={() => setWizardStep(4)}>
-                  Já conectei
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Wizard Step 4: Completion */}
-          {wizardStep === 4 && (
-            <div className="flex flex-col items-center text-center gap-3 py-4">
-              <CheckCircle2 className="w-12 h-12 text-success" />
-              <h2 className="text-base font-semibold text-content m-0">Conexão Estabelecida com Sucesso!</h2>
-              <p className="text-xs text-content-muted max-w-sm m-0">
-                O canal de WhatsApp está ativo, autenticado e pronto para receber e enviar mensagens pelo fluxo.
-              </p>
-
-              {phone && (
-                <Card className="p-3.5 bg-surface-muted/50 border-border text-left w-full max-w-xs mt-2">
-                  <span className="text-2xs text-content-muted block">Número Vinculado:</span>
-                  <div className="text-sm font-semibold text-content mt-0.5">
-                    +{phone}
-                  </div>
-                </Card>
-              )}
-
+                <Input
+                  label="Token de acesso (System User)"
+                  type="password"
+                  required
+                  autoComplete="off"
+                  placeholder="EAAB…"
+                  value={metaAccessToken}
+                  onChange={e => setMetaAccessToken(e.target.value)}
+                />
+                <Input
+                  label="App Secret"
+                  type="password"
+                  required
+                  autoComplete="off"
+                  helperText="Usado para validar as mensagens que a Meta envia."
+                  value={metaAppSecret}
+                  onChange={e => setMetaAppSecret(e.target.value)}
+                />
+                <Input
+                  label="Token de verificação do webhook"
+                  required
+                  autoComplete="off"
+                  placeholder="Pelo menos 16 caracteres"
+                  helperText="Use o mesmo token ao cadastrar o webhook no painel da Meta."
+                  value={metaVerifyToken}
+                  onChange={e => setMetaVerifyToken(e.target.value)}
+                />
+              </>
+            )}
+            <div className="flex justify-end gap-2 border-t border-border pt-4">
+              <Button variant="ghost" onClick={() => setWizardStep(1)}>
+                Voltar
+              </Button>
               <Button
                 variant="primary"
-                size="sm"
-                className="mt-4"
+                disabled={
+                  busy ||
+                  (provider === 'evolution' && (!evolutionUrl || !evolutionApiKey)) ||
+                  (provider === 'meta' && (!metaPhoneNumberId || !metaWabaId || !metaAccessToken || !metaAppSecret || metaVerifyToken.length < 16))
+                }
+                loading={busy}
+                onClick={handleCreateConnection}
+              >
+                {provider === 'evolution' ? 'Gerar QR Code' : 'Validar na Meta'}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {wizardStep === 3 && (
+          <div className="flex flex-col items-center gap-4 text-center">
+            <p className="m-0 text-xs text-content-secondary">
+              No celular: WhatsApp › Dispositivos conectados › Conectar um aparelho. A tela avança sozinha quando conectar.
+            </p>
+            {qrBase64 ? (
+              <div className="inline-block rounded-xl border border-border bg-white p-4">
+                <img
+                  src={qrBase64.startsWith('data:') ? qrBase64 : `data:image/png;base64,${qrBase64}`}
+                  alt="QR Code do WhatsApp"
+                  className="mx-auto block h-60 w-60"
+                />
+              </div>
+            ) : (
+              <div role="status" aria-live="polite" className="flex flex-col items-center gap-3">
+                <span className="sr-only">Gerando o QR Code…</span>
+                <Skeleton className="h-60 w-60" rounded="lg" />
+              </div>
+            )}
+            <div className="flex w-full justify-between gap-2 border-t border-border pt-4">
+              <Button variant="ghost" onClick={() => createdConnectionId && void fetchLiveQr(createdConnectionId)}>
+                <RefreshCw size={14} /> Novo QR Code
+              </Button>
+              <Button variant="primary" loading={verifyingId === createdConnectionId} onClick={() => void confirmConnected()}>
+                Já escaneei
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {wizardStep === 4 && (
+          <div className="flex flex-col items-center gap-3 py-2 text-center">
+            <CheckCircle2 size={40} className="text-success" />
+            <p className="m-0 text-sm font-semibold text-content">{name || 'WhatsApp'} está conectado</p>
+            {phone && <p className="m-0 text-xs tabular-nums text-content-secondary">{formatPhone(phone)}</p>}
+            <p className="m-0 max-w-sm text-xs text-content-secondary">
+              Para a IA responder, escolha um agente para este número e publique um fluxo.
+            </p>
+            {message && <p className="m-0 max-w-sm text-2xs text-warning">{message}</p>}
+            <div className="mt-2 flex w-full justify-end gap-2 border-t border-border pt-4">
+              <Link to="/flows">
+                <Button variant="ghost">
+                  <Workflow size={14} /> Abrir construtor
+                </Button>
+              </Link>
+              <Button
+                variant="primary"
                 onClick={() => {
                   setWizardOpen(false);
                   void loadConnections();
                 }}
               >
-                Concluir e Ver Conexões
+                Concluir
               </Button>
             </div>
-          )}
-        </Card>
-      ) : null}
-
-      {/* Existing Connections Table */}
-      <h2 className="text-base font-semibold text-content mb-3">Canais Ativos na Organização</h2>
-      {loading ? (
-        <Card className="p-0 bg-surface border-border overflow-hidden">
-          <TableSkeleton columns={6} rows={3} />
-        </Card>
-      ) : connections.length === 0 ? (
-        <Card className="p-4 bg-surface border-border">
-          <p className="text-xs text-content-muted m-0">Nenhuma conexão cadastrada nesta organização. Clique em “Nova Conexão” para integrar seu WhatsApp.</p>
-        </Card>
-      ) : (
-        <Card className="p-0 bg-surface border-border overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left border-collapse">
-              <thead>
-                <tr className="bg-surface-muted/50 border-b border-border text-content-muted">
-                  <th className="py-2.5 px-4 font-medium">Nome</th>
-                  <th className="py-2.5 px-4 font-medium">Provedor</th>
-                  <th className="py-2.5 px-4 font-medium">Número</th>
-                  <th className="py-2.5 px-4 font-medium">Status</th>
-                  <th className="py-2.5 px-4 font-medium">Webhook de Entrada</th>
-                  <th className="py-2.5 px-4 font-medium text-right">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/60">
-                {connections.map((conn) => (
-                  <tr key={conn.id} className="hover:bg-surface-muted/40 transition-colors">
-                    <td className="py-3 px-4 font-semibold text-content">{conn.name}</td>
-                    <td className="py-3 px-4">
-                      <Badge variant="outline" size="sm" className="uppercase font-semibold">
-                        {conn.provider === 'meta' ? 'Meta Cloud' : 'Evolution'}
-                      </Badge>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-content">
-                      {conn.phone ? `+${conn.phone}` : <span className="text-content-muted">Não identificado</span>}
-                    </td>
-                    <td className="py-3 px-4">
-                      {conn.status === 'connected' ? (
-                        <Badge variant="success" size="sm" className="gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-success" />
-                          Conectado
-                        </Badge>
-                      ) : conn.status === 'connecting' ? (
-                        <Badge variant="warning" size="sm" className="gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-warning" />
-                          Aguardando QR
-                        </Badge>
-                      ) : conn.status === 'error' ? (
-                        <Badge variant="danger" size="sm" className="gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-danger" />
-                          Erro
-                        </Badge>
-                      ) : (
-                        <Badge variant="default" size="sm" className="gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-zinc-400" />
-                          Desconectado
-                        </Badge>
-                      )}
-                    </td>
-                    <td className="py-3 px-4">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => copyWebhook(conn.webhook_url || '', conn.id)}
-                        title="Copiar URL de webhook"
-                      >
-                        {copiedId === conn.id ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
-                        <span>{copiedId === conn.id ? 'Copiado!' : 'Copiar URL'}</span>
-                      </Button>
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {conn.provider === 'evolution' && conn.status !== 'connected' && (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => setActiveQrModal(conn.name || conn.id)}
-                          >
-                            <QrCode className="w-3.5 h-3.5" /> QR Code
-                          </Button>
-                        )}
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => void handleVerify(conn.id)}
-                          title="Verificar integridade da conexão"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5" /> Sincronizar
-                        </Button>
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          onClick={() => void handleDelete(conn.id)}
-                          title="Remover conexão"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
-
-      {/* FLUXOS ATIVOS & AUTOMAÇÕES */}
-      <div className="mt-10 pt-6 border-t border-border">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-          <div>
-            <h2 className="text-base font-semibold text-content m-0 flex items-center gap-2">
-              <Radio className="w-4 h-4 text-success" /> Fluxos Ativos & Automações do WhatsApp
-            </h2>
-            <p className="text-xs text-content-muted mt-1 mb-0">
-              Veja qual fluxo da inteligência artificial está vinculado e operando em cada número.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => void loadActiveFlows()}
-              loading={loadingActive}
-              title="Recarregar fluxos ativos"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingActive ? 'animate-spin' : ''}`} />
-              {loadingActive ? 'Atualizando…' : 'Atualizar'}
-            </Button>
-            <Link to="/flows/new">
-              <Button variant="primary" size="sm">
-                <Workflow className="w-3.5 h-3.5" /> Abrir no Construtor
-              </Button>
-            </Link>
-          </div>
-        </div>
-
-        {loadingActive && activeFlows.length === 0 ? (
-          <CardGridSkeleton />
-        ) : activeFlows.length === 0 ? (
-          <Card className="p-4 bg-surface border-border">
-            <p className="text-xs text-content-muted m-0">
-              Nenhum fluxo publicado e vinculado às instâncias ainda. No <strong>Construtor de Fluxos</strong>, selecione a instância desejada e clique em <strong>Publicar</strong>.
-            </p>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {activeFlows.map(binding => {
-              const { connection, flow } = binding;
-              const isTest = Boolean(flow.graph.testMode?.enabled);
-              const testPhone = flow.graph.testMode?.phone || '';
-              const publishedAt = new Date(flow.publishedAt);
-              const publishedAtText = Number.isNaN(publishedAt.getTime())
-                ? '—'
-                : publishedAt.toLocaleString('pt-BR');
-              return (
-                <Card
-                  key={connection.id}
-                  className={`p-4 bg-surface flex flex-col justify-between border ${
-                    isTest ? 'border-warning/40 bg-warning/5' : 'border-success/40 bg-success/5'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-semibold text-content-muted uppercase">
-                        Instância: <strong className="text-content">{connection.instanceName}</strong>
-                      </span>
-                      <Badge
-                        variant={isTest ? 'warning' : 'success'}
-                        size="sm"
-                        className="font-bold flex items-center gap-1.5"
-                      >
-                        {isTest ? (
-                          <>
-                            <ShieldAlert className="w-3 h-3" /> MODO TESTE
-                          </>
-                        ) : (
-                          <>
-                            <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" /> PRODUÇÃO
-                          </>
-                        )}
-                      </Badge>
-                    </div>
-
-                    <h3 className="text-sm font-bold text-content mt-1 mb-1">{flow.name}</h3>
-                    <div className="text-2xs text-content-muted mb-3">
-                      Versão: <strong className="text-content">v{flow.version}</strong> · Publicado em: {publishedAtText}
-                    </div>
-
-                    {isTest ? (
-                      <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg text-xs text-warning dark:text-warning mb-3 flex flex-col gap-1">
-                        <div className="font-semibold flex items-center gap-1.5">
-                          <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" /> Proteção de Teste Ativa
-                        </div>
-                        <div className="text-2xs">Responde <strong>APENAS</strong> ao número autorizado:</div>
-                        <div className="font-mono font-bold text-xs">{testPhone || '(não configurado)'}</div>
-                        <div className="text-2xs opacity-80">
-                          Nenhum outro contato receberá mensagens da IA.
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="p-3 bg-success/10 border border-success/30 rounded-lg text-xs text-success dark:text-emerald-300 mb-3 flex flex-col gap-1">
-                        <div className="font-semibold flex items-center gap-1.5">
-                          <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" /> Atendimento Público Liberado
-                        </div>
-                        <div className="text-2xs">A IA responderá a todos os contatos que enviarem mensagens nesta instância.</div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border/50">
-                    <Button
-                      type="button"
-                      variant="primary"
-                      size="sm"
-                      className="flex-1"
-                      onClick={() => setSimulatingFlow({ id: flow.id, name: flow.name, versionId: flow.versionId, graph: flow.graph })}
-                      title="Abrir o simulador com IA para testar conversas deste fluxo sem enviar WhatsApp"
-                    >
-                      <Play className="w-3.5 h-3.5" /> Playground
-                    </Button>
-                    <Link to={`/flows/new?id=${encodeURIComponent(flow.id)}`}>
-                      <Button variant="outline" size="sm">
-                        <Workflow className="w-3.5 h-3.5" /> Editar
-                      </Button>
-                    </Link>
-                  </div>
-                </Card>
-              );
-            })}
           </div>
         )}
-      </div>
+      </Modal>
 
-      {/* MODAL DO PLAYGROUND (SIMULADOR) */}
       {simulatingFlow && (
         <PlaygroundModal
           isOpen={Boolean(simulatingFlow)}
@@ -917,40 +841,33 @@ export function ConnectionsPage() {
         />
       )}
 
-      {/* QR Modal for existing connection */}
-      {activeQrModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <Card className="p-6 bg-surface border-border max-w-sm w-full text-center flex flex-col items-center gap-4 shadow-xl">
-            <div>
-              <h2 className="text-base font-semibold text-content m-0">Escanear QR Code</h2>
-              <p className="text-xs text-content-muted mt-1 mb-0">Abra o WhatsApp &gt; Dispositivos Conectados &gt; Conectar um aparelho e aponte a câmera.</p>
+      <Modal
+        isOpen={Boolean(activeQrModal)}
+        onClose={() => setActiveQrModal(null)}
+        maxWidth="sm"
+        title="Reconectar WhatsApp"
+        description="No celular: WhatsApp › Dispositivos conectados › Conectar um aparelho."
+      >
+        <div className="flex flex-col items-center gap-4">
+          {qrBase64 ? (
+            <div className="rounded-xl border border-border bg-white p-3">
+              <img
+                src={qrBase64.startsWith('data:') ? qrBase64 : `data:image/png;base64,${qrBase64}`}
+                alt="QR Code do WhatsApp"
+                className="block h-52 w-52"
+              />
             </div>
-            {qrBase64 ? (
-              <div className="p-3 bg-white dark:bg-zinc-900 border border-border rounded-xl shadow-xs">
-                <img
-                  src={qrBase64.startsWith('data:') ? qrBase64 : `data:image/png;base64,${qrBase64}`}
-                  alt="QR Code"
-                  className="w-52 h-52 block"
-                />
-              </div>
-            ) : qrError ? (
-              <div className="p-3 bg-danger/10 text-danger border border-danger/20 rounded-lg text-xs w-full">
-                {qrError}
-              </div>
-            ) : (
-              <div role="status" aria-live="polite" className="py-3 flex flex-col items-center gap-3">
-                <span className="sr-only">Aguardando QR Code da Evolution API…</span>
-                <Skeleton className="h-52 w-52" rounded="lg" />
-                <Skeleton className="h-3 w-44" />
-              </div>
-            )}
-            <Button variant="primary" size="sm" onClick={() => setActiveQrModal(null)}>
-              Fechar
-            </Button>
-          </Card>
+          ) : qrError ? (
+            <div className="w-full rounded-lg border border-danger/20 bg-danger/10 p-3 text-xs text-danger">{qrError}</div>
+          ) : (
+            <div role="status" aria-live="polite">
+              <span className="sr-only">Gerando o QR Code…</span>
+              <Skeleton className="h-52 w-52" rounded="lg" />
+            </div>
+          )}
+          <p className="m-0 text-2xs text-content-muted">A janela fecha sozinha quando conectar.</p>
         </div>
-      )}
-    </div>
-  </div>
+      </Modal>
+    </PageContainer>
   );
 }

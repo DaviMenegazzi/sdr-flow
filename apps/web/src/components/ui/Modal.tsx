@@ -58,7 +58,7 @@ export function Modal({
             <div>
               <h2 className="text-base font-semibold text-content-primary">{title}</h2>
               {description && (
-                <p className="text-xs text-content-secondary mt-0.5">{description}</p>
+                <div className="text-xs text-content-secondary mt-0.5">{description}</div>
               )}
             </div>
             <button
