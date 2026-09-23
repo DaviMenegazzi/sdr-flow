@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useSession } from '../session';
 import type { FlowGraph } from '@sdr/shared';
 import { PlaygroundModal } from '../builder/PlaygroundModal';
-import { Button, Badge, Card, Input, CardGridSkeleton, Skeleton, TableSkeleton } from '../components/ui';
+import { confirmDialog, Button, Badge, Card, Input, CardGridSkeleton, Skeleton, TableSkeleton } from '../components/ui';
 import {
   Radio,
   QrCode,
@@ -358,7 +358,7 @@ export function ConnectionsPage() {
   }
 
   async function handleDelete(connId: string) {
-    if (!confirm('Deseja realmente remover esta conexão? O atendimento neste número será interrompido.')) return;
+    if (!(await confirmDialog({ title: 'Remover conexão?', description: 'O atendimento automático neste número para imediatamente e o histórico deixa de receber mensagens novas.', confirmLabel: 'Remover conexão', danger: true }))) return;
     try {
       if (!activeOrg || !session?.access_token) throw new Error('Sessão indisponível.');
       const url = `/api/organizations/${activeOrg}/connections/${connId}`;

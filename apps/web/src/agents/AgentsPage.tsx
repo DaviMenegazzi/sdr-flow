@@ -10,7 +10,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { useSession } from '../session';
-import { Button, Card, Badge, CardGridSkeleton } from '../components/ui';
+import { confirmDialog, Button, Card, Badge, CardGridSkeleton } from '../components/ui';
 import { AgentCard } from './AgentCard';
 import { AgentDrawer } from './AgentDrawer';
 import { AgentPlaygroundModal } from './AgentPlaygroundModal';
@@ -145,7 +145,7 @@ export function AgentsPage() {
 
   const handleArchiveAgent = async (agent: Agent) => {
     if (!headers) return;
-    if (!window.confirm(`Deseja arquivar o agente "${agent.name}"?`)) return;
+    if (!(await confirmDialog({ title: `Arquivar "${agent.name}"?`, description: 'As instâncias vinculadas a este agente deixam de ser atendidas por ele.', confirmLabel: 'Arquivar agente', danger: true }))) return;
 
     try {
       const res = await fetch(`/api/me/agents/${agent.id}`, {

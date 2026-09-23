@@ -16,7 +16,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { useSession } from '../session';
-import { Button, Badge, Card, Skeleton, SkeletonText } from '../components/ui';
+import { confirmDialog, Button, Badge, Card, Skeleton, SkeletonText } from '../components/ui';
 
 interface CalendarAccount {
   id: string;
@@ -152,7 +152,7 @@ export function IntegrationsPage() {
 
   const handleDisconnect = async (accountId: string) => {
     if (!activeOrg || !session?.access_token) return;
-    if (!window.confirm('Tem certeza que deseja desconectar esta conta Google Calendar?')) return;
+    if (!(await confirmDialog({ title: 'Desconectar Google Agenda?', description: 'Os agentes deixam de consultar horários e de marcar consultas nesta agenda.', confirmLabel: 'Desconectar', danger: true }))) return;
 
     try {
       const res = await fetch(

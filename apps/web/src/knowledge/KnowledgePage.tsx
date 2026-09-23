@@ -23,7 +23,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useSession } from '../session';
-import { Button, Badge, Card, Input, CardGridSkeleton, Skeleton, SkeletonText } from '../components/ui';
+import { confirmDialog, Button, Badge, Card, Input, CardGridSkeleton, Skeleton, SkeletonText } from '../components/ui';
 
 interface KnowledgeDoc {
   id: string;
@@ -266,7 +266,7 @@ export function KnowledgePage() {
   }
 
   async function handleDelete(id: string, title: string) {
-    if (!confirm(`Deseja realmente excluir o documento "${title}"?`)) return;
+    if (!(await confirmDialog({ title: `Excluir "${title}"?`, description: 'A IA deixa de usar este documento nas respostas.', confirmLabel: 'Excluir documento', danger: true }))) return;
     if (!baseUrl || !session?.access_token) {
       alert('Selecione uma organização antes de excluir um documento.');
       return;

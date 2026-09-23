@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode, type Fo
 import { createClient, type Session } from '@supabase/supabase-js';
 import { CheckCircle2, Sliders, UserPlus } from 'lucide-react';
 import type { MemberRole, OrgTier, Capability } from '@sdr/shared';
-import { Badge, Button, Input, Modal, Card, TableSkeleton, Tabs } from './components/ui';
+import { confirmDialog, Badge, Button, Input, Modal, Card, TableSkeleton, Tabs } from './components/ui';
 
 const url = import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.SUPABASE_ANON_KEY;
@@ -483,7 +483,7 @@ export function Settings() {
 
   async function handleRemoveMember(userId: string) {
     if (!activeOrg || !session?.access_token) return;
-    if (!confirm('Tem certeza que deseja remover este membro da organização?')) return;
+    if (!(await confirmDialog({ title: 'Remover da organização?', description: 'A pessoa perde o acesso imediatamente. Para voltar, ela precisa de um novo convite.', confirmLabel: 'Remover', danger: true }))) return;
     try {
       const res = await fetch(`/api/organizations/${activeOrg}/members/${userId}`, {
         method: 'DELETE',
@@ -623,7 +623,7 @@ export function Settings() {
 
   async function handleRevokeApiKey(keyId: string) {
     if (!activeOrg || !session?.access_token) return;
-    if (!confirm('Deseja realmente revogar esta chave de API?')) return;
+    if (!(await confirmDialog({ title: 'Revogar chave de API?', description: 'Os sistemas que usam esta chave param de funcionar na hora. Não dá para desfazer.', confirmLabel: 'Revogar chave', danger: true }))) return;
     try {
       const res = await fetch(`/api/organizations/${activeOrg}/api-keys/${keyId}`, {
         method: 'DELETE',
