@@ -870,7 +870,9 @@ export const executors: Record<NodeType, NodeExecutor> = {
   'action.crm_sync': async (ctx, _config, services) => {
     const leadName = ctx.lead?.name || 'Lead';
     const interest = ctx.lead?.interest || 'Interesse Comercial';
-    const score = (ctx.variables.decision as any)?.score ?? 50;
+    // Only an explicit agent.score node sets decision.score. Otherwise leave the deal score to
+    // the Laya classifier instead of overwriting it with a placeholder every turn.
+    const score = (ctx.variables.decision as any)?.score as number | undefined;
 
     let dealId = '';
     if (services.db) {

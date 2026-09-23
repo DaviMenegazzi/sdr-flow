@@ -11,6 +11,8 @@ import type { DebugRegistry, DebugFlowSnapshot } from '../debug/debug-registry.j
 import type { TraceSink } from '../trace/trace-sink.js';
 import { waitForTraceCompletion } from '../trace/trace-completion.js';
 import type { TurnResult } from './redis-buffer.js';
+import { signalsFromLeadText, signalsFromSteps, type FunnelSignal } from '../funnel/funnel-rules.js';
+import { applyFunnelSignals, type LeadClassificationQueue } from '../funnel/funnel-service.js';
 
 // The business logic previously inline in apps/api/src/webhook.ts's processInboundWebhook
 // (docs/OPTIMIZATION_IMPLEMENTATION_PLAN.md 8.5): connection/agent already resolved by the
@@ -26,6 +28,8 @@ export interface TurnProcessorDeps {
   eventPublisher: ExecutionEventPublisher;
   debugRegistry: DebugRegistry;
   traceSink: TraceSink;
+  /** Laya lead classification, debounced off the reply path. Absent when Laya is not configured. */
+  leadClassification?: LeadClassificationQueue;
 }
 
 export interface ProcessTurnInput {
@@ -48,6 +52,41 @@ async function markAll(db: ServiceDb, organizationId: string, ids: string[], sta
 
 // Fase 5 (11.1): best-effort publish of inbox:* realtime events, mirroring emitExecutionEvent's
 // own non-blocking contract below — a live-view hiccup must never fail the turn itself.
+// Funnel stages that are safe to mirror onto the session row. CONVERTED/CLOSED stay on the lead:
+// on conversations.stage they end the session, which is the flow's call (handoff, timeout,
+// action.update_stage), not a side effect of classification.
+const MIRRORED_SESSION_STAGES = ['QUALIFYING', 'COLLECTING_INFORMATION', 'PRESENTING_SOLUTION', 'NEGOTIATING'];
+
+// Best effort and after the reply was already sent: a funnel or Laya hiccup must never fail the turn.
+async function updateLeadFunnel(
+  deps: TurnProcessorDeps,
+  input: {
+    organizationId: string;
+    leadId: string;
+    conversationId: string;
+    conversationStage: string;
+    signals: FunnelSignal[];
+    mirrorOnConversation?: (stage: string) => Promise<void>;
+  },
+) {
+  try {
+    const move = await applyFunnelSignals(deps.db, input);
+    const current = MIRRORED_SESSION_STAGES.indexOf(input.conversationStage);
+    const target = move ? MIRRORED_SESSION_STAGES.indexOf(move.to) : -1;
+    const sessionOpen = input.conversationStage === 'NEW_CONVERSATION' || current >= 0;
+    if (move && input.mirrorOnConversation && sessionOpen && target > current) {
+      await input.mirrorOnConversation(move.to);
+    }
+  } catch (err) {
+    console.warn('[turn-processor] Falha ao atualizar o funil do lead (não bloqueante):', err);
+  }
+  try {
+    await deps.leadClassification?.enqueue({ organizationId: input.organizationId, leadId: input.leadId, conversationId: input.conversationId });
+  } catch (err) {
+    console.warn('[turn-processor] Falha ao enfileirar classificação Laya (não bloqueante):', err);
+  }
+}
+
 function makeEmitRealtime(eventPublisher: ExecutionEventPublisher) {
   return async (input: Parameters<typeof publishRealtimeEvent>[1]) => {
     try {
@@ -174,6 +213,17 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
         code: 'bot_paused',
         message: 'A mensagem chegou, mas a IA está pausada nesta conversa.',
       });
+      // A lead handed off by the SDR keeps being classified while a human sells. Other paused
+      // chats (personal ones, paused by hand) stay out of the funnel.
+      if (!lastEvent.isGroup && conversation.stage === 'HUMAN_HANDOFF') {
+        await updateLeadFunnel(deps, {
+          organizationId: input.organizationId,
+          leadId: lead.id,
+          conversationId: conversation.id,
+          conversationStage: conversation.stage,
+          signals: signalsFromLeadText(events.map(incoming => incoming.textContent)),
+        });
+      }
       await markAll(db, input.organizationId, input.inboundEventIds, 'processed');
       return { status: 'logged_bot_paused', conversationId: conversation.id };
     }
@@ -482,6 +532,19 @@ export async function processTurn(deps: TurnProcessorDeps, input: ProcessTurnInp
         code: 'no_message_sent',
         message: 'O fluxo terminou sem enviar uma mensagem. Verifique as portas de saída do último bloco.',
         nodeId: lastStep?.nodeId,
+      });
+    }
+
+    // Only turns where the SDR actually answered feed the funnel: a flow blocked by test mode or
+    // a chat-type guard is not a sales conversation.
+    if (sentMessage && !lastEvent.isGroup) {
+      await updateLeadFunnel(deps, {
+        organizationId: input.organizationId,
+        leadId: lead.id,
+        conversationId: conversation.id,
+        conversationStage: flowCtx.conversation?.stage || conversation.stage,
+        signals: [...signalsFromSteps(result.steps), ...signalsFromLeadText(events.map(incoming => incoming.textContent))],
+        mirrorOnConversation: stage => services.db!.updateConversation(input.organizationId, conversation.id, { stage }),
       });
     }
 

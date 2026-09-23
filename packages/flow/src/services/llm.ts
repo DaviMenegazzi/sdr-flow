@@ -1,6 +1,5 @@
 export interface AgentDecision {
   reply: string;
-  stage?: string;
   handoff?: boolean;
   handoff_reason?: string;
   intent?: string;
@@ -13,7 +12,6 @@ export interface AgentDecision {
     notes?: string;
     custom_attributes?: Record<string, unknown>;
   };
-  score?: number;
 }
 
 export interface LLMRequest {
@@ -56,7 +54,8 @@ export interface LLMProvider {
 
 export class MockLLMProvider implements LLMProvider {
   constructor(
-    private readonly defaultDecision: Partial<AgentDecision> = {},
+    // score only feeds the explicit agent.score node, not decide().
+    private readonly defaultDecision: Partial<AgentDecision> & { score?: number } = {},
     private readonly tokens = { input: 150, output: 45 }
   ) {}
 
@@ -64,12 +63,10 @@ export class MockLLMProvider implements LLMProvider {
     return {
       data: {
         reply: this.defaultDecision.reply || `Olá! Entendido sobre "${req.latestUserMessage || 'sua mensagem'}". Como posso ajudar?`,
-        stage: this.defaultDecision.stage || 'QUALIFYING',
         handoff: this.defaultDecision.handoff ?? false,
         handoff_reason: this.defaultDecision.handoff_reason,
         intent: this.defaultDecision.intent || 'interesse',
         lead_data: this.defaultDecision.lead_data,
-        score: this.defaultDecision.score,
       },
       inputTokens: this.tokens.input,
       outputTokens: this.tokens.output,

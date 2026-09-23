@@ -39,8 +39,10 @@ function leadSchemaFor(fields: ExtractFieldDefinition[] = []) {
 }
 
 const leadSchema = leadSchemaFor();
-const decisionSchema = z.strictObject({ reply: z.string(), stage: nullableText, handoff: z.boolean(),
-  handoff_reason: nullableText, intent: nullableText, lead_data: leadSchema.nullable(), score: z.number().min(0).max(100).nullable() });
+// Funnel stage and lead score are not asked of the LLM: the worker derives them from flow
+// signals, text rules and the Laya classifier (packages/runtime/src/funnel) at no token cost.
+const decisionSchema = z.strictObject({ reply: z.string(), handoff: z.boolean(),
+  handoff_reason: nullableText, intent: nullableText, lead_data: leadSchema.nullable() });
 const scoreSchema = z.strictObject({ score: z.number().min(0).max(100), reason: z.string() });
 function withoutNulls(value: unknown): any {
   if (value && typeof value === 'object' && !Array.isArray(value)) {

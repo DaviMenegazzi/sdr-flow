@@ -489,10 +489,6 @@ export function PlaygroundModal({ isOpen, onClose, flowId, flowVersionId, graph 
                               <strong>{result.decision.intent || '—'}</strong>
                             </div>
                             <div>
-                              <span style={{ color: 'var(--color-text-secondary)' }}>Estágio:</span>{' '}
-                              <strong>{result.decision.stage || '—'}</strong>
-                            </div>
-                            <div>
                               <span style={{ color: 'var(--color-text-secondary)' }}>Handoff humano:</span>{' '}
                               <strong>{result.decision.handoff ? 'SIM' : 'NÃO'}</strong>
                             </div>

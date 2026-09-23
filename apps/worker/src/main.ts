@@ -16,6 +16,9 @@ import {
   RedisTraceSink,
   TraceBatchWriter,
   IORedisStreamCommands,
+  layaConfigFromEnv,
+  RedisLeadClassificationQueue,
+  startLeadClassificationWorker,
 } from '@sdr/runtime';
 
 config({ path: fileURLToPath(new URL('../../../.env', import.meta.url)), quiet: true });
@@ -59,6 +62,24 @@ if (!redisUrl) {
     ...(url.protocol === 'rediss:' ? { tls: {} } : {}),
   };
 
+  // Laya lead classification (temperature + lost detection). Optional: without LAYA_SERVICE_URL
+  // and LAYA_SERVICE_SECRET the funnel still moves on flow signals and text rules.
+  const layaConfig = layaConfigFromEnv(process.env);
+  const leadClassificationQueue = layaConfig
+    ? new RedisLeadClassificationQueue(redisUrl, Number(process.env.LAYA_DEBOUNCE_MS) || 60_000)
+    : undefined;
+  const leadClassificationWorker = layaConfig
+    ? startLeadClassificationWorker(
+        redisUrl,
+        { db, laya: layaConfig, lostThreshold: Number(process.env.LAYA_LOST_INTEREST_THRESHOLD) || 0.8 },
+        {
+          onResult: (job, result) => logger.info({ leadId: job.leadId, ...result }, 'Classificação Laya do lead'),
+          onError: (job, err) => logger.warn({ leadId: job.leadId, message: err instanceof Error ? err.message : String(err) }, 'Falha na classificação Laya do lead'),
+        }
+      )
+    : undefined;
+  if (!layaConfig) logger.warn('Classificação Laya desativada: configure LAYA_SERVICE_URL e LAYA_SERVICE_SECRET.');
+
   const maintenanceWorker = new Worker(
     queueNames.maintenance,
     async job => {
@@ -79,7 +100,7 @@ if (!redisUrl) {
         'Processando turno de conversa'
       );
       return processTurn(
-        { db, runtimeConfig, eventPublisher, debugRegistry, traceSink },
+        { db, runtimeConfig, eventPublisher, debugRegistry, traceSink, leadClassification: leadClassificationQueue },
         {
           organizationId: turn.job.organizationId,
           connectionId: turn.job.connectionId,
@@ -127,7 +148,7 @@ if (!redisUrl) {
       logger.info('Encerrando worker: aguardando trabalhos ativos...');
       clearInterval(dispatchInterval);
       await traceBatchWriter.stop();
-      await Promise.all([maintenanceWorker.close(), turnBuffer.close(), eventPublisher.close(), debugRegistry.close(), traceSink.close(), traceWriterRedis.quit()]);
+      await Promise.all([maintenanceWorker.close(), turnBuffer.close(), eventPublisher.close(), debugRegistry.close(), traceSink.close(), traceWriterRedis.quit(), leadClassificationQueue?.close(), leadClassificationWorker?.close()]);
       health.close(() => process.exit(0));
     });
   }

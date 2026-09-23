@@ -74,6 +74,7 @@ export const queueNames = {
   maintenance: 'sdr-maintenance',
   turns: 'sdr-turns',
   inboundDebounce: 'sdr-inbound-debounce',
+  leadClassification: 'sdr-lead-classification',
 } as const;
 
 export const commercialMemorySchema = z.strictObject({

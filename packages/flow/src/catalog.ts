@@ -101,7 +101,7 @@ const schemas = {
     required: z.array(z.string().min(1).max(100)).min(1).max(30).default(['city', 'specialty']).describe('Campos obrigatórios (JSON; aceita caminhos como qualification.city)'),
     optional: z.array(z.string().min(1).max(100)).max(30).default(['desired_day', 'desired_period']).describe('Campos opcionais (JSON)'),
   }),
-  'action.update_stage': z.strictObject({ stage: text('{{decision.stage}}', 'Estágio de destino') }),
+  'action.update_stage': z.strictObject({ stage: text('QUALIFYING', 'Estágio de destino') }),
   'action.update_lead': z.strictObject({ source: text('decision.lead_data', 'Variável com dados do lead') }),
   'action.crm_sync': empty,
   'action.handoff': z.strictObject({ reason: text('{{decision.handoff_reason}}', 'Motivo do encaminhamento') }),
