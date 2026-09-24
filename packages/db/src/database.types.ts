@@ -1107,48 +1107,6 @@ export type Database = {
       };
       Relationships: [];
     };
-    organization_training_profiles: {
-      Row: {
-        id: string;
-        organization_id: string;
-        company: Json;
-        sales: Json;
-        revision: number;
-        status: string;
-        created_by: string | null;
-        approved_by: string | null;
-        approved_at: string | null;
-        created_at: string;
-        updated_at: string;
-      };
-      Insert: {
-        id?: string;
-        organization_id: string;
-        company?: Json;
-        sales?: Json;
-        revision?: number;
-        status?: string;
-        created_by?: string | null;
-        approved_by?: string | null;
-        approved_at?: string | null;
-        created_at?: string;
-        updated_at?: string;
-      };
-      Update: {
-        id?: string;
-        organization_id?: string;
-        company?: Json;
-        sales?: Json;
-        revision?: number;
-        status?: string;
-        created_by?: string | null;
-        approved_by?: string | null;
-        approved_at?: string | null;
-        created_at?: string;
-        updated_at?: string;
-      };
-      Relationships: [];
-    };
     organization_plan_grants: {
       Row: {
         id: string;
@@ -1275,6 +1233,48 @@ export type Database = {
       };
       Relationships: [];
     };
+    organization_training_profiles: {
+      Row: {
+        id: string;
+        organization_id: string;
+        company: Json;
+        sales: Json;
+        revision: number;
+        status: string;
+        created_by: string | null;
+        approved_by: string | null;
+        approved_at: string | null;
+        created_at: string;
+        updated_at: string;
+      };
+      Insert: {
+        id?: string;
+        organization_id: string;
+        company?: Json;
+        sales?: Json;
+        revision?: number;
+        status?: string;
+        created_by?: string | null;
+        approved_by?: string | null;
+        approved_at?: string | null;
+        created_at?: string;
+        updated_at?: string;
+      };
+      Update: {
+        id?: string;
+        organization_id?: string;
+        company?: Json;
+        sales?: Json;
+        revision?: number;
+        status?: string;
+        created_by?: string | null;
+        approved_by?: string | null;
+        approved_at?: string | null;
+        created_at?: string;
+        updated_at?: string;
+      };
+      Relationships: [];
+    };
     organizations: {
       Row: {
         id: string;
@@ -1293,6 +1293,36 @@ export type Database = {
         name?: string;
         created_at?: string;
         tier?: Database['public']['Enums']['org_tier'];
+      };
+      Relationships: [];
+    };
+    profiles: {
+      Row: {
+        user_id: string;
+        display_name: string | null;
+        role: Database['public']['Enums']['app_role'];
+        status: Database['public']['Enums']['account_status'];
+        default_organization_id: string | null;
+        created_at: string;
+        updated_at: string;
+      };
+      Insert: {
+        user_id: string;
+        display_name?: string | null;
+        role?: Database['public']['Enums']['app_role'];
+        status?: Database['public']['Enums']['account_status'];
+        default_organization_id?: string | null;
+        created_at?: string;
+        updated_at?: string;
+      };
+      Update: {
+        user_id?: string;
+        display_name?: string | null;
+        role?: Database['public']['Enums']['app_role'];
+        status?: Database['public']['Enums']['account_status'];
+        default_organization_id?: string | null;
+        created_at?: string;
+        updated_at?: string;
       };
       Relationships: [];
     };
@@ -1345,36 +1375,6 @@ export type Database = {
         created_by?: string | null;
         approved_by?: string | null;
         approved_at?: string | null;
-        created_at?: string;
-        updated_at?: string;
-      };
-      Relationships: [];
-    };
-    profiles: {
-      Row: {
-        user_id: string;
-        display_name: string | null;
-        role: Database['public']['Enums']['app_role'];
-        status: Database['public']['Enums']['account_status'];
-        default_organization_id: string | null;
-        created_at: string;
-        updated_at: string;
-      };
-      Insert: {
-        user_id: string;
-        display_name?: string | null;
-        role?: Database['public']['Enums']['app_role'];
-        status?: Database['public']['Enums']['account_status'];
-        default_organization_id?: string | null;
-        created_at?: string;
-        updated_at?: string;
-      };
-      Update: {
-        user_id?: string;
-        display_name?: string | null;
-        role?: Database['public']['Enums']['app_role'];
-        status?: Database['public']['Enums']['account_status'];
-        default_organization_id?: string | null;
         created_at?: string;
         updated_at?: string;
       };
