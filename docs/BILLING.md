@@ -1,8 +1,8 @@
 # Billing: LP, checkout e assinatura por organização
 
-Branch: `billing-plan`. Implementa o plano "LP, checkout e assinatura por organização" (23/09/2026)
-**sem nenhum gateway conectado**. Tudo o que depende do provedor está atrás do contrato
-`BillingGateway` e, sem adapter, a API responde `503`. Nada é simulado.
+Branch: `billing-plan`. Implementa o plano "LP, checkout e assinatura por organização" (23/09/2026).
+Gateway integrado: **AbacatePay (API v2)**, detalhado na seção 3. Com `BILLING_PROVIDER` vazio a
+cobrança fica desligada e a API responde `503`. Nada é simulado.
 
 ## 1. O que foi entregue
 
@@ -108,40 +108,14 @@ RPCs `security definer` executáveis **só com a chave de serviço**: `billing_o
 
 ## 2. O que falta para cobrar de verdade
 
-### 2.1 Adapter do gateway (obrigatório)
-Hoje `resolveBillingGateway` (`apps/api/src/billing/gateway.ts`) devolve `null` para qualquer `BILLING_PROVIDER`.
-Para o Asaas, que é o recomendado no plano, falta criar `apps/api/src/billing/asaas.ts` implementando `BillingGateway`
-(`packages/db/src/billing-repository.ts`):
-
-1. **`createCheckout`:** criar ou reusar o cliente (`/v3/customers`, sem guardar CPF ou cartão aqui) e criar o checkout
-   recorrente (`/v3/checkouts`, `chargeTypes: RECURRENT`, `subscription.cycle` MONTHLY/YEARLY) com
-   `externalReference = input.externalReference`, `callback.successUrl/cancelUrl` e valor do catálogo.
-   Deve retornar `providerCheckoutId`, `checkoutUrl` e `providerCustomerId`. Para upgrade, decidir entre atualizar
-   a assinatura (`POST /v3/subscriptions/{id}` com novo `value`) e cobrar a diferença (ver 2.3).
-2. **`authenticateWebhook`:** comparar o header `asaas-access-token` com `BILLING_WEBHOOK_TOKEN` em tempo constante
-   (reusar `secretMatches` de `whatsapp/webhook-auth.ts`).
-3. **`parseWebhook`:** mapear `PAYMENT_CREATED`→`payment.created`, `PAYMENT_CONFIRMED`→`payment.confirmed`,
-   `PAYMENT_RECEIVED`→`payment.received`, `PAYMENT_OVERDUE`→`payment.overdue`, `PAYMENT_REFUNDED`→`payment.refunded`,
-   `PAYMENT_CHARGEBACK_REQUESTED`/`CHARGEBACK_DISPUTE`→`payment.chargeback`, `PAYMENT_DELETED`→`payment.canceled`,
-   `SUBSCRIPTION_DELETED`/`SUBSCRIPTION_INACTIVATED`→`subscription.canceled`, `CHECKOUT_EXPIRED`→`checkout.expired`,
-   `CHECKOUT_CANCELED`→`checkout.canceled`, e o resto→`other`. Converter `value` (reais) em centavos. Usar `event.id` como
-   `providerEventId`. Preencher `externalReference`, `subscription`, `payment.id`, `customer`, `invoiceUrl`, `dueDate`
-   e `paymentDate`. **Não** repassar o payload bruto: o schema `normalizedBillingEventSchema` é estrito.
-4. **`verifyEvent`:** para eventos críticos, fazer `GET /v3/payments/{id}` e sobrescrever status, valor, moeda e IDs com a resposta da API.
-5. **`setCancelAtPeriodEnd` e `scheduleSubscriptionChange`:** chamar os endpoints de assinatura do Asaas
-   (cancelamento ao fim do ciclo e alteração de `value` para o próximo ciclo).
-6. Registrar o adapter em `resolveBillingGateway` e configurar `BILLING_PROVIDER=asaas`, `BILLING_API_KEY`
-   e `BILLING_WEBHOOK_TOKEN` (já estão em `.env.example` e `docker-compose.yml`, só no servidor).
-7. **Decisão pendente:** qual evento ativa o plano. Hoje ativa em `payment.confirmed` **ou** `payment.received`.
-   Se o negócio quiser ativar só no `PAYMENT_RECEIVED` (dinheiro compensado), basta o adapter mapear
-   `PAYMENT_CONFIRMED` para `other`.
-8. **Homologação no sandbox:** Pix, cartão e boleto; retorno antes e depois do webhook; reentrega duplicada;
-   eventos fora de ordem; renovação; chargeback; troca de plano.
-
-Mercado Pago e Stripe seguem o mesmo contrato (um arquivo por provedor). Não é preciso mudar o banco nem a UI.
+### 2.1 Gateway
+Integrado com o AbacatePay (seção 3). O que falta é **operacional**: cadastrar produtos e webhook,
+configurar as variáveis e homologar no modo de desenvolvimento (checklist na seção 3.4).
+Asaas, Mercado Pago e Stripe seguem o mesmo contrato `BillingGateway`, um arquivo por provedor.
 
 ### 2.2 Decisões de negócio (bloqueiam o lançamento)
-- **Preços:** todas as ofertas estão com `amountCents: null` em `BILLING_OFFERS`. A LP mostra "Preço em definição"
+- **Preços:** todas as ofertas estão com `amountCents: null` em `BILLING_OFFERS`. No AbacatePay o preço
+  cobrado é o do produto, e cada checkout confere que ele é igual ao do catálogo. A LP mostra "Preço em definição"
   e a API recusa o checkout (`409 offer_without_price`). Preencher os valores e incrementar `CATALOG_VERSION`.
 - **Pré-Venda gratuito ou pago:** hoje o cadastro cai em `pre-venda` sem pagamento, e existem ofertas pagas para ele.
 - **Limites de instâncias (1/3/ilimitado):** a proposta é minha e precisa de confirmação. Organizações antigas
@@ -150,8 +124,9 @@ Mercado Pago e Stripe seguem o mesmo contrato (um arquivo por provedor). Não é
   dados fiscais e domínio da LP.
 
 ### 2.3 Pendências técnicas menores
-- **Prorrata do upgrade:** hoje o checkout de upgrade cobra o valor cheio da nova oferta. Se o Asaas não fizer
-  prorrata, definir "cobrar a diferença" ou "trocar no próximo ciclo".
+- **Prorrata do upgrade:** no AbacatePay o upgrade cria uma assinatura nova com o valor cheio do plano
+  novo, e a antiga é cancelada na hora, sem devolver os dias restantes. Se o negócio quiser compensar,
+  é preciso decidir entre estorno parcial manual e cupom no checkout de upgrade.
 - Endpoint de reparo com dry-run para itens `needs_review`, `unmatched` e `dead`. Hoje eles aparecem em
   `GET /api/admin/billing/reconciliation` e no log do worker, e o reparo é manual via SQL.
 - Alertas (Sentry ou canal) para divergências da conciliação; hoje só há log `warn`.
@@ -165,3 +140,71 @@ A página https://prodigiadm.netlify.app/ ficou **inacessível neste ambiente**:
 obsidiana `#0a0a0a`, verde `#2EE86B`, Sora + Inter) e com textos baseados nos recursos reais do produto. Para ficar
 **idêntica** à referência, é preciso liberar o domínio na política de rede do ambiente ou enviar o HTML/prints.
 Os ajustes ficam concentrados em `apps/web/src/billing/LandingPage.tsx`, `marketing.tsx` e no bloco `.lp` de `styles.css`.
+
+## 3. Integração AbacatePay
+
+### 3.1 Fonte do contrato
+O domínio `docs.abacatepay.com` estava bloqueado no ambiente de desenvolvimento. O adapter segue os
+**tipos oficiais** `@abacatepay/types` 3.0.3 (27/07/2026, "tipagens alinhadas à documentação oficial"),
+lidos do registro npm. Por isso a homologação no modo de desenvolvimento (3.4) é obrigatória antes de cobrar.
+Onde os tipos marcam o payload como não documentado (eventos `subscription.*`), o parser é defensivo:
+aceita `data.subscription` ou o próprio `data`, e usa só IDs e valores.
+
+### 3.2 Como funciona
+| Etapa | AbacatePay | SDR Flow |
+|---|---|---|
+| Checkout | `POST /v2/checkouts/create` com `frequency: SUBSCRIPTION`, o produto da oferta, `externalId` = nossa referência opaca, `completionUrl` = `/billing/return`, `returnUrl` = `/billing` | Antes, confere que o produto está ativo e custa exatamente o valor do catálogo; senão recusa (`product_price_mismatch`). Cria o cliente só com e-mail; CPF/CNPJ e cartão ficam no AbacatePay. |
+| Pagamento inicial | webhook `checkout.completed` | Reconsulta `GET /checkouts/get` (status `PAID`, valor, referência) e então libera o plano. |
+| ID da assinatura | webhook `subscription.completed`, em qualquer ordem | Guardado no pedido e copiado para a assinatura (`private.billing_link_subscriptions`). |
+| Renovação | webhook `subscription.renewed` | Confere a assinatura como `ACTIVE` via `/subscriptions/list` e estende o período. |
+| Estorno / disputa perdida | `checkout.refunded` / `checkout.lost` | Suspende e retira o plano (regra existente). `checkout.disputed` só fica registrado. |
+| Cancelamento pelo dono | `POST /v2/subscriptions/cancel` (**imediato** no AbacatePay) | O acesso continua até o fim do período pago. **Não pode ser desfeito**: a tela avisa antes e esconde "Manter assinatura". |
+| Downgrade | `POST /v2/subscriptions/change-plan` (vale no próximo ciclo) | Igual ao downgrade agendado já existente. |
+| Upgrade | Novo checkout de assinatura com o produto maior | Plano liberado após o pagamento. O ID da assinatura passa para a nova, a antiga vai para `private.billing_replaced_subscriptions` e o **worker a cancela no AbacatePay**. Eventos da antiga são ignorados, então não derrubam o plano novo. |
+
+**Segurança do webhook.** A chave "compartilhada" que o SDK do AbacatePay usa para assinar webhooks é
+**pública** (vem no pacote npm), então uma assinatura feita com ela não prova nada. O endpoint aceita só:
+(a) `X-Webhook-Signature` = HMAC-SHA256 em base64 do corpo com o **nosso** `BILLING_WEBHOOK_TOKEN`; ou
+(b) `?webhookSecret=<BILLING_WEBHOOK_TOKEN>` na URL cadastrada. Mesmo autenticado, todo evento que
+libera ou retira plano é reconsultado na API com a nossa chave. Eventos `devMode` (sandbox) nunca
+liberam plano quando `ABACATEPAY_DEV_MODE=false` (o padrão em produção). O Nginx não grava access log
+de `/api/webhooks/billing/`, para o segredo da URL não ir para os logs.
+
+### 3.3 Configuração
+| Variável (API e worker) | Valor |
+|---|---|
+| `BILLING_PROVIDER` | `abacatepay` |
+| `BILLING_API_KEY` | chave da API do AbacatePay (a de desenvolvimento para homologar) |
+| `BILLING_WEBHOOK_TOKEN` | segredo aleatório com 16+ caracteres (ex.: `openssl rand -hex 32`) |
+| `ABACATEPAY_DEV_MODE` | `true` na homologação, `false` em produção (padrão: `NODE_ENV !== production`) |
+| `ABACATEPAY_PRODUCT_IDS` | opcional: `{"vendedor-mensal":"prod_…",…}`. Sem ele, o produto é buscado pelo externalId `sdrflow-<oferta>-v<versão>` |
+| `ABACATEPAY_METHODS` | opcional: `PIX,CARD` (padrão) ou incluindo `BOLETO` |
+| `PUBLIC_APP_URL` | URL pública do app (retorno do checkout) |
+
+Se `BILLING_PROVIDER` for inválido ou faltar variável, a API e o worker **falham ao iniciar** em vez de rodar sem cobrança.
+
+### 3.4 Checklist de ativação
+1. Definir os preços em `BILLING_OFFERS` (`packages/shared/src/billing.ts`).
+2. No painel do AbacatePay, criar **um produto por oferta paga**, com preço igual ao catálogo e ciclo
+   de cobrança (mensal ou anual), e com externalId `sdrflow-<oferta>-v1` (ex.: `sdrflow-vendedor-mensal-v1`).
+   Outra opção é informar os IDs em `ABACATEPAY_PRODUCT_IDS`. Ao mudar preço, incremente
+   `CATALOG_VERSION` e crie novos produtos (`…-v2`).
+3. Cadastrar o webhook (painel ou `POST /v2/webhooks/create`):
+   - endpoint `https://<domínio>/api/webhooks/billing/abacatepay?webhookSecret=<BILLING_WEBHOOK_TOKEN>`;
+   - `secret` = o mesmo token;
+   - eventos `checkout.completed`, `checkout.refunded`, `checkout.disputed`, `checkout.lost`,
+     `subscription.completed`, `subscription.renewed`, `subscription.cancelled`.
+4. Configurar as variáveis da seção 3.3 na API e no worker e aplicar as migrations `20260923200000` e `20260924120000`.
+5. Homologar no modo de desenvolvimento:
+   - Pix e cartão;
+   - retorno antes e depois do webhook;
+   - `subscription.completed` antes e depois de `checkout.completed`;
+   - renovação, upgrade (confirmar o cancelamento da assinatura antiga), downgrade, cancelamento e estorno.
+
+   Confira em `GET /api/admin/billing/reconciliation`: o esperado é nenhum
+   `subscription_without_provider_id` e nenhum `replaced_subscription_not_canceled`.
+6. **Pontos a confirmar na homologação** (não documentados nos tipos):
+   - se `subscription.*` traz `externalId` ou `customerId` (o vínculo usa um ou outro);
+   - se `subscription.renewed` traz ID e valor do pagamento;
+   - se o checkout de assinatura exige CPF/CNPJ do cliente antes do pagamento.
+7. Trocar para a chave de produção e `ABACATEPAY_DEV_MODE=false`.

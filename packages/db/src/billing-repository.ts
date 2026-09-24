@@ -8,9 +8,9 @@ import { normalizedBillingEventSchema } from '@sdr/shared';
 import type { AnyDbClient } from './execution-repository.js';
 
 /**
- * Contrato que cada provedor de cobrança da ASSINATURA do SDR Flow implementa
- * (Asaas, Mercado Pago, Stripe…). Nenhum adapter está implementado ainda: sem
- * gateway configurado a API responde 503 em vez de simular sucesso.
+ * Contrato que cada provedor de cobrança da ASSINATURA do SDR Flow implementa.
+ * Implementado: AbacatePay (abacatepay-gateway.ts). Sem gateway configurado a API
+ * responde 503 em vez de simular sucesso.
  */
 export interface CreateCheckoutInput {
   organizationId: string;
@@ -35,6 +35,7 @@ export interface WebhookRequest {
   headers: Record<string, string | string[] | undefined>;
   rawBody: Buffer;
   body: unknown;
+  query?: Record<string, unknown>;
 }
 
 export interface BillingGateway {
@@ -51,6 +52,12 @@ export interface BillingGateway {
   verifyEvent(event: NormalizedBillingEvent): Promise<NormalizedBillingEvent>;
   setCancelAtPeriodEnd(providerSubscriptionId: string, cancel: boolean): Promise<void>;
   scheduleSubscriptionChange(providerSubscriptionId: string, offer: BillingOffer & { amountCents: number }): Promise<void>;
+  /** Encerra de imediato uma assinatura substituída por upgrade (worker). */
+  cancelSubscriptionNow?(providerSubscriptionId: string): Promise<void>;
+  /** false quando o gateway não permite desfazer um cancelamento já pedido. */
+  readonly supportsCancelRevert?: boolean;
+  /** Texto exibido ao dono antes de cancelar (ex.: cancelamento imediato no gateway). */
+  readonly cancelNotice?: string;
 }
 
 export class BillingGatewayError extends Error {
@@ -170,6 +177,21 @@ export class BillingRepository {
     return (data ?? []) as Array<{ event_id: string; provider: string; event_type: string }>;
   }
 
+  async pendingReplacedSubscriptions(limit = 20): Promise<Array<{ provider: string; provider_subscription_id: string; organization_id: string }>> {
+    const { data, error } = await (this.db as any).rpc('billing_pending_replaced_subscriptions', { p_limit: limit });
+    if (error) throw error;
+    return (data ?? []) as Array<{ provider: string; provider_subscription_id: string; organization_id: string }>;
+  }
+
+  async markReplacedSubscription(provider: string, providerSubscriptionId: string, errorCode: string | null): Promise<void> {
+    const { error } = await (this.db as any).rpc('billing_mark_replaced_subscription', {
+      p_provider: provider,
+      p_provider_subscription_id: providerSubscriptionId,
+      p_error: errorCode,
+    });
+    if (error) throw error;
+  }
+
   async runMaintenance(): Promise<number> {
     const { data, error } = await (this.db as any).rpc('billing_run_maintenance', {});
     if (error) throw error;
@@ -244,6 +266,24 @@ export async function drainBillingEvents(repo: BillingRepository, limit = 20): P
     }
   }
   return claimed.length;
+}
+
+/**
+ * Cancela no gateway as assinaturas substituídas por upgrade. Sem isso o cliente seria
+ * cobrado duas vezes (plano antigo e novo).
+ */
+export async function cancelReplacedSubscriptions(repo: BillingRepository, gateway: BillingGateway, limit = 20): Promise<number> {
+  if (!gateway.cancelSubscriptionNow) return 0;
+  const pending = (await repo.pendingReplacedSubscriptions(limit)).filter(item => item.provider === gateway.provider);
+  for (const item of pending) {
+    try {
+      await gateway.cancelSubscriptionNow(item.provider_subscription_id);
+      await repo.markReplacedSubscription(item.provider, item.provider_subscription_id, null);
+    } catch (error) {
+      await repo.markReplacedSubscription(item.provider, item.provider_subscription_id, errorCode(error));
+    }
+  }
+  return pending.length;
 }
 
 function errorCode(error: unknown): string {

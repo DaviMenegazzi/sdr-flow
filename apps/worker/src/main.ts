@@ -6,7 +6,7 @@ import IORedis from 'ioredis';
 import pino from 'pino';
 import { queueNames } from '@sdr/shared';
 import { runtimeConfigFromEnv } from '@sdr/flow/server';
-import { serviceDatabase, BillingRepository, drainBillingEvents } from '@sdr/db';
+import { serviceDatabase, BillingRepository, drainBillingEvents, cancelReplacedSubscriptions, resolveBillingGateway } from '@sdr/db';
 import {
   RedisTurnBuffer,
   processTurn,
@@ -124,11 +124,15 @@ if (!redisUrl) {
   // webhooks pendentes/falhos com backoff e aplica fim de carência, cancelamentos no fim
   // do período, downgrades agendados e concessões vencidas. Divergências vão para o log.
   const billing = new BillingRepository(db);
+  // Same adapter as the API; misconfiguration fails at boot instead of silently skipping.
+  const billingGateway = resolveBillingGateway(process.env);
   let billingTick = 0;
   const billingInterval = setInterval(() => {
     billingTick += 1;
     void (async () => {
       await drainBillingEvents(billing);
+      // Upgrade = new gateway subscription; the replaced one must stop charging.
+      if (billingGateway) await cancelReplacedSubscriptions(billing, billingGateway);
       const changed = await billing.runMaintenance();
       if (changed) logger.info({ changed }, 'Direitos de plano atualizados pela rotina de cobrança');
       // Relatório de conciliação a cada ~hora (60 ticks de 60 s).

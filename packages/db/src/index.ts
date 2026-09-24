@@ -42,3 +42,5 @@ export * from './funnel-repository.js';
 
 
 export * from './billing-repository.js';
+export * from './abacatepay-gateway.js';
+export * from './billing-gateways.js';

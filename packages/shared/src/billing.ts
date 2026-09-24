@@ -197,6 +197,10 @@ export interface BillingSummary {
   canViewFinancials: boolean;
   gatewayConfigured: boolean;
   provider: string | null;
+  /** false quando o gateway não permite desfazer um cancelamento (AbacatePay). */
+  cancelRevertSupported: boolean;
+  /** Aviso do gateway mostrado antes de cancelar. */
+  cancelNotice: string | null;
   subscription: null | {
     id: string;
     status: SubscriptionStatus;

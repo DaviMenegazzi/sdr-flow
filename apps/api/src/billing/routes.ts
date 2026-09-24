@@ -79,6 +79,7 @@ export function registerBillingRoutes(app: Express, config: BillingRoutesConfig)
       headers: req.headers,
       rawBody: (req as typeof req & { rawBody?: Buffer }).rawBody || Buffer.alloc(0),
       body: req.body,
+      query: req.query as Record<string, unknown>,
     };
     if (!gateway.authenticateWebhook(request)) { res.sendStatus(401); return; }
     let events;
@@ -141,6 +142,8 @@ export function registerBillingRoutes(app: Express, config: BillingRoutesConfig)
       canViewFinancials,
       gatewayConfigured: Boolean(gateway),
       provider: gateway?.provider ?? null,
+      cancelRevertSupported: gateway?.supportsCancelRevert !== false,
+      cancelNotice: gateway?.cancelNotice ?? null,
       subscription: sub
         ? {
             id: sub.id,
@@ -295,7 +298,15 @@ export function registerBillingRoutes(app: Express, config: BillingRoutesConfig)
     }
     const repo = serviceRepo();
     if (!repo) { res.status(503).json({ error: 'Persistência não configurada.' }); return; }
-    await gateway.setCancelAtPeriodEnd(subscription.provider_subscription_id, body.data.cancel);
+    try {
+      await gateway.setCancelAtPeriodEnd(subscription.provider_subscription_id, body.data.cancel);
+    } catch (error) {
+      if (error instanceof BillingGatewayError) {
+        res.status(error.code === 'cancel_revert_unsupported' ? 409 : 502).json({ error: error.message, code: error.code });
+        return;
+      }
+      throw error;
+    }
     res.json(await repo.setCancelAtPeriodEnd(auth.organizationId, auth.userId, body.data.cancel));
   });
 
@@ -314,7 +325,16 @@ export function registerBillingRoutes(app: Express, config: BillingRoutesConfig)
     }
     const repo = serviceRepo();
     if (!repo) { res.status(503).json({ error: 'Persistência não configurada.' }); return; }
-    await gateway.scheduleSubscriptionChange(subscription.provider_subscription_id, offer);
+    try {
+      await gateway.scheduleSubscriptionChange(subscription.provider_subscription_id, offer);
+    } catch (error) {
+      if (error instanceof BillingGatewayError) {
+        logger.error({ err: error, organizationId: auth.organizationId }, 'Falha ao agendar troca de plano no gateway');
+        res.status(502).json({ error: 'O gateway de pagamento recusou a troca de plano. Tente novamente mais tarde.', code: error.code });
+        return;
+      }
+      throw error;
+    }
     res.json(await repo.scheduleDowngrade(auth.organizationId, auth.userId, offer));
   });
 

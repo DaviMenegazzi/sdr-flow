@@ -100,7 +100,7 @@ export function BillingPage() {
     if (cancel) {
       const ok = await confirmDialog({
         title: 'Cancelar a assinatura?',
-        description: 'O acesso continua até o fim do período já pago. Depois disso a organização volta ao nível inicial.',
+        description: summary?.cancelNotice ?? 'O acesso continua até o fim do período já pago. Depois disso a organização volta ao nível inicial.',
         confirmLabel: 'Cancelar no fim do período',
         danger: true,
       });
@@ -226,7 +226,9 @@ export function BillingPage() {
           {summary.canManage && sub && ['active', 'past_due'].includes(sub.status) && (
             <div className="mt-5 flex flex-wrap gap-2 border-t border-border pt-4">
               {sub.cancelAtPeriodEnd
-                ? <Button variant="secondary" onClick={() => toggleCancel(false)}>Manter assinatura</Button>
+                ? (summary.cancelRevertSupported
+                    ? <Button variant="secondary" onClick={() => toggleCancel(false)}>Manter assinatura</Button>
+                    : <p className="m-0 text-xs text-content-secondary">Cancelamento feito. O acesso continua até {formatDate(sub.currentPeriodEnd)}.</p>)
                 : <Button variant="ghost" onClick={() => toggleCancel(true)}>Cancelar no fim do período</Button>}
             </div>
           )}
