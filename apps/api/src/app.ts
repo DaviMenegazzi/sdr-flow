@@ -1156,7 +1156,16 @@ export function createApp(config: ApiConfig = {}): Express {
   const getServiceDb = () => (config.serviceRoleKey && config.supabaseUrl ? serviceDatabase(config.supabaseUrl, config.serviceRoleKey) : undefined);
 
   // WhatsApp Connections
-  orgRoutes.use('/connections', requireOrgCapability('instances:manage'));
+  // Clients don't manage instances, but owners/admins connect their own WhatsApp during the
+  // onboarding: listing, creating (the DB still enforces the instance limit) and reading the QR.
+  // Everything else (delete, restart, credentials, targets...) keeps requiring instances:manage.
+  const onboardingConnectionRoute = (req: express.Request) =>
+    (req.path === '/' && (req.method === 'GET' || req.method === 'POST'))
+    || (req.method === 'GET' && /^\/[0-9a-f-]{36}\/qr$/i.test(req.path));
+  orgRoutes.use('/connections', (req, res, next) => {
+    if (onboardingConnectionRoute(req) && ['owner', 'admin'].includes(res.locals.role as string)) { next(); return; }
+    requireOrgCapability('instances:manage')(req, res, next);
+  });
   const createConnectionSchema = z.object({
     name: z.string().trim().min(1).max(100),
     provider: z.enum(['evolution', 'meta']),
