@@ -4,6 +4,7 @@ import { KnowledgeRepository } from '../packages/db/src/knowledge-repository.js'
 import { createSdrTemplate, makeNode } from '../packages/flow/src/templates.js';
 import { runPlayground } from '../packages/flow/src/playground.js';
 import { MockLLMProvider } from '../packages/flow/src/services/llm.js';
+import { trainingOnboardingProgress, trainingQuestions, trainingProfileSchema, type TrainingProfile } from '../packages/shared/src/index.js';
 
 describe('Treinar meu SDR', () => {
   it('mantém rascunhos fora da busca e sincroniza aprovação, revisão e arquivamento', async () => {
@@ -72,5 +73,37 @@ describe('Treinar meu SDR', () => {
     expect(system).toContain('Empresa: Loja Exemplo');
     expect(searches).toBe(0);
     expect(result.knowledgeUsed).toEqual([]);
+  });
+
+  it('retoma o onboarding na primeira pergunta sem resposta e só conclui com perfil e fato aprovados', () => {
+    const blank: TrainingProfile = trainingProfileSchema.parse({ company: { name: 'Clínica Exemplo' }, sales: {} });
+    expect(trainingOnboardingProgress({ profile: null, profileApproved: false, approvedFacts: 0 })).toMatchObject({ complete: false, stage: 'company', questionIndex: 0 });
+    expect(trainingOnboardingProgress({ profile: blank, profileApproved: false, approvedFacts: 0 })).toMatchObject({ stage: 'company', questionIndex: 1 });
+    const company = { ...blank, company: { name: 'Clínica Exemplo', segment: 'Odonto', audience: 'Famílias', offer: 'Implantes', region: 'Ijuí', hours: '8h às 18h' } };
+    const salesStart = trainingQuestions.findIndex(item => item.section === 'sales');
+    expect(trainingOnboardingProgress({ profile: company, profileApproved: false, approvedFacts: 0 })).toMatchObject({ stage: 'sales', questionIndex: salesStart });
+    const full = { ...company, sales: { goal: 'Agendar', tone: 'Próximo', qualification: 'Cidade', handoff: 'Pedido de humano' } };
+    expect(trainingOnboardingProgress({ profile: full, profileApproved: false, approvedFacts: 0 })).toMatchObject({ stage: 'sales', questionIndex: trainingQuestions.length });
+    expect(trainingOnboardingProgress({ profile: full, profileApproved: true, approvedFacts: 0 })).toMatchObject({ complete: false, stage: 'facts' });
+    expect(trainingOnboardingProgress({ profile: full, profileApproved: true, approvedFacts: 1 })).toMatchObject({ complete: true, stage: 'done' });
+  });
+
+  it('mantém o perfil aprovado ao editar um campo pela base de conhecimento (salvar + aprovar)', async () => {
+    const db = await testDatabase();
+    const owner = '00000000-0000-0000-0000-0000000000c3';
+    await db.query('insert into auth.users(id,email) values($1,$2)', [owner, 'owner-edit@test.com']);
+    const org = await asUser(db, owner, async () => (await db.query<{ create_organization: string }>("select public.create_organization('Clínica Edição')")).rows[0].create_organization);
+    const upsert = (company: string) => asUser(db, owner, async () => db.query(
+      "insert into public.organization_training_profiles(organization_id,company,sales,created_by,status) values($1,$2,'{}',$3,'draft') on conflict (organization_id) do update set company=excluded.company, status='draft', revision=organization_training_profiles.revision+1",
+      [org, company, owner],
+    ));
+    await upsert('{"name":"Clínica Edição"}');
+    await asUser(db, owner, async () => db.query('select public.approve_training_profile($1)', [org]));
+    await upsert('{"name":"Clínica Edição","hours":"8h às 18h"}');
+    expect((await db.query('select status from public.organization_training_profiles where organization_id=$1', [org])).rows[0].status).toBe('draft');
+    await asUser(db, owner, async () => db.query('select public.approve_training_profile($1)', [org]));
+    const row = (await db.query<{ status: string; company: { hours: string } }>('select status, company from public.organization_training_profiles where organization_id=$1', [org])).rows[0];
+    expect(row.status).toBe('approved');
+    expect(row.company.hours).toBe('8h às 18h');
   });
 });

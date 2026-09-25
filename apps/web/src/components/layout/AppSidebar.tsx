@@ -195,10 +195,6 @@ export function AppSidebar({ dark, onToggleTheme, mobileOpen = false }: AppSideb
               <BookOpen size={16} />
               <span>Base de Conhecimento</span>
             </NavLink>
-            <NavLink to="/training" className={navItemClass}>
-              <Sparkles size={16} />
-              <span>Treinar meu SDR</span>
-            </NavLink>
           </>
         )}
         {section(

@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
+  Building2,
+  CheckCircle2,
+  Database,
+  FlaskConical,
   Check,
   ChevronRight,
   CreditCard,
@@ -35,10 +40,16 @@ import {
   SegmentedControl,
   Skeleton,
   SkeletonText,
+  Tabs,
   confirmDialog,
   toast,
 } from '../components/ui';
 import { formatDate, formatRelative } from '../lib/format';
+import { useTraining } from '../training/useTraining';
+import { FactsPanel, ProfileSummary, TestPanel, TrainingError } from '../training/TrainingPanels';
+
+type KnowledgeTab = 'documents' | 'profile' | 'facts' | 'test';
+const KNOWLEDGE_TABS: KnowledgeTab[] = ['documents', 'profile', 'facts', 'test'];
 
 interface KnowledgeDoc {
   id: string;
@@ -166,6 +177,12 @@ type View = 'cards' | 'list';
 
 export function KnowledgePage() {
   const { activeOrg, session } = useSession();
+  const training = useTraining();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab') as KnowledgeTab | null;
+  const tab: KnowledgeTab = requestedTab && KNOWLEDGE_TABS.includes(requestedTab) ? requestedTab : 'documents';
+  const changeTab = (next: KnowledgeTab) => setSearchParams(next === 'documents' ? {} : { tab: next }, { replace: true });
 
   const [documents, setDocuments] = useState<KnowledgeDoc[]>([]);
   const [selectedCollection, setSelectedCollection] = useState<string>('all');
@@ -473,15 +490,44 @@ export function KnowledgePage() {
             ? 'Preços, planos e respostas que a IA consulta antes de responder no WhatsApp.'
             : `${documents.length} ${documents.length === 1 ? 'documento' : 'documentos'}${lastUpdate ? ` · atualizado ${formatRelative(lastUpdate)}` : ''} · a IA consulta estes textos antes de responder`
         }
-        actions={
+        actions={tab === 'documents' ? (
           <>
             {documents.length > 0 && tester}
             <Button variant="primary" onClick={openCreateModal}>
               <Plus size={16} /> Novo documento
             </Button>
           </>
-        }
+        ) : undefined}
       />
+
+      <Tabs<KnowledgeTab>
+        activeTab={tab}
+        onChange={changeTab}
+        className="mb-5 overflow-x-auto"
+        tabs={[
+          { id: 'documents', label: 'Documentos', icon: <Database size={14} />, badge: documents.length },
+          { id: 'profile', label: 'Perfil do SDR', icon: <Building2 size={14} /> },
+          { id: 'facts', label: 'Fatos', icon: <CheckCircle2 size={14} />, badge: training.loading ? undefined : training.approvedFacts },
+          { id: 'test', label: 'Testar SDR', icon: <FlaskConical size={14} /> },
+        ]}
+      />
+
+      {tab !== 'documents' && <TrainingError message={training.error} />}
+      {tab !== 'documents' && training.loading && <CardGridSkeleton />}
+      {tab === 'profile' && !training.loading && (training.hasProfile
+        ? <ProfileSummary training={training} />
+        : <div className="rounded-xl border border-dashed border-border">
+          <EmptyState
+            icon={<Sparkles size={20} />}
+            title="O SDR ainda não foi treinado"
+            description="Responda algumas perguntas sobre a sua empresa e a forma de vender. Leva cerca de 5 minutos."
+            action={training.canEdit ? <Button variant="primary" onClick={() => navigate('/onboarding')}><Sparkles size={16} /> Treinar meu SDR</Button> : undefined}
+          />
+        </div>)}
+      {tab === 'facts' && !training.loading && <FactsPanel training={training} />}
+      {tab === 'test' && !training.loading && <div className="rounded-xl border border-border bg-surface p-5"><TestPanel training={training} /></div>}
+
+      {tab === 'documents' && <>
 
       {error && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-danger/20 bg-danger/10 p-3 text-xs text-danger">
@@ -619,6 +665,7 @@ export function KnowledgePage() {
           )}
         </section>
       </div>
+      </>}
 
       <Modal
         isOpen={showAddModal}

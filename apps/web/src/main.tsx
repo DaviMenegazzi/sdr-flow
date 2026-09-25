@@ -1,7 +1,7 @@
 import React, { useState, useEffect, Suspense, lazy, type ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { Workflow, ArrowUpRight, RefreshCw } from 'lucide-react';
+import { Workflow, ArrowUpRight, RefreshCw, Sparkles } from 'lucide-react';
 import { SessionProvider, useSession } from './session';
 import type { Capability } from '@sdr/shared';
 import { InstanceProvider } from './context/InstanceContext';
@@ -9,6 +9,7 @@ import { AuthCallback, AuthGate, ForgotPasswordPage, LoginPage, NotFoundPage, Re
 import { AppSidebar } from './components/layout/AppSidebar';
 import { AppHeader } from './components/layout/AppHeader';
 import { ConfirmHost, Skeleton, Toaster } from './components/ui';
+import { onboardingSkipped, useOnboardingStatus, type OnboardingStatus } from './training/useTraining';
 import '@fontsource-variable/inter';
 import '@fontsource/sora/700.css';
 import './styles.css';
@@ -23,7 +24,7 @@ const AgentEditorPage = lazy(() => import('./agents/AgentEditorPage').then(m => 
 const AdminPage = lazy(() => import('./admin/AdminPage').then(m => ({ default: m.AdminPage })));
 const IntegrationsPage = lazy(() => import('./integrations/IntegrationsPage').then(m => ({ default: m.IntegrationsPage })));
 const KnowledgePage = lazy(() => import('./knowledge/KnowledgePage').then(m => ({ default: m.KnowledgePage })));
-const TrainingPage = lazy(() => import('./training/TrainingPage').then(m => ({ default: m.TrainingPage })));
+const OnboardingPage = lazy(() => import('./training/OnboardingPage').then(m => ({ default: m.OnboardingPage })));
 const InboxPage = lazy(() => import('./inbox/InboxPage').then(m => ({ default: m.InboxPage })));
 const DashboardPage = lazy(() => import('./metrics/DashboardPage').then(m => ({ default: m.DashboardPage })));
 const ExecutionLogPage = lazy(() => import('./logs/ExecutionLogPage').then(m => ({ default: m.ExecutionLogPage })));
@@ -86,8 +87,34 @@ class RouteErrorBoundary extends React.Component<{ children: ReactNode }, { fail
   }
 }
 
+// First access: owners/admins whose SDR is not trained yet land on the onboarding instead of the
+// dashboard, unless they chose "Pular por enquanto" in this browser.
+function FirstAccessRedirect({ status, children }: { status: OnboardingStatus; children: ReactNode }) {
+  const { activeOrg } = useSession();
+  if (!activeOrg || !status.canEdit || onboardingSkipped(activeOrg)) return <>{children}</>;
+  if (status.loading || status.stale) return <RouteLoadingFallback />;
+  return status.complete ? <>{children}</> : <Navigate to="/onboarding" replace />;
+}
+
+function OnboardingBanner({ status }: { status: OnboardingStatus }) {
+  const { pathname } = useLocation();
+  if (status.loading || status.complete) return null;
+  return (
+    <div role="status" className="flex flex-col gap-2 border-b border-warning-border bg-warning-bg px-4 py-2.5 text-xs text-content-secondary sm:flex-row sm:items-center sm:justify-between md:px-6">
+      <span className="flex items-center gap-2">
+        <Sparkles className="h-4 w-4 shrink-0 text-warning" />
+        Finalize o treinamento do seu SDR para que o agente dê respostas mais assertivas.
+      </span>
+      {status.canEdit && pathname !== '/onboarding' && (
+        <Link to="/onboarding" className="shrink-0 font-semibold text-brand-fg hover:underline">Continuar treinamento →</Link>
+      )}
+    </div>
+  );
+}
+
 function ProtectedApp() {
   const location = useLocation();
+  const onboarding = useOnboardingStatus(location.pathname);
   // Below md the sidebar is an off-canvas drawer opened from the header.
   const [navOpen, setNavOpen] = useState(false);
   useEffect(() => setNavOpen(false), [location.pathname]);
@@ -123,6 +150,14 @@ function ProtectedApp() {
     }
   }, [dark]);
 
+  if (location.pathname === '/onboarding') {
+    return (
+      <RouteErrorBoundary>
+        <Suspense fallback={<RouteLoadingFallback />}><OnboardingPage /></Suspense>
+      </RouteErrorBoundary>
+    );
+  }
+
   return (
     <InstanceProvider>
       <div className="flex h-[100dvh] w-full overflow-hidden bg-canvas text-content-primary">
@@ -136,11 +171,12 @@ function ProtectedApp() {
         )}
         <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
           <AppHeader onOpenNav={() => setNavOpen(true)} />
+          <OnboardingBanner status={onboarding} />
           <main className="flex-1 min-h-0 overflow-auto flex flex-col bg-canvas">
             <RouteErrorBoundary>
             <Suspense fallback={<RouteLoadingFallback />}>
             <Routes>
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/" element={<FirstAccessRedirect status={onboarding}><Navigate to="/dashboard" replace /></FirstAccessRedirect>} />
               <Route path="/flows/new" element={<RequireCapability capability="flows:read"><Builder /></RequireCapability>} />
               <Route path="/flows" element={<RequireCapability capability="flows:read"><Builder /></RequireCapability>} />
               <Route path="/connections" element={<RequireCapability capability="instances:manage"><ConnectionsPage /></RequireCapability>} />
@@ -149,9 +185,9 @@ function ProtectedApp() {
               <Route path="/admin" element={<AdminPage />} />
               <Route path="/integrations" element={<RequireCapability capability="integrations:manage"><IntegrationsPage /></RequireCapability>} />
               <Route path="/knowledge" element={<KnowledgePage />} />
-              <Route path="/training" element={<TrainingPage />} />
+              <Route path="/training" element={<Navigate to="/knowledge?tab=profile" replace />} />
               <Route path="/inbox" element={<InboxPage />} />
-              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/dashboard" element={<FirstAccessRedirect status={onboarding}><DashboardPage /></FirstAccessRedirect>} />
               <Route path="/logs" element={<RequireCapability capability="flows:read"><ExecutionLogPage /></RequireCapability>} />
               <Route
                 path="/templates"

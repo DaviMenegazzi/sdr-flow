@@ -11,7 +11,6 @@ const PAGES: Array<{ prefix: string; title: string; category: string }> = [
   { prefix: '/templates', title: 'Modelos SDR', category: 'Automação' },
   { prefix: '/agents', title: 'Agentes de IA', category: 'Automação' },
   { prefix: '/knowledge', title: 'Base de Conhecimento', category: 'Automação' },
-  { prefix: '/training', title: 'Treinar meu SDR', category: 'Automação' },
   { prefix: '/connections', title: 'Conexões WhatsApp', category: 'Operação' },
   { prefix: '/inbox', title: 'Atendimento', category: 'Operação' },
   { prefix: '/dashboard', title: 'Indicadores', category: 'Dados' },

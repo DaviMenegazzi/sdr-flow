@@ -458,3 +458,4 @@ button,a,[role="button"]{touch-action:manipulation}
   .lp-preview .lp-event{animation:lp-rise .5s var(--ease-out) .8s both}
 }
 @keyframes lp-rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.onboarding-step{animation:onboarding-step-in .32s ease-out both}@keyframes onboarding-step-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion:reduce){.onboarding-step{animation:none}}
