@@ -65,7 +65,7 @@ export function Tabs<T extends string = string>({
             key={tab.id}
             type="button"
             onClick={() => onChange(tab.id)}
-            className={`flex items-center gap-2 py-3 px-1 text-xs font-medium border-b-2 transition-all duration-150 -mb-[1px] ${
+            className={`flex min-h-0 items-center gap-2 rounded-none border-x-0 border-t-0 bg-transparent py-3 px-1 text-xs font-medium border-b-2 whitespace-nowrap transition-all duration-150 -mb-[1px] ${
               isActive
                 ? 'border-brand text-brand font-semibold'
                 : 'border-transparent text-content-secondary hover:text-content-primary hover:border-border'

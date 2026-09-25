@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   BookOpen,
   Plus,
@@ -20,10 +21,17 @@ import {
   ShieldAlert,
   Folder,
   Lightbulb,
+  Building2,
+  FlaskConical,
   type LucideIcon,
 } from 'lucide-react';
 import { useSession } from '../session';
-import { Button, Badge, Card, Input, CardGridSkeleton, Skeleton, SkeletonText } from '../components/ui';
+import { Button, Badge, Card, Input, CardGridSkeleton, Skeleton, SkeletonText, Tabs } from '../components/ui';
+import { useTraining } from '../training/useTraining';
+import { FactsPanel, ProfileSummary, TestPanel, TrainingError } from '../training/TrainingPanels';
+
+type KnowledgeTab = 'documents' | 'profile' | 'facts' | 'test';
+const KNOWLEDGE_TABS: KnowledgeTab[] = ['documents', 'profile', 'facts', 'test'];
 
 interface KnowledgeDoc {
   id: string;
@@ -132,6 +140,12 @@ const COLLECTIONS: CollectionMeta[] = [
 
 export function KnowledgePage() {
   const { activeOrg, session } = useSession();
+  const training = useTraining();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab') as KnowledgeTab | null;
+  const tab: KnowledgeTab = requestedTab && KNOWLEDGE_TABS.includes(requestedTab) ? requestedTab : 'documents';
+  const changeTab = (next: KnowledgeTab) => setSearchParams(next === 'documents' ? {} : { tab: next }, { replace: true });
 
   const [documents, setDocuments] = useState<KnowledgeDoc[]>([]);
   const [selectedCollection, setSelectedCollection] = useState<string>('all');
@@ -343,15 +357,42 @@ export function KnowledgePage() {
             </p>
           </div>
 
-          <Button
+          {tab === 'documents' && <Button
             type="button"
             variant="primary"
             onClick={openCreateModal}
             className="self-start sm:self-auto shrink-0 shadow-sm"
           >
             <Plus className="w-4 h-4" /> Novo Documento
-          </Button>
+          </Button>}
         </div>
+
+        <Tabs<KnowledgeTab>
+          activeTab={tab}
+          onChange={changeTab}
+          className="overflow-x-auto"
+          tabs={[
+            { id: 'documents', label: 'Documentos', icon: <Database className="w-3.5 h-3.5" />, badge: documents.length },
+            { id: 'profile', label: 'Perfil do SDR', icon: <Building2 className="w-3.5 h-3.5" /> },
+            { id: 'facts', label: 'Fatos', icon: <CheckCircle2 className="w-3.5 h-3.5" />, badge: training.loading ? undefined : training.approvedFacts },
+            { id: 'test', label: 'Testar SDR', icon: <FlaskConical className="w-3.5 h-3.5" /> },
+          ]}
+        />
+
+        {tab !== 'documents' && <TrainingError message={training.error} />}
+        {tab !== 'documents' && training.loading && <CardGridSkeleton />}
+        {tab === 'profile' && !training.loading && (training.hasProfile
+          ? <ProfileSummary training={training} />
+          : <Card className="py-14 px-6 text-center border-dashed">
+            <div className="w-12 h-12 rounded-full bg-brand-subtle text-brand flex items-center justify-center mx-auto mb-3"><Sparkles className="w-6 h-6" /></div>
+            <h3 className="text-base font-semibold text-content mb-1.5">O SDR ainda não foi treinado</h3>
+            <p className="text-sm text-content-secondary max-w-md mx-auto mb-5 leading-relaxed">Responda algumas perguntas sobre a sua empresa e a forma de vender. Leva cerca de 5 minutos.</p>
+            {training.canEdit && <Button variant="primary" onClick={() => navigate('/onboarding')}><Sparkles className="w-4 h-4" /> Treinar meu SDR</Button>}
+          </Card>)}
+        {tab === 'facts' && !training.loading && <FactsPanel training={training} />}
+        {tab === 'test' && !training.loading && <Card className="p-5"><TestPanel training={training} /></Card>}
+
+        {tab === 'documents' && <>
 
         {/* Metrics Row */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -366,7 +407,7 @@ export function KnowledgePage() {
           </Card>
 
           <Card className="p-4 flex items-center gap-4">
-            <div className="w-10 h-10 rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-lg bg-brand-subtle text-brand flex items-center justify-center shrink-0">
               <Layers className="w-5 h-5" />
             </div>
             <div>
@@ -547,7 +588,7 @@ export function KnowledgePage() {
 
         {/* Document Grid or Empty State */}
         {error && (
-          <div className="p-3.5 rounded-lg bg-danger/10 border border-danger/20 text-danger text-sm flex items-center gap-2.5">
+          <div className="p-3.5 rounded-lg bg-danger-bg border border-danger-border text-danger text-sm flex items-center gap-2.5">
             <AlertCircle className="w-4 h-4 shrink-0" /> {error}
           </div>
         )}
@@ -556,7 +597,7 @@ export function KnowledgePage() {
           <CardGridSkeleton />
         ) : documents.length === 0 ? (
           <Card className="py-14 px-6 text-center border-dashed">
-            <div className="w-12 h-12 rounded-full bg-brand/10 text-brand flex items-center justify-center mx-auto mb-3">
+            <div className="w-12 h-12 rounded-full bg-brand-subtle text-brand flex items-center justify-center mx-auto mb-3">
               <Database className="w-6 h-6" />
             </div>
             <h3 className="text-base font-semibold text-content mb-1.5">
@@ -605,7 +646,7 @@ export function KnowledgePage() {
                       {new Date(doc.created_at).toLocaleDateString('pt-BR')}
                     </span>
 
-                    {doc.metadata?.training_fact_id ? <span className="text-[11px] text-content-muted">Gerenciado em Treinar meu SDR</span> : <div className="flex items-center gap-1.5">
+                    {doc.metadata?.training_fact_id ? <button type="button" onClick={() => changeTab('facts')} className="text-[11px] font-medium text-brand hover:underline">Gerenciar em Fatos</button> : <div className="flex items-center gap-1.5">
                       <Button
                         type="button"
                         variant="outline"
@@ -618,7 +659,7 @@ export function KnowledgePage() {
                       <button
                         type="button"
                         onClick={() => handleDelete(doc.id, doc.title)}
-                        className="p-1.5 rounded text-content-muted hover:text-danger hover:bg-danger/10 transition-colors"
+                        className="p-1.5 rounded text-content-muted hover:text-danger hover:bg-danger-bg transition-colors"
                         title="Excluir documento"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -630,6 +671,7 @@ export function KnowledgePage() {
             })}
           </div>
         )}
+        </>}
 
         {/* MODERN REDESIGNED ADD / EDIT MODAL */}
         {showAddModal && (
@@ -638,7 +680,7 @@ export function KnowledgePage() {
               {/* Modal Header */}
               <div className="flex items-start justify-between pb-4 border-b border-border mb-5">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0">
+                  <div className="w-10 h-10 rounded-lg bg-brand-subtle text-brand flex items-center justify-center shrink-0">
                     <BookOpen className="w-5 h-5" />
                   </div>
                   <div>
@@ -662,7 +704,7 @@ export function KnowledgePage() {
               </div>
 
               {modalError && (
-                <div className="p-3 rounded-lg bg-danger/10 border border-danger/20 text-danger text-xs flex items-center gap-2 mb-4">
+                <div className="p-3 rounded-lg bg-danger-bg border border-danger-border text-danger text-xs flex items-center gap-2 mb-4">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{modalError}</span>
                 </div>
@@ -683,7 +725,7 @@ export function KnowledgePage() {
                           onClick={() => setModalCollection(col.id)}
                           className={`p-2.5 rounded-lg border cursor-pointer flex flex-col gap-1 transition-all ${
                             isSelected
-                              ? 'border-brand ring-1 ring-brand bg-brand/5'
+                              ? 'border-brand ring-1 ring-brand bg-brand-subtle'
                               : 'border-border bg-surface hover:bg-surface-hover'
                           }`}
                         >
@@ -744,7 +786,7 @@ export function KnowledgePage() {
                     value={modalContent}
                     onChange={e => setModalContent(e.target.value)}
                     placeholder="Escreva as informações em tópicos claros com valores em R$, prazos e condições exatas..."
-                    className="w-full bg-surface border border-border rounded-lg text-content p-3 text-xs leading-relaxed focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand resize-y font-mono"
+                    className="w-full bg-surface border border-border rounded-lg text-content p-3 text-xs leading-relaxed focus:outline-none focus:ring-2 focus:ring-success-border focus:border-brand resize-y font-mono"
                   />
                   <div className="mt-1.5 flex justify-between items-center text-[11px] text-content-muted">
                     <span>Revise preços e condições antes de salvar. O agente pode usar este conteúdo como referência.</span>

@@ -34,7 +34,6 @@ export function AppHeader() {
     if (path.startsWith('/connections')) return { title: 'WhatsApp (Instâncias)', category: 'Operação' };
     if (path.startsWith('/integrations')) return { title: 'Integrações Externas', category: 'Dados' };
     if (path.startsWith('/knowledge')) return { title: 'Base de Conhecimento', category: 'Automação' };
-    if (path.startsWith('/training')) return { title: 'Treinar meu SDR', category: 'Automação' };
     if (path.startsWith('/inbox')) return { title: 'Inbox de Atendimento', category: 'Operação' };
     if (path.startsWith('/dashboard')) return { title: 'Painel de Indicadores', category: 'Inteligência' };
     if (path.startsWith('/templates')) return { title: 'Biblioteca de Modelos', category: 'Automação' };

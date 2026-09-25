@@ -131,10 +131,6 @@ export function AppSidebar({ dark, onToggleTheme }: AppSidebarProps) {
               <BookOpen size={16} />
               <span>Base Conhecimento</span>
             </NavLink>
-            <NavLink to="/training" className={navItemClass}>
-              <Sparkles size={16} />
-              <span>Treinar meu SDR</span>
-            </NavLink>
           </div>
         </div>
 
