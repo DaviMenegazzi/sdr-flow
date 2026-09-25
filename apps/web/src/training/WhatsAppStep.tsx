@@ -141,9 +141,9 @@ export function WhatsAppStep({ connections, onNext, onBack, canEdit }: {
           : <div role="status" aria-live="polite"><span className="sr-only">Gerando o QR Code…</span><Skeleton className="h-52 w-52" rounded="lg" /></div>}
       </div>
       <ol className="space-y-3 text-sm text-content-secondary">
-        <li className="flex gap-2"><Smartphone className="mt-0.5 h-4 w-4 shrink-0 text-brand" />Abra o WhatsApp no celular do número comercial.</li>
-        <li className="flex gap-2"><span className="w-4 shrink-0 text-center font-semibold text-brand">2</span>Toque em <b className="text-content">Mais opções › Dispositivos conectados</b>.</li>
-        <li className="flex gap-2"><span className="w-4 shrink-0 text-center font-semibold text-brand">3</span>Toque em <b className="text-content">Conectar um aparelho</b> e aponte para o código.</li>
+        <li className="flex gap-2"><Smartphone className="mt-0.5 h-4 w-4 shrink-0 text-brand" /><span>Abra o WhatsApp no celular do número comercial.</span></li>
+        <li className="flex gap-2"><span className="w-4 shrink-0 text-center font-semibold text-brand">2</span><span>Toque em <b className="text-content">Mais opções › Dispositivos conectados</b>.</span></li>
+        <li className="flex gap-2"><span className="w-4 shrink-0 text-center font-semibold text-brand">3</span><span>Toque em <b className="text-content">Conectar um aparelho</b> e aponte para o código.</span></li>
         <li className="text-xs text-content-muted">A tela avança sozinha quando conectar. O código se renova a cada poucos segundos.</li>
       </ol>
     </Card>}
