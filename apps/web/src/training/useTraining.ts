@@ -3,7 +3,7 @@ import { trainingFactSchema, trainingOnboardingProgress, trainingProfileSchema, 
 import { useSession } from '../session';
 
 export type FactRow = TrainingFact & { id: string; status: 'draft' | 'approved' | 'archived'; revision: number };
-export type AgentRow = { id: string; name: string; active_flow_version_id?: string | null; hasOpenaiKey?: boolean };
+export type AgentRow = { id: string; name: string; active_flow_version_id?: string | null; hasOpenaiKey?: boolean; hasConnection?: boolean };
 export type Readiness = { ready: boolean; checks: Record<string, boolean> };
 export type TestResult = { answer: string; sources: string[] };
 

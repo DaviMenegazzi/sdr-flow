@@ -61,7 +61,7 @@ export function BillingReturnPage() {
   } else if (status?.activated) {
     icon = <CheckCircle2 size={28} className="text-success" aria-hidden="true" />;
     title = `Plano ${planName} ativado`;
-    body = 'Pagamento confirmado. Os novos recursos e limites já estão disponíveis para toda a organização.';
+    body = 'Pagamento confirmado. Agora vamos conectar o seu WhatsApp e treinar o seu SDR. Leva cerca de 10 minutos.';
   } else if (status && ['expired', 'canceled', 'failed'].includes(status.status)) {
     icon = <XCircle size={28} className="text-danger" aria-hidden="true" />;
     title = 'Pagamento não concluído';
@@ -80,7 +80,7 @@ export function BillingReturnPage() {
         <p className="m-0 text-sm leading-relaxed text-content-secondary">{body}</p>
         <div className="mt-2 flex gap-2">
           <Link to="/billing" className="inline-flex h-8 items-center rounded-lg border border-border px-3 text-xs font-medium text-content no-underline hover:bg-surface-elevated">Plano e cobrança</Link>
-          <Link to="/dashboard" className="inline-flex h-8 items-center rounded-lg bg-brand px-3 text-xs font-semibold text-black no-underline hover:bg-brand-hover">Ir para o painel</Link>
+          <Link to="/onboarding" className="inline-flex h-8 items-center rounded-lg bg-brand px-3 text-xs font-semibold text-black no-underline hover:bg-brand-hover">{status?.activated ? "Configurar meu SDR" : "Continuar a configuração"}</Link>
         </div>
       </div>
     </PageContainer>

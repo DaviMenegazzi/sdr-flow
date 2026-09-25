@@ -265,17 +265,20 @@ export function createApp(config: ApiConfig = {}): Express {
   });
   app.get('/api/me/agents', async (_req, res) => {
     const auth = res.locals.auth!;
-    const [{ data, error }, { data: limitRows }] = await Promise.all([
-      auth.db.from('ai_agents').select('id,name,description,status,provider,model,system_prompt,tool_policy,model_config,is_default,created_at,updated_at').eq('organization_id', auth.organizationId).neq('status','archived').order('created_at'),
+    const [{ data, error }, { data: limitRows }, { data: connectionRows }] = await Promise.all([
+      auth.db.from('ai_agents').select('id,name,description,status,provider,model,system_prompt,tool_policy,model_config,is_default,active_flow_version_id,created_at,updated_at').eq('organization_id', auth.organizationId).neq('status','archived').order('created_at'),
       (auth.db as any).rpc('get_organization_limits', { p_org: auth.organizationId }),
+      auth.db.from('connections').select('agent_id').eq('organization_id', auth.organizationId),
     ]);
+    // Agents answering a WhatsApp instance; the training test preselects them.
+    const connectedAgents = new Set((connectionRows ?? []).map((row: { agent_id: string | null }) => row.agent_id).filter(Boolean));
     if (error) throw error;
     const effective = Array.isArray(limitRows) ? limitRows[0] : limitRows;
     const limits = effective ? { max_agents: effective.max_agents, max_instances: effective.max_instances } : null;
     const serviceDb = getServiceDb();
     const agents = serviceDb
-      ? await Promise.all((data ?? []).map(async agent => ({ ...agent, hasOpenaiKey: await agentHasOpenAIKey(serviceDb, agent.id) })))
-      : (data ?? []).map(agent => ({ ...agent, hasOpenaiKey: false }));
+      ? await Promise.all((data ?? []).map(async agent => ({ ...agent, hasConnection: connectedAgents.has(agent.id), hasOpenaiKey: await agentHasOpenAIKey(serviceDb, agent.id) })))
+      : (data ?? []).map(agent => ({ ...agent, hasConnection: connectedAgents.has(agent.id), hasOpenaiKey: false }));
     res.json({ agents, limits: limits ?? { max_agents: 2, max_instances: 1 }, used: data?.length ?? 0 });
   });
   app.post('/api/me/agents', async (req, res) => {
@@ -1220,7 +1223,17 @@ export function createApp(config: ApiConfig = {}): Express {
   });
 
   orgRoutes.post('/connections', requireAdmin, checkScope('connections:write'), async (req, res) => {
-    const body = createConnectionSchema.parse(req.body);
+    const raw = req.body && typeof req.body === 'object' ? { ...req.body } : req.body;
+    // Customers connecting by QR Code (onboarding) don't know the Evolution server: use the
+    // platform one. Explicit credentials still win so self-hosted servers keep working.
+    if (raw?.provider === 'evolution' && !raw.credentials) {
+      if (!config.evolutionServerUrl || !config.evolutionApiKey) {
+        res.status(503).json({ error: 'A conexão por QR Code não está disponível nesta instalação. Fale com o suporte da Prodigi.' });
+        return;
+      }
+      raw.credentials = { serverUrl: config.evolutionServerUrl, apiKey: config.evolutionApiKey };
+    }
+    const body = createConnectionSchema.parse(raw);
     const serviceDb = getServiceDb() || res.locals.db;
     const { connection, prepared } = await provisionConnection(res.locals.organizationId as string, body, serviceDb);
 

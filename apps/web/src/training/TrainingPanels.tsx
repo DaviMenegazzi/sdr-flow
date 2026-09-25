@@ -72,7 +72,7 @@ export function ProfileSummary({ training }: { training: TrainingState }) {
 
 const emptyFact: TrainingFact = { category: 'faq', question: '', answer: '', sourceType: 'manual' };
 
-export function FactForm({ training, onSaved, approve = false, submitLabel }: { training: TrainingState; onSaved?: () => void; approve?: boolean; submitLabel?: string }) {
+export function FactForm({ training, onSaved, approve = false, submitLabel, showSuggestions = true }: { training: TrainingState; onSaved?: () => void; approve?: boolean; submitLabel?: string; showSuggestions?: boolean }) {
   const [fact, setFact] = useState<TrainingFact>(emptyFact);
   const [agentId, setAgentId] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -85,7 +85,7 @@ export function FactForm({ training, onSaved, approve = false, submitLabel }: { 
     if (questions) setSuggestions(questions);
   };
   return <div className="space-y-4">
-    {training.agents.length > 0 && <div className="rounded-lg border border-border bg-surface-elevated/60 p-4">
+    {showSuggestions && training.agents.length > 0 && <div className="rounded-lg border border-border bg-surface-elevated/60 p-4">
       <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-content"><Sparkles className="h-4 w-4 text-brand" /> Precisa de ideias?</div>
       <div className="flex flex-col gap-2 sm:flex-row">
         <div className="min-w-0 flex-1"><Select fullWidth aria-label="Agente para sugerir perguntas" value={agentId} onChange={setAgentId} placeholder="Selecione um agente" className="min-h-[38px] w-full"
@@ -172,7 +172,13 @@ export function TestPanel({ training }: { training: TrainingState }) {
   const [question, setQuestion] = useState('');
   const [result, setResult] = useState<TestResult | null>(null);
   const [readiness, setReadiness] = useState<Readiness | null>(null);
-  const { readiness: loadReadiness, profileApproved, approvedFacts } = training;
+  const { readiness: loadReadiness, profileApproved, approvedFacts, agents } = training;
+  // Start with the agent that answers the account's WhatsApp instance.
+  useEffect(() => {
+    if (agentId || agents.length === 0) return;
+    const preferred = agents.find(agent => agent.hasConnection) ?? (agents.length === 1 ? agents[0] : undefined);
+    if (preferred) setAgentId(preferred.id);
+  }, [agents, agentId]);
   useEffect(() => {
     setReadiness(null);
     if (!agentId) return;
