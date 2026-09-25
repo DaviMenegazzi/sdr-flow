@@ -44,7 +44,10 @@ function positionOf(screen: Screen): number {
 }
 
 function QuestionScreen({ item, training, onNext, onBack }: { item: TrainingQuestion; training: ReturnType<typeof useTraining>; onNext: () => void; onBack: () => void }) {
-  const [value, setValue] = useState(trainingAnswer(training.profile, item));
+  const { organizations, activeOrg } = useSession();
+  // The company name typed at checkout names the organization: start the first question with it.
+  const orgName = organizations.find(org => org.id === activeOrg)?.name ?? '';
+  const [value, setValue] = useState(trainingAnswer(training.profile, item) || (item.key === 'name' && orgName !== 'Minha conta' ? orgName : ''));
   const field = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
   useEffect(() => { field.current?.focus(); }, []);
   const required = item.key === 'name';

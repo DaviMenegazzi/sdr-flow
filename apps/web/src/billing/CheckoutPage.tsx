@@ -32,6 +32,7 @@ export function CheckoutPage() {
   useEffect(() => { rememberOffer(offer?.code); }, [offer?.code]);
 
   const [name, setName] = useState('');
+  const [company, setCompany] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -52,7 +53,7 @@ export function CheckoutPage() {
     setBusy(true); setError('');
     const { data, error: signUpError } = await supabase.auth.signUp({
       email, password,
-      options: { data: { display_name: name.trim() }, emailRedirectTo: `${location.origin}/auth/callback` },
+      options: { data: { display_name: name.trim(), company_name: company.trim() }, emailRedirectTo: `${location.origin}/auth/callback` },
     });
     setBusy(false);
     if (signUpError) { setError(signUpError.message.includes('registered') ? 'Este e-mail já tem conta. Entre para continuar o pagamento.' : 'Não foi possível criar a sua conta. Confira os dados e tente de novo.'); return; }
@@ -86,6 +87,7 @@ export function CheckoutPage() {
             <p className="mt-1 text-sm text-content-secondary">Com eles criamos a sua conta na Prodigi.</p>
           </div>
           <Input label="Nome completo" required maxLength={120} autoComplete="name" value={name} onChange={event => setName(event.target.value)} placeholder="Como devemos chamar você" />
+          <Input label="Nome da empresa" required maxLength={120} autoComplete="organization" value={company} onChange={event => setCompany(event.target.value)} placeholder="Como a sua empresa é conhecida" />
           <Input label="E-mail" type="email" required autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="voce@empresa.com.br" />
           <Input label="Crie uma senha" type="password" required minLength={8} autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} placeholder="No mínimo 8 caracteres" />
           {error && <p role="alert" className="rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs text-danger">{error}</p>}
