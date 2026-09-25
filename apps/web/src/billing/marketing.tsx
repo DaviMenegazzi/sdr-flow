@@ -139,7 +139,7 @@ export function useChoosePlan() {
       return;
     }
     rememberOffer(offerCode);
-    navigate(`/register?offer=${encodeURIComponent(offerCode)}`);
+    navigate(`/checkout?offer=${encodeURIComponent(offerCode)}`);
   };
 }
 

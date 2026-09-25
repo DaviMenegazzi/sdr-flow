@@ -34,6 +34,7 @@ const BillingReturnPage = lazy(() => import('./billing/BillingReturnPage').then(
 // Public pages (LP and pricing) live in their own chunks so the app shell stays small.
 const LandingPage = lazy(() => import('./billing/LandingPage').then(m => ({ default: m.LandingPage })));
 const PricingPage = lazy(() => import('./billing/PricingPage').then(m => ({ default: m.PricingPage })));
+const CheckoutPage = lazy(() => import('./billing/CheckoutPage').then(m => ({ default: m.CheckoutPage })));
 
 function RouteLoadingFallback() {
   return (
@@ -246,7 +247,7 @@ function PublicFallback() {
   return <div role="status" aria-live="polite" className="dark min-h-[100dvh] bg-canvas"><span className="sr-only">Carregando…</span></div>;
 }
 
-function App(){return <SessionProvider><BrowserRouter><Suspense fallback={<PublicFallback/>}><Routes><Route path="/" element={<LandingPage/>}/><Route path="/pricing" element={<PricingPage/>}/><Route path="/login" element={<LoginPage/>}/><Route path="/register" element={<RegisterPage/>}/><Route path="/forgot-password" element={<ForgotPasswordPage/>}/><Route path="/reset-password" element={<ResetPasswordPage/>}/><Route path="/auth/callback" element={<AuthCallback/>}/><Route path="/404" element={<NotFoundPage/>}/><Route path="/*" element={<AuthGate><ProtectedApp/></AuthGate>}/></Routes></Suspense><Toaster/><ConfirmHost/></BrowserRouter></SessionProvider>}
+function App(){return <SessionProvider><BrowserRouter><Suspense fallback={<PublicFallback/>}><Routes><Route path="/" element={<LandingPage/>}/><Route path="/pricing" element={<PricingPage/>}/><Route path="/login" element={<LoginPage/>}/><Route path="/register" element={<RegisterPage/>}/><Route path="/checkout" element={<CheckoutPage/>}/><Route path="/forgot-password" element={<ForgotPasswordPage/>}/><Route path="/reset-password" element={<ResetPasswordPage/>}/><Route path="/auth/callback" element={<AuthCallback/>}/><Route path="/404" element={<NotFoundPage/>}/><Route path="/*" element={<AuthGate><ProtectedApp/></AuthGate>}/></Routes></Suspense><Toaster/><ConfirmHost/></BrowserRouter></SessionProvider>}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

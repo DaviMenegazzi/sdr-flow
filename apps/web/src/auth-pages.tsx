@@ -183,6 +183,10 @@ export function RegisterPage() {
     setMessage(error ? 'Não foi possível concluir o cadastro.' : 'Cadastro recebido. Verifique seu e-mail para confirmar a conta.');
   };
 
+  // Choosing a plan is a purchase: it goes through the checkout, which creates the account too.
+  const offerParam = new URLSearchParams(search).get('offer');
+  if (offerParam && describeOffer(offerParam)) return <Navigate to={`/checkout?offer=${encodeURIComponent(offerParam)}`} replace />;
+
   return (
     <AuthCard title="Criar conta">
       <PendingOfferNote />
