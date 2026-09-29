@@ -9,6 +9,7 @@ import {
   MessageSquare,
   BarChart3,
   Settings2,
+  Sparkles,
   Moon,
   Sun,
   LogOut,
@@ -17,8 +18,6 @@ import {
   ChevronsUpDown,
   Check,
   Plus,
-  CreditCard,
-  Sparkles,
 } from 'lucide-react';
 import { useSession } from '../../session';
 import { ProdigiWordmark } from './ProdigiWordmark';
@@ -218,15 +217,6 @@ export function AppSidebar({ dark, onToggleTheme, mobileOpen = false }: AppSideb
                 <span>Integrações</span>
               </NavLink>
             )}
-          </>
-        )}
-        {section(
-          'Conta',
-          <>
-            <NavLink to="/billing" className={navItemClass}>
-              <CreditCard size={16} />
-              <span>Plano e cobrança</span>
-            </NavLink>
           </>
         )}
       </nav>
