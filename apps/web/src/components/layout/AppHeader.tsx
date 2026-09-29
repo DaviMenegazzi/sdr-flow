@@ -1,6 +1,6 @@
 import React from 'react';
 import { useLocation, Link } from 'react-router-dom';
-import { Check, ChevronDown, ChevronRight, Menu, Settings2, Sparkles } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Menu, Settings2 } from 'lucide-react';
 import { useInstance } from '../../context/InstanceContext';
 import { useSession } from '../../session';
 import { Popover, Skeleton } from '../ui';
@@ -23,9 +23,8 @@ const PAGES: Array<{ prefix: string; title: string; category: string }> = [
 
 export function AppHeader({ onOpenNav }: { onOpenNav?: () => void }) {
   const { activeInstance, setActiveInstance, instances, loading } = useInstance();
-  const { can, activeRole, activeTier } = useSession();
+  const { can } = useSession();
   const location = useLocation();
-  const showUpgrade = activeRole === 'owner' && activeTier !== null && activeTier !== 'vendedor-senior' && !location.pathname.startsWith('/billing');
   const current = instances.find(i => i.name === activeInstance || i.id === activeInstance);
   const page = PAGES.find(p => location.pathname.startsWith(p.prefix));
   const isConnected = current?.status === 'connected';
@@ -53,14 +52,6 @@ export function AppHeader({ onOpenNav }: { onOpenNav?: () => void }) {
       </div>
 
       <div className="flex flex-shrink-0 items-center gap-2">
-      {showUpgrade && (
-        <Link
-          to="/billing"
-          className="hidden h-8 items-center gap-1.5 rounded-full border border-brand/30 bg-brand/10 px-3 text-xs font-semibold text-brand-fg no-underline hover:border-brand/60 sm:inline-flex"
-        >
-          <Sparkles size={13} aria-hidden="true" /> Fazer upgrade
-        </Link>
-      )}
       {can('instances:manage') &&
         (loading ? (
           <div role="status" aria-live="polite" className="w-44">
