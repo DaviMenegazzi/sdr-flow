@@ -79,6 +79,24 @@ export function useAgentsApi() {
         });
         if (!res.ok) await failure(res, 'Falha ao registrar a chave da OpenAI.');
       },
+      async syncOpenAI(agentId: string) {
+        const res = await fetch(`/api/me/agents/${agentId}/openai-sync`, { method: 'POST', headers: json });
+        if (!res.ok) await failure(res, 'Não foi possível sincronizar com a OpenAI.');
+      },
+      async keySource(agentId: string): Promise<'platform' | 'own' | null> {
+        const res = await fetch(`/api/me/agents/${agentId}`, { headers: json });
+        if (!res.ok) return null;
+        const data = await res.json().catch(() => null);
+        return (data as { openaiKeySource?: 'platform' | 'own' | null } | null)?.openaiKeySource ?? null;
+      },
+      async setConcurrency(agentId: string, maxConcurrentReplies: number) {
+        const res = await fetch(`/api/me/agents/${agentId}/concurrency`, {
+          method: 'PATCH',
+          headers: json,
+          body: JSON.stringify({ maxConcurrentReplies }),
+        });
+        if (!res.ok) await failure(res, 'Não foi possível salvar o limite.');
+      },
       async assignInstance(instanceId: string, agentId: string) {
         const res = await fetch(`/api/me/instances/${instanceId}/assign-agent`, {
           method: 'POST',

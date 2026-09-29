@@ -17,6 +17,7 @@ import {
   setAgentOpenAIKey,
   getAgentOpenAIKey,
   agentHasOpenAIKey,
+  getAgentOpenAIKeyMeta,
   type AnyDbClient,
   type EvolutionCredentials,
   type MetaCredentials,
@@ -68,6 +69,7 @@ import {
 } from '@sdr/runtime';
 import { authMiddleware, requireRole, requireCapability, requireOrgRole, uuidParam } from './auth.js';
 import { registerBillingRoutes } from './billing/routes.js';
+import { OpenAIAdminClient, provisionAgentOpenAIKey, revokeAgentOpenAIKey, type ProvisionAgent } from './openai-provisioning.js';
 
 export interface ApiConfig extends RuntimeConfig {
   supabaseUrl?: string;
@@ -76,6 +78,8 @@ export interface ApiConfig extends RuntimeConfig {
   publicApiUrl?: string;
   evolutionServerUrl?: string;
   evolutionApiKey?: string;
+  /** OpenAI Admin key (sk-admin-…): provisions one OpenAI project + key per agent. */
+  openaiAdminKey?: string;
   redisUrl?: string;
   allowedOrigins?: string[];
   googleOAuthClientId?: string;
@@ -263,10 +267,24 @@ export function createApp(config: ApiConfig = {}): Express {
     const { data, error } = await auth.db.from('connections').select('id,name,provider,status,phone,agent_id,created_at').eq('organization_id', auth.organizationId).order('created_at');
     if (error) throw error; res.json(data ?? []);
   });
+  const openaiAdmin = config.openaiAdminKey ? new OpenAIAdminClient(config.openaiAdminKey) : null;
+  type SyncStatus = 'pending' | 'synced' | 'failed';
+  // Agents created outside this API (signup trigger, older rows) get their key on first view.
+  function kickOpenAISync(agent: ProvisionAgent & { openai_sync_status?: string }, hasKey: boolean) {
+    const serviceDb = getServiceDb();
+    if (hasKey || !openaiAdmin || !serviceDb || agent.openai_sync_status !== 'pending') return;
+    void provisionAgentOpenAIKey(serviceDb, openaiAdmin, agent).catch(err => logger.error({ err, agentId: agent.id }, 'Falha ao sincronizar chave OpenAI do agente'));
+  }
+  // Never report "sincronizando" when sync can't run at all.
+  function openaiSyncView(agent: { openai_sync_status?: string; openai_sync_error?: string | null }, hasKey: boolean): { openaiSyncStatus: SyncStatus; openaiSyncError: string | null } {
+    if (hasKey) return { openaiSyncStatus: 'synced', openaiSyncError: null };
+    if (!openaiAdmin) return { openaiSyncStatus: 'failed', openaiSyncError: 'OPENAI_ADMIN_KEY não configurada no servidor.' };
+    return { openaiSyncStatus: (agent.openai_sync_status as SyncStatus) || 'pending', openaiSyncError: agent.openai_sync_error ?? null };
+  }
   app.get('/api/me/agents', async (_req, res) => {
     const auth = res.locals.auth!;
     const [{ data, error }, { data: limitRows }, { data: connectionRows }] = await Promise.all([
-      auth.db.from('ai_agents').select('id,name,description,status,provider,model,system_prompt,tool_policy,model_config,is_default,active_flow_version_id,created_at,updated_at').eq('organization_id', auth.organizationId).neq('status','archived').order('created_at'),
+      auth.db.from('ai_agents').select('id,organization_id,owner_user_id,name,description,status,provider,model,system_prompt,tool_policy,model_config,is_default,active_flow_version_id,openai_sync_status,openai_sync_error,max_concurrent_replies,created_at,updated_at').eq('organization_id', auth.organizationId).neq('status','archived').order('created_at'),
       (auth.db as any).rpc('get_organization_limits', { p_org: auth.organizationId }),
       auth.db.from('connections').select('agent_id').eq('organization_id', auth.organizationId),
     ]);
@@ -277,8 +295,15 @@ export function createApp(config: ApiConfig = {}): Express {
     const limits = effective ? { max_agents: effective.max_agents, max_instances: effective.max_instances } : null;
     const serviceDb = getServiceDb();
     const agents = serviceDb
-      ? await Promise.all((data ?? []).map(async agent => ({ ...agent, hasConnection: connectedAgents.has(agent.id), hasOpenaiKey: await agentHasOpenAIKey(serviceDb, agent.id) })))
-      : (data ?? []).map(agent => ({ ...agent, hasConnection: connectedAgents.has(agent.id), hasOpenaiKey: false }));
+      ? await Promise.all((data ?? []).map(async agent => {
+          const hasOpenaiKey = await agentHasOpenAIKey(serviceDb, agent.id);
+          kickOpenAISync(agent, hasOpenaiKey);
+          const sync = openaiSyncView(agent, hasOpenaiKey);
+          // Raw OpenAI errors are platform-admin details.
+          const isPlatformAdmin = auth.platformRole === 'admin';
+          return { ...agent, openai_sync_error: isPlatformAdmin ? agent.openai_sync_error : null, hasConnection: connectedAgents.has(agent.id), hasOpenaiKey, ...sync, openaiSyncError: isPlatformAdmin ? sync.openaiSyncError : null };
+        }))
+      : (data ?? []).map(agent => ({ ...agent, hasConnection: connectedAgents.has(agent.id), hasOpenaiKey: false, ...openaiSyncView(agent, false) }));
     res.json({ agents, limits: limits ?? { max_agents: 2, max_instances: 1 }, used: data?.length ?? 0 });
   });
   app.post('/api/me/agents', async (req, res) => {
@@ -287,7 +312,15 @@ export function createApp(config: ApiConfig = {}): Express {
     if (!body.success) { res.status(400).json({ error: 'Dados do agente inválidos.' }); return; }
     const { data, error } = await (auth.db as any).rpc('create_agent_for_current_user', { p_name: body.data.name, p_description: body.data.description ?? null, p_provider: body.data.provider, p_model: body.data.model, p_system_prompt: body.data.systemPrompt, p_tool_policy: body.data.toolPolicy ?? {}, p_model_config: body.data.modelConfig ?? {} });
     if (error) { res.status(error.code === 'P0001' ? 409 : 400).json({ error: error.code === 'P0001' ? 'Limite de agentes atingido.' : 'Não foi possível criar o agente.' }); return; }
-    res.status(201).json(data);
+    const serviceDb = getServiceDb();
+    let hasOpenaiKey = false;
+    if (serviceDb && openaiAdmin) {
+      try { await provisionAgentOpenAIKey(serviceDb, openaiAdmin, data); hasOpenaiKey = true; }
+      catch (err) { logger.error({ err, agentId: data.id }, 'Falha ao sincronizar chave OpenAI do novo agente'); }
+    }
+    const { data: fresh } = await auth.db.from('ai_agents').select('*').eq('id', data.id).maybeSingle();
+    const agent = fresh ?? data;
+    res.status(201).json({ ...agent, hasOpenaiKey, ...openaiSyncView(agent, hasOpenaiKey) });
   });
   app.get('/api/me/agents/:agentId', async (req, res) => {
     const auth = res.locals.auth!; const agentId = uuidParam.safeParse(req.params.agentId);
@@ -295,8 +328,18 @@ export function createApp(config: ApiConfig = {}): Express {
     const { data, error } = await auth.db.from('ai_agents').select('*').eq('organization_id', auth.organizationId).eq('id', agentId.data).neq('status', 'archived').maybeSingle();
     if (error || !data) { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
     const serviceDb = getServiceDb();
-    const hasOpenaiKey = serviceDb ? await agentHasOpenAIKey(serviceDb, data.id) : false;
-    res.json({ ...data, hasOpenaiKey });
+    const keyMeta = serviceDb ? await getAgentOpenAIKeyMeta(serviceDb, data.id).catch(() => null) : null;
+    const hasOpenaiKey = Boolean(keyMeta);
+    kickOpenAISync(data, hasOpenaiKey);
+    const isPlatformAdmin = auth.platformRole === 'admin';
+    res.json({
+      ...data,
+      hasOpenaiKey,
+      ...openaiSyncView(data, hasOpenaiKey),
+      // Key origin and raw sync errors are platform-admin details.
+      openaiKeySource: isPlatformAdmin ? keyMeta?.source ?? null : undefined,
+      openai_sync_error: isPlatformAdmin ? data.openai_sync_error : undefined,
+    });
   });
   app.post('/api/me/agents/:agentId/test', async (req, res) => {
     const auth = res.locals.auth!;
@@ -389,7 +432,34 @@ export function createApp(config: ApiConfig = {}): Express {
     };
     res.json({ ready: Object.values(checks).every(Boolean), checks });
   });
-  app.post('/api/me/agents/:agentId/openai-key', async (req, res) => {
+  app.post('/api/me/agents/:agentId/openai-sync', async (req, res) => {
+    const auth = res.locals.auth!; const agentId = uuidParam.safeParse(req.params.agentId);
+    if (!agentId.success) { res.status(400).json({ error: 'Identificador inválido.' }); return; }
+    const { data: agent } = await auth.db.from('ai_agents').select('id,organization_id,owner_user_id,name').eq('organization_id', auth.organizationId).eq('id', agentId.data).neq('status', 'archived').maybeSingle();
+    if (!agent) { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
+    const serviceDb = getServiceDb();
+    if (!serviceDb || !openaiAdmin) { res.status(503).json({ error: 'Sincronização com a OpenAI indisponível no servidor.' }); return; }
+    try {
+      await provisionAgentOpenAIKey(serviceDb, openaiAdmin, agent);
+    } catch {
+      res.status(502).json({ error: 'A OpenAI recusou a sincronização. Tente de novo em instantes.' });
+      return;
+    }
+    res.json({ openaiSyncStatus: 'synced' });
+  });
+  // Platform-admin only: how many conversations this agent may answer at the same time.
+  app.patch('/api/me/agents/:agentId/concurrency', requireRole('admin'), async (req, res) => {
+    const auth = res.locals.auth!; const agentId = uuidParam.safeParse(req.params.agentId);
+    const body = z.object({ maxConcurrentReplies: z.number().int().min(1).max(50) }).strict().safeParse(req.body);
+    if (!agentId.success || !body.success) { res.status(400).json({ error: 'Informe um limite entre 1 e 50.' }); return; }
+    const serviceDb = getServiceDb();
+    if (!serviceDb) { res.status(503).json({ error: 'Persistência não configurada.' }); return; }
+    const { data, error } = await serviceDb.from('ai_agents').update({ max_concurrent_replies: body.data.maxConcurrentReplies }).eq('organization_id', auth.organizationId).eq('id', agentId.data).select('id,max_concurrent_replies').maybeSingle();
+    if (error || !data) { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
+    res.json(data);
+  });
+  // Hidden, platform-admin only: pin a key taken manually from the OpenAI platform.
+  app.post('/api/me/agents/:agentId/openai-key', requireRole('admin'), async (req, res) => {
     const auth = res.locals.auth!; const agentId = uuidParam.safeParse(req.params.agentId);
     const body = z.object({ apiKey: z.string().trim().min(1).max(400) }).strict().safeParse(req.body);
     if (!agentId.success || !body.success) { res.status(400).json({ error: 'Dados inválidos.' }); return; }
@@ -398,7 +468,12 @@ export function createApp(config: ApiConfig = {}): Express {
     const serviceDb = getServiceDb();
     if (!serviceDb) { res.status(503).json({ error: 'Persistência não configurada.' }); return; }
     try {
-      await setAgentOpenAIKey(serviceDb, auth.organizationId, (agent as any).owner_user_id || auth.userId, agentId.data, body.data.apiKey);
+      // A replaced platform key is revoked on OpenAI too, so no orphan key keeps working.
+      const previous = await getAgentOpenAIKeyMeta(serviceDb, agentId.data);
+      await setAgentOpenAIKey(serviceDb, auth.organizationId, (agent as any).owner_user_id || auth.userId, agentId.data, body.data.apiKey, { source: 'own' });
+      if (previous?.source === 'platform' && previous.openaiProjectId && openaiAdmin) {
+        await openaiAdmin.archiveProject(previous.openaiProjectId).catch(err => logger.error({ err, agentId: agentId.data }, 'Falha ao arquivar projeto OpenAI substituído'));
+      }
     } catch {
       res.status(500).json({ error: 'Não foi possível salvar a chave da OpenAI.' });
       return;
@@ -419,6 +494,8 @@ export function createApp(config: ApiConfig = {}): Express {
     const { data, error } = await (auth.db as any).rpc('archive_agent_for_current_user', { p_agent: agentId.data });
     if (error?.code === '23503') { res.status(409).json({ error: 'Desassocie o agente das instâncias antes de arquivá-lo.' }); return; }
     if (error || !data) { res.status(404).json({ error: 'Recurso não encontrado.' }); return; }
+    const serviceDb = getServiceDb();
+    if (serviceDb) await revokeAgentOpenAIKey(serviceDb, openaiAdmin, agentId.data).catch(err => logger.error({ err, agentId: agentId.data }, 'Falha ao revogar chave OpenAI do agente arquivado'));
     res.status(204).end();
   });
   app.post('/api/me/instances/:connectionId/assign-agent', requireCapability('instances:manage'), async (req, res) => {

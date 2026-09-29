@@ -89,6 +89,17 @@ if (!redisUrl) {
     { connection: connectionOptions, concurrency: 1 }
   );
 
+  // ai_agents.max_concurrent_replies, cached briefly so every turn doesn't hit Postgres.
+  const agentLimitCache = new Map<string, { limit: number | null; expiresAt: number }>();
+  const agentConcurrencyLimit = async (agentId: string) => {
+    const cached = agentLimitCache.get(agentId);
+    if (cached && cached.expiresAt > Date.now()) return cached.limit;
+    const { data } = await db.from('ai_agents').select('max_concurrent_replies').eq('id', agentId).maybeSingle();
+    const limit = data?.max_concurrent_replies ?? null;
+    agentLimitCache.set(agentId, { limit, expiresAt: Date.now() + 30_000 });
+    return limit;
+  };
+
   // The one real consumer of the canonical turns queue in production
   // (docs/OPTIMIZATION_IMPLEMENTATION_PLAN.md 8.2/8.9) — apps/api only ever produces to it.
   const turnBuffer = new RedisTurnBuffer(
@@ -112,7 +123,7 @@ if (!redisUrl) {
         }
       );
     },
-    { concurrency: Number(process.env.TURN_WORKER_CONCURRENCY) || 5 }
+    { concurrency: Number(process.env.TURN_WORKER_CONCURRENCY) || 5, agentConcurrencyLimit }
   );
 
   const dispatchInterval = setInterval(() => {

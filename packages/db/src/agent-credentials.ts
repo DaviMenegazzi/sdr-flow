@@ -6,14 +6,26 @@ import { encryptCredentials, decryptCredentials } from './crypto.js';
  * and never readable through any path but this one (private.agent_credentials, reached only
  * via service_role-only RPCs; see supabase/migrations/202609161001_agent_openai_credentials.sql).
  * Mirrors ConnectionRepository's credential handling exactly.
+ *
+ * 'platform' keys are provisioned automatically (one OpenAI project + service account per
+ * agent); 'own' keys were pasted by a platform admin and are never replaced by provisioning.
  */
+
+export type AgentOpenAIKeySource = 'platform' | 'own';
+
+export interface AgentOpenAIKeyMeta {
+  source: AgentOpenAIKeySource;
+  openaiProjectId: string | null;
+  openaiServiceAccountId: string | null;
+}
 
 export async function setAgentOpenAIKey(
   db: AnyDbClient,
   organizationId: string,
   ownerUserId: string,
   agentId: string,
-  apiKey: string
+  apiKey: string,
+  origin: { source: AgentOpenAIKeySource; openaiProjectId?: string; openaiServiceAccountId?: string } = { source: 'own' }
 ): Promise<void> {
   const ciphertext = encryptCredentials({ apiKey });
   const { error } = await (db as any).rpc('set_agent_openai_key', {
@@ -21,6 +33,9 @@ export async function setAgentOpenAIKey(
     p_owner: ownerUserId,
     p_agent: agentId,
     p_ciphertext: ciphertext,
+    p_source: origin.source,
+    p_project: origin.openaiProjectId ?? null,
+    p_service_account: origin.openaiServiceAccountId ?? null,
   });
   if (error) throw error;
 }
@@ -39,4 +54,17 @@ export async function agentHasOpenAIKey(db: AnyDbClient, agentId: string): Promi
   const { data, error } = await (db as any).rpc('agent_has_openai_key', { p_agent: agentId });
   if (error) return false;
   return Boolean(data);
+}
+
+export async function getAgentOpenAIKeyMeta(db: AnyDbClient, agentId: string): Promise<AgentOpenAIKeyMeta | null> {
+  const { data, error } = await (db as any).rpc('get_agent_openai_key_meta', { p_agent: agentId });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return null;
+  return { source: row.source, openaiProjectId: row.openai_project_id, openaiServiceAccountId: row.openai_service_account_id };
+}
+
+export async function deleteAgentOpenAIKey(db: AnyDbClient, agentId: string): Promise<void> {
+  const { error } = await (db as any).rpc('delete_agent_openai_key', { p_agent: agentId });
+  if (error) throw error;
 }

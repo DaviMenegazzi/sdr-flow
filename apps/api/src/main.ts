@@ -19,6 +19,7 @@ const app = createApp({
   serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
   evolutionServerUrl: process.env.EVOLUTION_SERVER_URL,
   evolutionApiKey: process.env.EVOLUTION_API_KEY,
+  openaiAdminKey: process.env.OPENAI_ADMIN_KEY,
   redisUrl: process.env.REDIS_URL,
   allowedOrigins: (process.env.ALLOWED_ORIGINS || '').split(',').map(v => v.trim()).filter(Boolean),
   googleOAuthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID,

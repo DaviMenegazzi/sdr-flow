@@ -213,4 +213,48 @@ describe('RedisTurnBuffer (canonical queue debounce + lock)', () => {
     await processing;
     await buffer.close();
   });
+
+  it('caps simultaneous replies per agent: the turn over the limit is delayed (not failed, not dropped) and runs once a slot frees', async () => {
+    const slots = new Map<string, Set<string>>();
+    const base = dependencies();
+    const redis = {
+      ...base.redis!,
+      async eval(script: string, keyCount: number, ...args: Array<string | number>) {
+        const key = String(args[0]);
+        if (!key.startsWith('sdr:agent:slots:')) return base.redis!.eval(script, keyCount, ...args);
+        const set = slots.get(key) ?? new Set<string>();
+        slots.set(key, set);
+        if (script.includes("'ZREM'")) { set.delete(String(args[1])); return 1; }
+        if (script.includes('ZCARD')) {
+          if (set.size >= Number(args[2])) return 0;
+          set.add(String(args[4]));
+          return 1;
+        }
+        return 1;
+      },
+    };
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const buffer = new RedisTurnBuffer('redis://localhost:6379/0', 'sdr-turns', async turn => {
+      if (turn.job.conversationKey === 'conn-1:lead-a') await gate;
+      return { status: 'executed' };
+    }, { ...base, redis, agentConcurrencyLimit: async () => 1 });
+
+    const common = { kind: 'published' as const, organizationId: 'org-1', connectionId: 'conn-1', agentId: randomUUID(), windowSeconds: 5 };
+    await buffer.enqueue({ ...common, conversationKey: 'conn-1:lead-a', inboundEventId: randomUUID() });
+    await buffer.enqueue({ ...common, conversationKey: 'conn-1:lead-b', inboundEventId: randomUUID() });
+
+    const first = state.processor!({ data: state.jobs[0]!.data });
+    await vi.waitFor(() => expect([...slots.values()][0]?.size).toBe(1));
+
+    const moveToDelayed = vi.fn(async () => {});
+    await expect((state.processor as any)({ data: state.jobs[1]!.data, moveToDelayed }, 'worker-token')).rejects.toThrow();
+    expect(moveToDelayed).toHaveBeenCalledWith(expect.any(Number), 'worker-token');
+
+    release();
+    expect((await first).status).toBe('executed');
+    expect([...slots.values()][0]!.size).toBe(0);
+    expect((await state.processor!({ data: state.jobs[1]!.data })).status).toBe('executed');
+    await buffer.close();
+  });
 });

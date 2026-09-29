@@ -135,6 +135,16 @@ describe('Postgres migrations, RLS and publication',() => {
       // A sibling agent under the same owner/org never sees this agent's key.
       expect((await db.query<{get_agent_openai_key:string|null}>('select public.get_agent_openai_key($1)',[otherAgentId])).rows[0]!.get_agent_openai_key).toBeNull();
       expect((await db.query<{agent_has_openai_key:boolean}>('select public.agent_has_openai_key($1)',[otherAgentId])).rows[0]!.agent_has_openai_key).toBe(false);
+
+      // Automatic provisioning: platform key carries its OpenAI project/service account and marks the agent synced.
+      expect((await db.query<{openai_sync_status:string;max_concurrent_replies:number}>('select openai_sync_status,max_concurrent_replies from public.ai_agents where id=$1',[otherAgentId])).rows[0]).toEqual({ openai_sync_status: 'pending', max_concurrent_replies: 3 });
+      await db.query("select public.set_agent_openai_key($1,$2,$3,$4,'platform','proj_1','sa_1')",[orgA,userA,otherAgentId,'cipher-platform']);
+      expect((await db.query('select * from public.get_agent_openai_key_meta($1)',[otherAgentId])).rows[0]).toEqual({ source: 'platform', openai_project_id: 'proj_1', openai_service_account_id: 'sa_1' });
+      expect((await db.query('select * from public.get_agent_openai_key_meta($1)',[agentId])).rows[0]).toEqual({ source: 'own', openai_project_id: null, openai_service_account_id: null });
+      expect((await db.query<{openai_sync_status:string}>('select openai_sync_status from public.ai_agents where id=$1',[otherAgentId])).rows[0]!.openai_sync_status).toBe('synced');
+      await db.query('select public.delete_agent_openai_key($1)',[otherAgentId]);
+      expect((await db.query<{agent_has_openai_key:boolean}>('select public.agent_has_openai_key($1)',[otherAgentId])).rows[0]!.agent_has_openai_key).toBe(false);
+      await expect(db.query('update public.ai_agents set max_concurrent_replies=0 where id=$1',[agentId])).rejects.toThrow();
     } finally { await db.exec('reset role'); }
 
     await asUser(db,userA,async () => {

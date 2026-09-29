@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { Queue, Worker, type Job } from 'bullmq';
+import { Queue, Worker, DelayedError, type Job } from 'bullmq';
 import IORedis from 'ioredis';
 import { conversationTurnJobV1Schema, type ConversationTurnJobV1 } from '@sdr/shared';
 
@@ -23,6 +23,19 @@ export const SUPERSEDED_TURN_ERROR = 'conversation_turn_superseded';
 // BullMQ retry, unlike a naive increment-at-enqueue/decrement-at-completion counter would.
 const ORG_FAIRNESS_WINDOW_MS = 60_000;
 const MAX_JOB_PRIORITY = 2_097_151;
+
+// Per-agent concurrency (ai_agents.max_concurrent_replies): a Redis sorted set of slot tokens
+// scored by expiry. A turn takes a slot before running the flow and gives it back afterwards;
+// a crashed worker's slot simply expires with the conversation lock TTL. A turn that finds
+// every slot busy is pushed back into the delayed set without spending a retry attempt, so
+// the message waits its turn instead of being dropped.
+const AGENT_BUSY_BASE_DELAY_MS = 2_000;
+const AGENT_BUSY_JITTER_MS = 3_000;
+export const AGENT_CONCURRENCY_ERROR = 'agent_concurrency_limit';
+
+function agentSlotsKey(agentId: string): string {
+  return `sdr:agent:slots:${agentId}`;
+}
 
 export interface EnqueueTurnInput {
   kind: 'published';
@@ -78,12 +91,16 @@ interface WorkerCommands {
 export interface RedisTurnBufferDependencies {
   redis?: RedisCommands;
   queue?: QueueCommands;
-  createWorker?: (processor: (job: { data: ConversationTurnJobV1; id?: string }) => Promise<TurnResult>) => WorkerCommands;
+  createWorker?: (processor: (job: DelayableJob, token?: string) => Promise<TurnResult>) => WorkerCommands;
+  /** max_concurrent_replies of the agent; null/undefined = no per-agent limit. */
+  agentConcurrencyLimit?: (agentId: string) => Promise<number | null | undefined>;
   /** Overridable for tests: avoids waiting out the real renewal interval. */
   lockRenewIntervalMs?: number;
   lockTtlMs?: number;
   concurrency?: number;
 }
+
+type DelayableJob = { data: ConversationTurnJobV1; id?: string; moveToDelayed?: (timestamp: number, token?: string) => Promise<void> };
 
 function connectionOptions(redisUrl: string) {
   const url = new URL(redisUrl);
@@ -133,6 +150,7 @@ export class RedisTurnBuffer {
   private readonly redis: RedisCommands;
   private readonly lockTtlMs: number;
   private readonly lockRenewIntervalMs: number;
+  private readonly agentConcurrencyLimit?: (agentId: string) => Promise<number | null | undefined>;
 
   constructor(
     redisUrl: string,
@@ -145,12 +163,13 @@ export class RedisTurnBuffer {
     this.queue = dependencies.queue || new Queue(queueName, { connection });
     this.lockTtlMs = dependencies.lockTtlMs ?? DEFAULT_LOCK_TTL_MS;
     this.lockRenewIntervalMs = dependencies.lockRenewIntervalMs ?? DEFAULT_LOCK_RENEW_INTERVAL_MS;
+    this.agentConcurrencyLimit = dependencies.agentConcurrencyLimit;
     if (handler) {
       this.worker = dependencies.createWorker
-        ? dependencies.createWorker(job => this.process(job, handler))
+        ? dependencies.createWorker((job, token) => this.process(job, handler, token))
         : new Worker(
             queueName,
-            job => this.process(job as Job<ConversationTurnJobV1>, handler),
+            (job, token) => this.process(job as Job<ConversationTurnJobV1>, handler, token),
             { connection, concurrency: dependencies.concurrency ?? (Number(process.env.TURN_WORKER_CONCURRENCY) || 5) },
           );
     }
@@ -244,7 +263,42 @@ export class RedisTurnBuffer {
     };
   }
 
-  private async process(job: { data: ConversationTurnJobV1; id?: string }, handler: TurnHandler): Promise<TurnResult> {
+  /** Takes one of the agent's slots; false when all max_concurrent_replies are in use. */
+  private async acquireAgentSlot(agentId: string, limit: number, token: string): Promise<boolean> {
+    const now = Date.now();
+    const acquired = await this.redis.eval(
+      `redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+       if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[2]) then return 0 end
+       redis.call('ZADD', KEYS[1], ARGV[3], ARGV[4])
+       redis.call('PEXPIRE', KEYS[1], ARGV[5])
+       return 1`,
+      1,
+      agentSlotsKey(agentId),
+      now,
+      limit,
+      now + this.lockTtlMs,
+      token,
+      this.lockTtlMs,
+    );
+    return Number(acquired) === 1;
+  }
+
+  private async renewAgentSlot(agentId: string, token: string): Promise<void> {
+    await this.redis.eval(
+      `if redis.call('ZSCORE', KEYS[1], ARGV[1]) then redis.call('ZADD', KEYS[1], ARGV[2], ARGV[1]) redis.call('PEXPIRE', KEYS[1], ARGV[3]) end return 1`,
+      1,
+      agentSlotsKey(agentId),
+      token,
+      Date.now() + this.lockTtlMs,
+      this.lockTtlMs,
+    );
+  }
+
+  private async releaseAgentSlot(agentId: string, token: string): Promise<void> {
+    await this.redis.eval(`return redis.call('ZREM', KEYS[1], ARGV[1])`, 1, agentSlotsKey(agentId), token);
+  }
+
+  private async process(job: DelayableJob, handler: TurnHandler, workerToken?: string): Promise<TurnResult> {
     const input = conversationTurnJobV1Schema.parse(job.data);
     const keys = redisKeys(input.conversationKey);
     const currentGeneration = Number(await this.redis.get(keys.generation) || 0);
@@ -267,8 +321,10 @@ export class RedisTurnBuffer {
       return renewed === 1;
     };
     let lockHeld = true;
+    let agentSlotToken: string | null = null;
     const renewalTimer = setInterval(() => {
       void renewLock().then(ok => { lockHeld = ok; });
+      if (agentSlotToken && input.agentId) void this.renewAgentSlot(input.agentId, agentSlotToken);
     }, this.lockRenewIntervalMs);
     // Node/BullMQ workers stay alive on their own; never let this timer keep the process up.
     (renewalTimer as unknown as { unref?: () => void }).unref?.();
@@ -281,6 +337,20 @@ export class RedisTurnBuffer {
 
       const inboundEventIds = await this.redis.zrangebyscore(keys.events, '-inf', input.generation);
       if (inboundEventIds.length === 0) return { status: 'empty', generation: input.generation };
+
+      const agentId = input.agentId;
+      const agentLimit = agentId && this.agentConcurrencyLimit ? await this.agentConcurrencyLimit(agentId) : null;
+      if (agentId && agentLimit && agentLimit > 0) {
+        if (!(await this.acquireAgentSlot(agentId, agentLimit, lockToken))) {
+          const retryAt = Date.now() + AGENT_BUSY_BASE_DELAY_MS + Math.floor(Math.random() * AGENT_BUSY_JITTER_MS);
+          if (job.moveToDelayed && workerToken) {
+            await job.moveToDelayed(retryAt, workerToken);
+            throw new DelayedError();
+          }
+          throw new Error(AGENT_CONCURRENCY_ERROR);
+        }
+        agentSlotToken = lockToken;
+      }
 
       const isCurrent = async () => {
         if (!lockHeld) return false;
@@ -300,6 +370,7 @@ export class RedisTurnBuffer {
       return result;
     } finally {
       clearInterval(renewalTimer);
+      if (agentSlotToken && input.agentId) await this.releaseAgentSlot(input.agentId, agentSlotToken);
       await this.redis.eval(
         `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`,
         1,

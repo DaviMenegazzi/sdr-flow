@@ -48,6 +48,9 @@ export type Database = {
         is_default: boolean;
         created_at: string;
         updated_at: string;
+        openai_sync_status: string;
+        openai_sync_error: string | null;
+        max_concurrent_replies: number;
       };
       Insert: {
         id?: string;
@@ -66,6 +69,9 @@ export type Database = {
         is_default?: boolean;
         created_at?: string;
         updated_at?: string;
+        openai_sync_status?: string;
+        openai_sync_error?: string | null;
+        max_concurrent_replies?: number;
       };
       Update: {
         id?: string;
@@ -84,6 +90,9 @@ export type Database = {
         is_default?: boolean;
         created_at?: string;
         updated_at?: string;
+        openai_sync_status?: string;
+        openai_sync_error?: string | null;
+        max_concurrent_replies?: number;
       };
       Relationships: [];
     };

@@ -11,6 +11,10 @@ export interface Agent {
   model_config: Record<string, unknown>;
   is_default: boolean;
   hasOpenaiKey: boolean;
+  /** Automatic OpenAI project + key per agent (see apps/api/src/openai-provisioning.ts). */
+  openaiSyncStatus: 'pending' | 'synced' | 'failed';
+  openaiSyncError?: string | null;
+  max_concurrent_replies?: number;
   created_at?: string;
   updated_at?: string;
 }

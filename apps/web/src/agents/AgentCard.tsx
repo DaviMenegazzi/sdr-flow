@@ -97,9 +97,11 @@ export function AgentCard({ agent, assignedInstances, canDuplicate, onDuplicate,
       {!agent.hasOpenaiKey && (
         <div className="relative z-10 mt-3 flex items-center gap-2 rounded-lg border border-warning/25 bg-warning/10 px-2.5 py-1.5 text-2xs text-content">
           <AlertTriangle size={13} className="flex-shrink-0 text-warning" />
-          <span className="min-w-0 flex-1">Sem chave da OpenAI — o agente não responde</span>
+          <span className="min-w-0 flex-1">
+            {agent.openaiSyncStatus === 'failed' ? 'Falha na sincronização com a OpenAI' : 'Sincronização com a OpenAI pendente'} — o agente não responde
+          </span>
           <Link to={`${href}?section=key`} className="flex-shrink-0 font-semibold text-content underline-offset-2 hover:underline">
-            Adicionar
+            Ver
           </Link>
         </div>
       )}

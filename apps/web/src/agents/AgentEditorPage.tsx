@@ -15,6 +15,7 @@ import {
   KeyRound,
   Lightbulb,
   MoreHorizontal,
+  RefreshCw,
   Smartphone,
   UserCheck,
   Wrench,
@@ -34,6 +35,7 @@ import {
   toast,
 } from '../components/ui';
 import { formatPhone } from '../lib/format';
+import { useSession } from '../session';
 import { formFromAgent, useAgentsApi } from './api';
 import { PromptEditor } from './PromptEditor';
 import {
@@ -55,7 +57,7 @@ const SECTIONS: Array<{ id: Section; label: string; icon: React.ReactNode; exist
   { id: 'model', label: 'Modelo', icon: <Cpu size={15} /> },
   { id: 'tools', label: 'Ferramentas', icon: <Wrench size={15} /> },
   { id: 'instances', label: 'Números', icon: <Smartphone size={15} />, existingOnly: true },
-  { id: 'key', label: 'Chave da OpenAI', icon: <KeyRound size={15} />, existingOnly: true },
+  { id: 'key', label: 'Conexão OpenAI', icon: <KeyRound size={15} />, existingOnly: true },
 ];
 
 const DEFAULT_PROMPT =
@@ -271,9 +273,13 @@ export function AgentEditorPage() {
       {!loading && agent && !agent.hasOpenaiKey && section !== 'key' && (
         <div className="mb-5 flex items-center gap-2 rounded-lg border border-warning/25 bg-warning/10 px-3 py-2 text-xs text-content">
           <AlertTriangle size={15} className="flex-shrink-0 text-warning" />
-          <span className="flex-1">Este agente não tem chave da OpenAI e não responde mensagens.</span>
+          <span className="flex-1">
+            {agent.openaiSyncStatus === 'failed'
+              ? 'A sincronização com a OpenAI falhou e o agente não responde mensagens.'
+              : 'A conexão com a OpenAI está sendo sincronizada. O agente responde assim que ela concluir.'}
+          </span>
           <button type="button" onClick={() => goTo('key')} className="min-h-0 border-0 bg-transparent p-0 text-xs font-semibold text-content hover:underline">
-            Adicionar chave
+            Ver conexão
           </button>
         </div>
       )}
@@ -331,7 +337,7 @@ export function AgentEditorPage() {
                   />
                   {isNew && (
                     <p className="m-0 text-2xs text-content-muted">
-                      Depois de criar, você adiciona a chave da OpenAI e escolhe quais números o agente atende.
+                      Ao criar, a conexão com a OpenAI é sincronizada automaticamente. Depois você escolhe quais números o agente atende.
                     </p>
                   )}
                 </Panel>
@@ -409,14 +415,7 @@ export function AgentEditorPage() {
               )}
 
               {section === 'key' && agent && (
-                <KeySection
-                  agent={agent}
-                  onSave={async key => {
-                    await api.saveKey(agent.id, key);
-                    toast.success('Chave salva', { description: 'Ela fica criptografada e não é exibida de novo.' });
-                    await load(false);
-                  }}
-                />
+                <KeySection agent={agent} onChanged={() => load(false)} />
               )}
             </>
           )}
@@ -630,40 +629,127 @@ function InstancesSection({
   );
 }
 
-function KeySection({ agent, onSave }: { agent: Agent; onSave: (key: string) => Promise<void> }) {
+function KeySection({ agent, onChanged }: { agent: Agent; onChanged: () => Promise<void> }) {
+  const api = useAgentsApi();
+  const { profile } = useSession();
+  const isPlatformAdmin = profile?.role === 'admin';
+  const [retrying, setRetrying] = useState(false);
+
+  // While OpenAI is provisioning the key, keep the status fresh.
+  useEffect(() => {
+    if (agent.hasOpenaiKey || agent.openaiSyncStatus !== 'pending') return;
+    const timer = setInterval(() => void onChanged(), 4000);
+    return () => clearInterval(timer);
+  }, [agent.hasOpenaiKey, agent.openaiSyncStatus]);
+
+  return (
+    <Panel title="Conexão OpenAI" description="Cada agente tem o próprio projeto e a própria chave na OpenAI, guardada criptografada e isolada por organização.">
+      {agent.hasOpenaiKey ? (
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-elevated px-3 py-2.5 text-xs text-content">
+          <Check size={14} className="flex-shrink-0 text-brand-fg" />
+          <span>A conexão foi sincronizada automaticamente com os serviços da OpenAI.</span>
+        </div>
+      ) : agent.openaiSyncStatus === 'failed' ? (
+        <div className="flex flex-col gap-2 rounded-lg border border-warning/25 bg-warning/10 px-3 py-2.5 text-xs text-content sm:flex-row sm:items-center">
+          <AlertTriangle size={14} className="flex-shrink-0 text-warning" />
+          <span className="flex-1">Não foi possível sincronizar com a OpenAI. O agente não responde até a conexão ser concluída.</span>
+          <Button
+            size="sm"
+            variant="outline"
+            loading={retrying}
+            onClick={async () => {
+              setRetrying(true);
+              try {
+                await api.syncOpenAI(agent.id);
+                toast.success('Conexão com a OpenAI sincronizada');
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : 'Falha ao sincronizar.');
+              } finally {
+                setRetrying(false);
+                await onChanged();
+              }
+            }}
+          >
+            Tentar de novo
+          </Button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-elevated px-3 py-2.5 text-xs text-content">
+          <RefreshCw size={14} className="flex-shrink-0 animate-spin text-content-muted" />
+          <span>Sincronizando com os serviços da OpenAI… O agente começa a responder assim que a conexão for concluída.</span>
+        </div>
+      )}
+      {isPlatformAdmin && <AdminOpenAIPanel agent={agent} onChanged={onChanged} />}
+    </Panel>
+  );
+}
+
+/** Platform admins only: pin a key taken from the OpenAI platform and cap simultaneous replies. */
+function AdminOpenAIPanel({ agent, onChanged }: { agent: Agent; onChanged: () => Promise<void> }) {
+  const api = useAgentsApi();
+  const [source, setSource] = useState<'platform' | 'own' | null>(null);
   const [key, setKey] = useState('');
   const [show, setShow] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [limit, setLimit] = useState(String(agent.max_concurrent_replies ?? 3));
+  const [savingLimit, setSavingLimit] = useState(false);
+
+  useEffect(() => {
+    void api.keySource(agent.id).then(setSource);
+  }, [api, agent.id, agent.hasOpenaiKey]);
+  useEffect(() => setLimit(String(agent.max_concurrent_replies ?? 3)), [agent.max_concurrent_replies]);
+
+  const limitValue = Number(limit);
+  const limitValid = Number.isInteger(limitValue) && limitValue >= 1 && limitValue <= 50;
 
   return (
-    <Panel
-      title="Chave da OpenAI"
-      description="Cada agente usa a própria chave, guardada criptografada e isolada por organização. O custo das respostas vai para essa conta."
-    >
-      <div className="flex items-center gap-2 text-xs">
-        {agent.hasOpenaiKey ? (
-          <>
-            <Check size={14} className="text-brand-fg" />
-            <span className="text-content">Chave configurada. Digite uma nova só se quiser substituí-la.</span>
-          </>
-        ) : (
-          <>
-            <AlertTriangle size={14} className="text-warning" />
-            <span className="text-content">Sem chave — o agente não responde até você adicionar uma.</span>
-          </>
-        )}
-      </div>
+    <div className="space-y-4 rounded-lg border border-dashed border-border p-3">
+      <p className="m-0 text-2xs font-semibold uppercase tracking-wide text-content-muted">Administração da plataforma</p>
+      {agent.openaiSyncError && <p className="m-0 break-words font-mono text-2xs text-warning">{agent.openaiSyncError}</p>}
+
       <form
-        className="flex flex-col gap-2 sm:flex-row sm:items-start"
+        className="space-y-2"
+        onSubmit={async event => {
+          event.preventDefault();
+          if (!limitValid) return;
+          setSavingLimit(true);
+          try {
+            await api.setConcurrency(agent.id, limitValue);
+            toast.success('Limite salvo', { description: `Até ${limitValue} conversa(s) respondida(s) ao mesmo tempo.` });
+            await onChanged();
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : 'Erro ao salvar o limite.');
+          } finally {
+            setSavingLimit(false);
+          }
+        }}
+      >
+        <p className="m-0 text-xs text-content">Respostas simultâneas</p>
+        <p className="m-0 text-2xs text-content-muted">
+          Quantas conversas este agente responde ao mesmo tempo. As mensagens além do limite esperam na fila e são respondidas quando uma vaga libera.
+        </p>
+        <div className="flex gap-2">
+          <Input aria-label="Respostas simultâneas" type="number" min={1} max={50} value={limit} onChange={e => setLimit(e.target.value)} className="w-24" />
+          <Button type="submit" variant="outline" loading={savingLimit} disabled={!limitValid || limitValue === agent.max_concurrent_replies}>
+            Salvar limite
+          </Button>
+        </div>
+      </form>
+
+      <form
+        className="space-y-2"
         onSubmit={async event => {
           event.preventDefault();
           if (!key.trim()) return;
           setSaving(true);
           setError('');
           try {
-            await onSave(key.trim());
+            await api.saveKey(agent.id, key.trim());
             setKey('');
+            toast.success('Chave própria salva', { description: 'Ela fica criptografada e não é exibida de novo.' });
+            await onChanged();
+            setSource('own');
           } catch (err) {
             setError(err instanceof Error ? err.message : 'Erro ao salvar a chave.');
           } finally {
@@ -671,32 +757,38 @@ function KeySection({ agent, onSave }: { agent: Agent; onSave: (key: string) => 
           }
         }}
       >
-        <div className="flex-1">
-          <Input
-            aria-label="Chave da OpenAI"
-            type={show ? 'text' : 'password'}
-            autoComplete="off"
-            value={key}
-            onChange={e => setKey(e.target.value)}
-            placeholder={agent.hasOpenaiKey ? 'sk-… (nova chave)' : 'sk-…'}
-            error={error || undefined}
-            className="font-mono"
-            rightIcon={
-              <button
-                type="button"
-                aria-label={show ? 'Ocultar chave' : 'Mostrar chave'}
-                onClick={() => setShow(s => !s)}
-                className="flex min-h-0 items-center border-0 bg-transparent p-0 text-content-muted hover:text-content"
-              >
-                {show ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            }
-          />
+        <p className="m-0 text-xs text-content">
+          Chave própria {source === 'own' ? '(em uso)' : source === 'platform' ? '(hoje: chave automática da plataforma)' : ''}
+        </p>
+        <p className="m-0 text-2xs text-content-muted">Substitui a chave automática; o projeto criado pela plataforma é arquivado na OpenAI.</p>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+          <div className="flex-1">
+            <Input
+              aria-label="Chave própria da OpenAI"
+              type={show ? 'text' : 'password'}
+              autoComplete="off"
+              value={key}
+              onChange={e => setKey(e.target.value)}
+              placeholder="sk-…"
+              error={error || undefined}
+              className="font-mono"
+              rightIcon={
+                <button
+                  type="button"
+                  aria-label={show ? 'Ocultar chave' : 'Mostrar chave'}
+                  onClick={() => setShow(s => !s)}
+                  className="flex min-h-0 items-center border-0 bg-transparent p-0 text-content-muted hover:text-content"
+                >
+                  {show ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              }
+            />
+          </div>
+          <Button type="submit" variant="outline" loading={saving} disabled={!key.trim()}>
+            Salvar chave própria
+          </Button>
         </div>
-        <Button type="submit" variant={agent.hasOpenaiKey ? 'outline' : 'primary'} loading={saving} disabled={!key.trim()}>
-          {agent.hasOpenaiKey ? 'Substituir chave' : 'Salvar chave'}
-        </Button>
       </form>
-    </Panel>
+    </div>
   );
 }
