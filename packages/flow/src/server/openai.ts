@@ -20,7 +20,7 @@ const standardLeadFields = {
 
 // commercialMemory carries whatever earlier turns (possibly of other flows) saved, with dates
 // the model cannot place without knowing today's date.
-const STALE_MEMORY_RULE = 'commercialMemory e o histórico podem conter fatos antigos. Compare qualquer data com currentDateTime: o que já passou é passado e não deve ser tratado como compromisso futuro. Não mencione por iniciativa própria informações da memória que o lead não trouxe nesta conversa (agendamentos, exames, consultas), a menos que sejam necessárias para responder.';
+const STALE_MEMORY_RULE = 'commercialMemory e o histórico podem conter fatos antigos. Compare qualquer data com currentDateTime: o que já passou é passado e não deve ser tratado como compromisso futuro. Não mencione por iniciativa própria informações da memória que o lead não trouxe nesta conversa (agendamentos, exames, consultas), a menos que sejam necessárias para responder. Se o lead apenas cumprimentou, não presuma o motivo do contato a partir da memória: cumprimente e pergunte como pode ajudar.';
 
 function currentDateTime(): string {
   return new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
