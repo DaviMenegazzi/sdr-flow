@@ -320,6 +320,22 @@ describe('Conversation 15-Minute Session Timeout & Context Window', () => {
       expect(turnCtx.lastAssistantQuestion).toBe('');
       expect(turnCtx.recentAssistantMessages).toEqual([]);
     });
+
+    it('getConversationTurnContext joins every lead message sent since the last reply', () => {
+      const messages = [
+        { id: '1', text: 'oi', fromMe: false, sender: 'lead' as const },
+        { id: '2', text: 'Oi! Como posso ajudar?', fromMe: true, sender: 'ai' as const },
+        { id: '3', text: 'queria saber', fromMe: false, sender: 'lead' as const },
+        { id: '4', text: 'sobre implante', fromMe: false, sender: 'lead' as const },
+        { id: '5', text: 'quanto custa?', fromMe: false, sender: 'lead' as const },
+      ];
+
+      const turnCtx = MemoryService.getConversationTurnContext(messages);
+
+      expect(turnCtx.latestLeadMessage).toBe('queria saber\nsobre implante\nquanto custa?');
+      expect(turnCtx.latestLeadMessagesCount).toBe(3);
+      expect(turnCtx.lastAssistantMessage).toBe('Oi! Como posso ajudar?');
+    });
   });
 
   describe('context.memory executor with prior session messages', () => {

@@ -332,6 +332,7 @@ export const executors: Record<NodeType, NodeExecutor> = {
         recentMessages,
         conversationContext,
         latestLeadMessage: conversationContext.latestLeadMessage,
+        latestLeadMessagesCount: conversationContext.latestLeadMessagesCount,
         lastAssistantMessage: conversationContext.lastAssistantMessage,
         lastAssistantQuestion: conversationContext.lastAssistantQuestion,
         recentAssistantMessages: conversationContext.recentAssistantMessages,

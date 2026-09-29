@@ -22,7 +22,9 @@ export interface LeadExtractedData {
 }
 
 export interface ConversationTurnContext {
+  /** Every lead message sent since the last reply (AI or human), joined by newlines. */
   latestLeadMessage: string;
+  latestLeadMessagesCount: number;
   lastAssistantMessage: string;
   lastAssistantQuestion: string;
   recentAssistantMessages: string[];
@@ -183,8 +185,22 @@ export class MemoryService {
     ));
     const latestAssistant = assistantMessages.at(-1)?.text.trim() || '';
     const questions = latestAssistant.match(/[^.!?\n]*\?/g) || [];
+    // Leads split one thought across several WhatsApp messages; the buffered turn answers all of
+    // them, so the "current message" is the whole trailing run of lead messages, not just the last.
+    let lastReplyIndex = messages.length - 1;
+    while (lastReplyIndex >= 0) {
+      const message = messages[lastReplyIndex]!;
+      if (message.fromMe || message.sender === 'human' || message.sender === 'ai') break;
+      lastReplyIndex -= 1;
+    }
+    const pendingLeadMessages = messages
+      .slice(lastReplyIndex + 1)
+      .filter(message => message.sender !== 'system')
+      .map(message => message.text.trim())
+      .filter(Boolean);
     return {
-      latestLeadMessage: leadMessages.at(-1)?.text.trim() || '',
+      latestLeadMessage: pendingLeadMessages.join('\n') || leadMessages.at(-1)?.text.trim() || '',
+      latestLeadMessagesCount: pendingLeadMessages.length,
       lastAssistantMessage: latestAssistant,
       lastAssistantQuestion: questions.at(-1)?.trim() || '',
       recentAssistantMessages: assistantMessages.slice(-5).map(message => message.text.trim()).filter(Boolean),
