@@ -31,6 +31,13 @@ describe('OpenAI structured runtime', () => {
     expect(body.instructions).toContain('reabriu depois de um longo período sem contato');
     expect(JSON.parse(body.input)).toMatchObject({ resumedAfterGapMinutes: 4320 });
   });
+  it('sends today\'s date so past-dated memory is not treated as upcoming', async () => {
+    const http = vi.fn<typeof fetch>().mockResolvedValue(output(decision));
+    await new OpenAIProvider({ apiKey: 'test-key', fetch: http }).decide(req);
+    const body = JSON.parse(http.mock.calls[0]![1]!.body as string);
+    expect(JSON.parse(body.input).currentDateTime).toMatch(/\d{2}\/\d{2}\/\d{4}/);
+    expect(body.instructions).toContain('Compare qualquer data com currentDateTime');
+  });
   it('leaves out the gap warning for a normal, still-fresh session', async () => {
     const http = vi.fn<typeof fetch>().mockResolvedValue(output(decision));
     await new OpenAIProvider({ apiKey: 'test-key', fetch: http }).decide(req);

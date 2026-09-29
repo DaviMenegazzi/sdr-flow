@@ -463,7 +463,7 @@ export const executors: Record<NodeType, NodeExecutor> = {
 
   // --- AGENT ---
   'agent.decide': async (ctx, config, services) => {
-    const latestMsg = ctx.messages[ctx.messages.length - 1]?.text || '';
+    const latestMsg = String(ctx.variables.latestLeadMessage || '') || ctx.messages[ctx.messages.length - 1]?.text || '';
     const interpolatedPrompt = interpolate(config.prompt, ctx);
     const knowledgeSnippets = (ctx.variables.knowledgeSnippets as string[]) || [];
 

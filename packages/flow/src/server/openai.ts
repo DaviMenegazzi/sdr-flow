@@ -15,8 +15,16 @@ const standardLeadFields = {
   interest: nullableText,
   urgency: nullableText,
   objections: nullableText,
-  notes: nullableText,
+  notes: nullableText.describe('Resumo curto e durável do interesse comercial do lead neste atendimento. Não registre agenda, compromissos datados, exames ou consultas marcadas; null quando não houver nada novo.'),
 };
+
+// commercialMemory carries whatever earlier turns (possibly of other flows) saved, with dates
+// the model cannot place without knowing today's date.
+const STALE_MEMORY_RULE = 'commercialMemory e o histórico podem conter fatos antigos. Compare qualquer data com currentDateTime: o que já passou é passado e não deve ser tratado como compromisso futuro. Não mencione por iniciativa própria informações da memória que o lead não trouxe nesta conversa (agendamentos, exames, consultas), a menos que sejam necessárias para responder.';
+
+function currentDateTime(): string {
+  return new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
 
 function schemaForExtractField(field: ExtractFieldDefinition): z.ZodType {
   let schema: z.ZodType;
@@ -66,10 +74,11 @@ export class OpenAIProvider implements LLMProvider {
         headers: { Authorization: `Bearer ${this.config.apiKey.trim()}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, store: false,
           instructions: [req.system, req.prompt, 'Use somente o contexto fornecido. Campos desconhecidos devem ser null. Não invente dados.',
+            STALE_MEMORY_RULE,
             req.resumedAfterLongGap
-              ? 'Esta conversa reabriu depois de um longo período sem contato com o lead. Não trate commercialMemory como algo reconfirmado agora: cumprimente o lead e confirme brevemente o interesse ou pedido já registrado antes de avançar para uma nova etapa (pedir um dado pendente, agendar, etc.), a menos que a mensagem atual do lead já retome o assunto explicitamente.'
+              ? 'Esta conversa reabriu depois de um longo período sem contato com o lead. Não trate commercialMemory como algo reconfirmado agora: cumprimente o lead e, se ainda fizer sentido, confirme brevemente o interesse comercial registrado antes de avançar para uma nova etapa (pedir um dado pendente, agendar, etc.), a menos que a mensagem atual do lead já retome o assunto explicitamente. Nunca retome compromissos com data já passada.'
               : null].filter(Boolean).join('\n\n'),
-          input: JSON.stringify({ commercialMemory: req.commercialMemory, recentMessages: req.recentMessages,
+          input: JSON.stringify({ currentDateTime: currentDateTime(), commercialMemory: req.commercialMemory, recentMessages: req.recentMessages,
             latestUserMessage: req.latestUserMessage, knowledgeSnippets: req.knowledgeSnippets, summary: req.summary,
             resumedAfterGapMinutes: req.resumedAfterGapMinutes ?? null }),
           text: { format: { type: 'json_schema', name, strict: true, schema: z.toJSONSchema(schema) } },
